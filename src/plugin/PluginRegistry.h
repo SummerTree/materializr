@@ -33,7 +33,11 @@ public:
 
     void activateTool(std::unique_ptr<InteractiveTool> tool, PluginContext& ctx);
     InteractiveTool* activeTool();
-    void deactivateTool(PluginContext& ctx);
+    void deactivateTool(PluginContext& ctx); // cancels the tool, then clears it
+    // Clears the active tool WITHOUT calling cancel(). Used when a tool reports it
+    // has finished (update() returned false): it already ran its own commit() or
+    // cancel(), so cancelling again here would undo a just-committed operation.
+    void finishActiveTool();
 
 private:
     PluginRegistry() = default;

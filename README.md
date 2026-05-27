@@ -47,13 +47,16 @@ Requires Docker with BuildKit enabled.
 - **Chamfer** — interactive distance input with live preview
 - **Shell** — hollow a solid with uniform wall thickness
 - **Offset Face** — push or pull individual faces
-- **Split Body** — divide a body with a cutting plane
+- **Split X / Y / Z** — divide the selected body with a plane through its
+  bounding-box centre, perpendicular to the chosen axis
 - **Boolean** — Union, Subtract, Intersect (Ctrl+click two bodies); unions
   are post-processed with `ShapeUpgrade_UnifySameDomain` so smooth merges
   don't leave a seam edge between the original bodies
 - **Move** — via the 3D translate gizmo with optional grid snap
 - **Rotate / Scale** — via the 3-axis gizmo
-- **Mirror** — reflect across XY, XZ, YZ, or custom plane
+- **Mirror X / Y / Z** — reflect the body across its own bounding plane on the
+  chosen axis (the copy lands flush beside it); **Mirror across Face** reflects
+  across a selected planar face
 - **Linear Pattern** — repeat along a direction
 - **Radial Pattern** — repeat around an axis
 - **Copy / Duplicate** — clone selected bodies
@@ -64,30 +67,41 @@ Requires Docker with BuildKit enabled.
 ### 2D Sketching
 
 - **Tools**: Line, Circle, Rectangle, Arc, Spline, Polygon, Text
+- **Sketch from scratch on a base plane** — with nothing selected, **Sketch on
+  XY / XZ / YZ** starts a sketch on that base plane with the matching standard
+  view (Top / Front / Right); no body required
 - **Sketch on any planar face** — toolbar button when a face is selected
   or right-click → *Sketch on this Face*; the sketch's plane is taken
   directly from the face
 - **Persistent sketches** — finishing a sketch saves it into the document's
-  Items panel; it doesn't auto-extrude. Select it later to **Edit Sketch**
-  (continue drawing) or **Push/Pull** an enclosed region
-- **Region detection** — closed loops are split into planar regions
-  (concentric circles → ring + inner disk, chord through a circle → arc-bounded
-  region, etc.) so a sketch made off a curved edge can still be manifold
+  Items panel; it doesn't auto-extrude. Select it (or a region of it) later to
+  **Edit Sketch** (continue drawing) or **Push/Pull** an enclosed region
+- **General region detection** — the sketch's geometry is partitioned into
+  atomic planar regions using the boolean engine, so *intersecting and
+  overlapping shapes* (the lens between two circles, an annulus, the cells
+  on either side of an open dividing line) each become individually
+  selectable — not just simple closed loops
 - **Region hover & multi-select** — hover a region in the viewport to
   highlight it; click to select, Ctrl+click to add more regions to a
-  push/pull operation
+  push/pull operation. A wider catch area around the boundary lines makes
+  thin regions easy to grab
 - **Manifold extrusion** — outer wire + inner wires get assembled into a
   single planar face with holes (e.g. a sketched ring extrudes into a tube)
 - **Inline dimension input** — while placing a Line / Circle / Polygon /
   Rectangle, type the length, radius, or side directly; the value is
   applied from the click anchor toward the cursor direction
+- **Live dimension overlay** — a measuring annotation (offset dimension line
+  with arrowheads + value) follows the operation as you work: line length,
+  circle **diameter**, both rectangle sides while sketching; depth while
+  extruding; distance while moving a body with the gizmo
 - **Snap** — to existing sketch points, to circle/arc perimeters, and
   threshold-based to grid lines (snaps only when close)
 - **Adjustable grid step** — pick 0.1, 0.5, 1, or 10 mm; the same step
-  drives the visual grid, sketch snap, and gizmo translate snap
-- **Face-local measurement grid** — when sketching on a face, an extra
-  grid is drawn in the sketch's own 2D axes (not world XY) above the
-  face so distances read in face-local mm
+  drives the visual grid, sketch snap, and gizmo translate snap. Every 10th
+  grid line is drawn brighter so larger distances are easy to read
+- **Plane-aligned grid** — a base-plane sketch shows the world grid laid on
+  the sketch plane (and visible in the orthographic sketch view); a sketch on
+  a face shows a face-local measurement grid in the sketch's own 2D axes
 - **Concentric / shared anchors** — clicking on an existing point in
   Circle / Polygon / Arc mode reuses that point so concentric shapes
   actually share a center vertex
@@ -119,6 +133,9 @@ Requires Docker with BuildKit enabled.
 | Ctrl+click | Add to multi-selection (faces, regions, edges, bodies) |
 | Right-click face | Context menu (Sketch on Face, Extrude, Select Body) |
 | Click empty space | Clear selection |
+
+Selection is **occlusion-aware**: edges and sketch regions hidden behind a
+solid can't be picked through it — only what's visible is selectable.
 
 ### Interactive Tools
 
@@ -155,8 +172,12 @@ All major operations provide **live preview** as you adjust values:
   (nothing / edge / face / body / sketch / sketch region)
 - **Design History** — every operation recorded, undo/redo (Ctrl+Z / Y),
   breakpoints. Includes Push/Pull, deletes, gizmo moves, and sketch ops
-- **Items panel** — bodies *and* sketches with visibility, rename, delete.
-  Delete from the panel is undoable.
+- **Items panel** — bodies *and* sketches with visibility, rename (double-click
+  or right-click), and delete (Delete key or right-click). Body deletes are
+  undoable.
+- **Interactions panel** — a live reference of the viewport controls
+  (camera / select / transform / sketch), docked above the Items panel; the
+  camera rows reflect the current mouse bindings
 - **Properties panel** — edit any operation's parameters after creation
 - **Command Palette** (Ctrl+K) — fuzzy search all commands
 - **Material panel** — assign PBR materials to bodies
@@ -172,7 +193,7 @@ All major operations provide **live preview** as you adjust values:
   `height=width*0.6`)
 - **Version snapshots** — auto-save + manual save with labels, restore
   any version
-- **Settings panel** — units, grid, defaults, mouse sensitivity
+- **Settings** (File → Settings) — reassign which mouse buttons orbit and pan
 - **Toast notifications**, **Keyboard Shortcuts panel**, **About dialog**
 
 ### File I/O
@@ -245,9 +266,10 @@ the user only needs base OpenGL/X11 drivers.
 
 ### Basic Workflow
 
-1. Select a face (or click **Start Sketch** for a free-floating sketch on XY)
-2. Click **Sketch on Face** — the camera snaps to an orthographic view
-   straight at the face
+1. With nothing selected, click **Sketch on XY / XZ / YZ** to sketch on a base
+   plane — or select a face first
+2. Click **Sketch on Face** (when a face is selected) — the camera snaps to an
+   orthographic view straight at the face
 3. Draw a closed profile (Rectangle, Circle, chain of Lines, …). Type
    exact dimensions during placement, or rely on grid snap
 4. Click **Finish Sketch** — the sketch is saved to the Items panel
@@ -301,6 +323,8 @@ the user only needs base OpenGL/X11 drivers.
 
 ### Navigation
 
+Defaults (the orbit/pan buttons are reassignable in File → Settings):
+
 | Input | Action |
 |-------|--------|
 | Middle mouse drag | Orbit (exits sketch ortho lock) |
@@ -336,8 +360,10 @@ the user only needs base OpenGL/X11 drivers.
 ```
 src/
 ├── app/          # Application lifecycle, main loop, input handling
-├── core/         # Document, History, Operation, Selection, Variables, Material
+├── core/         # Document, History, Operation, Selection, EventBus, Material
 ├── modeling/     # CAD operations (Extrude, PushPull, Fillet, Boolean, Sketch, …)
+├── plugin/       # Plugin registry + contribution types (toolbar/command/IO/tool)
+├── plugins/      # Each operation, tool, and IO format registered as a plugin
 ├── viewport/     # 3D rendering (Camera, Grid, ShapeRenderer, Gizmo, ViewCube, Picker)
 ├── ui/           # ImGui panels (Toolbar, History, Items, CommandPalette, …)
 └── io/           # File I/O (STEP, STL, IGES, glTF, Project save/load)
@@ -345,6 +371,11 @@ shaders/          # GLSL shaders (grid, mesh, outline)
 tests/            # Google Test unit tests
 scripts/          # Build scripts (AppImage packaging)
 ```
+
+The modeling operations, interactive tools, and IO formats are contributed
+through a **plugin registry** (`src/plugin`): each feature in `src/plugins`
+registers its toolbar buttons, commands, and handlers at startup, and the
+adaptive toolbar surfaces them based on the current selection context.
 
 **Key design patterns:**
 

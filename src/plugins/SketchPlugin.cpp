@@ -234,91 +234,14 @@ private:
 
 } // anonymous namespace
 
-REGISTER_PLUGIN(Sketch, [](PluginContext& ctx) {
-    ctx.registerToolbarButton({"New Sketch", "Create",
-        SelectionContext::NoSelection, 10,
-        nullptr,
-        []() -> std::unique_ptr<InteractiveTool> {
-            return std::make_unique<SketchModeTool>();
-        }});
-
-    ctx.registerToolbarButton({"Sketch on Face", "Create",
-        SelectionContext::HasFaces, 11,
-        [](PluginContext& ctx) {
-            const auto& sel = ctx.selection().getSelection();
-            for (const auto& entry : sel) {
-                if (entry.type == SelectionType::Face && !entry.shape.IsNull()) {
-                    PluginRegistry::instance().activateTool(
-                        std::make_unique<SketchModeTool>(-1, TopoDS::Face(entry.shape)), ctx);
-                    return;
-                }
-            }
-        }, nullptr});
-
-    ctx.registerToolbarButton({"Edit Sketch", "Sketch",
-        SelectionContext::HasSketches, 12,
-        [](PluginContext& ctx) {
-            const auto& sel = ctx.selection().getSelection();
-            for (const auto& entry : sel) {
-                if (entry.type == SelectionType::Sketch && entry.sketchId >= 0) {
-                    PluginRegistry::instance().activateTool(
-                        std::make_unique<SketchModeTool>(entry.sketchId), ctx);
-                    return;
-                }
-            }
-        }, nullptr});
-
-    ctx.registerCommand({"New Sketch", "S", [](PluginContext& ctx) {
-        PluginRegistry::instance().activateTool(
-            std::make_unique<SketchModeTool>(), ctx);
-    }});
-
-    ctx.registerCommand({"Line Tool", "L", [](PluginContext& ctx) {
-        auto* tool = PluginRegistry::instance().activeTool();
-        if (auto* st = dynamic_cast<SketchModeTool*>(tool)) {
-            st->setMode(SketchToolMode::Line);
-        }
-    }});
-
-    ctx.registerCommand({"Circle Tool", "C", [](PluginContext& ctx) {
-        auto* tool = PluginRegistry::instance().activeTool();
-        if (auto* st = dynamic_cast<SketchModeTool*>(tool)) {
-            st->setMode(SketchToolMode::Circle);
-        }
-    }});
-
-    ctx.registerCommand({"Rectangle Tool", "R", [](PluginContext& ctx) {
-        auto* tool = PluginRegistry::instance().activeTool();
-        if (auto* st = dynamic_cast<SketchModeTool*>(tool)) {
-            st->setMode(SketchToolMode::Rectangle);
-        }
-    }});
-
-    ctx.registerCommand({"Arc Tool", "", [](PluginContext& ctx) {
-        auto* tool = PluginRegistry::instance().activeTool();
-        if (auto* st = dynamic_cast<SketchModeTool*>(tool)) {
-            st->setMode(SketchToolMode::Arc);
-        }
-    }});
-
-    ctx.registerCommand({"Spline Tool", "", [](PluginContext& ctx) {
-        auto* tool = PluginRegistry::instance().activeTool();
-        if (auto* st = dynamic_cast<SketchModeTool*>(tool)) {
-            st->setMode(SketchToolMode::Spline);
-        }
-    }});
-
-    ctx.registerCommand({"Polygon Tool", "", [](PluginContext& ctx) {
-        auto* tool = PluginRegistry::instance().activeTool();
-        if (auto* st = dynamic_cast<SketchModeTool*>(tool)) {
-            st->setMode(SketchToolMode::Polygon);
-        }
-    }});
-
-    ctx.registerCommand({"Trim Tool", "", [](PluginContext& ctx) {
-        auto* tool = PluginRegistry::instance().activeTool();
-        if (auto* st = dynamic_cast<SketchModeTool*>(tool)) {
-            st->setMode(SketchToolMode::Trim);
-        }
-    }});
+REGISTER_PLUGIN(Sketch, [](PluginContext& /*ctx*/) {
+    // Sketch entry and tool switching are handled entirely by the Application's
+    // own sketch path via the Toolbar's ToolActions (Sketch on XY/XZ/YZ, Sketch
+    // on Face, and the in-sketch Line/Circle/… buttons).
+    //
+    // The plugin SketchModeTool below is intentionally NOT wired to any command
+    // or button: Application never calls InteractiveTool::handleInput(), so the
+    // tool can't receive viewport input, and once activated its renderOverlay()
+    // runs outside any ImGui window — which spawned a stray "Debug" window. The
+    // class is kept only as a reference for a future input-routing migration.
 })

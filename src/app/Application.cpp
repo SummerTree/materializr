@@ -50,6 +50,7 @@ namespace materializr { namespace force_link { void linkAll(); } }
 #include <GLFW/glfw3.h>
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
+#include <gp_Ax3.hxx>
 #include <BRep_Tool.hxx>
 #include <Geom_Plane.hxx>
 #include <Bnd_Box.hxx>
@@ -168,11 +169,17 @@ Size=175,881
 Collapsed=0
 DockId=0x00000003,0
 
-[Window][Items]
+[Window][Interactions]
 Pos=1301,19
-Size=299,517
+Size=299,175
 Collapsed=0
-DockId=0x00000005,0
+DockId=0x00000007,0
+
+[Window][Items]
+Pos=1301,197
+Size=299,339
+Collapsed=0
+DockId=0x00000008,0
 
 [Window][History]
 Pos=1301,538
@@ -192,7 +199,9 @@ DockSpace       ID=0x08BD597D Window=0x1BBC0F80 Pos=0,19 Size=1600,881 Split=X
   DockNode      ID=0x00000004 Parent=0x08BD597D SizeRef=1423,900 Split=X
     DockNode    ID=0x00000001 Parent=0x00000004 SizeRef=1122,900 CentralNode=1 Selected=0xC450F867
     DockNode    ID=0x00000002 Parent=0x00000004 SizeRef=299,900 Split=Y Selected=0x933ECD57
-      DockNode  ID=0x00000005 Parent=0x00000002 SizeRef=148,528 Selected=0x933ECD57
+      DockNode  ID=0x00000005 Parent=0x00000002 SizeRef=148,528 Split=Y Selected=0x933ECD57
+        DockNode ID=0x00000007 Parent=0x00000005 SizeRef=148,175 HiddenTabBar=1
+        DockNode ID=0x00000008 Parent=0x00000005 SizeRef=148,348 Selected=0x933ECD57
       DockNode  ID=0x00000006 Parent=0x00000002 SizeRef=148,370 Selected=0x8C72BEA8
 )";
 
@@ -200,14 +209,21 @@ void Application::initImGui() {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
 
-    // Write default layout if imgui.ini doesn't exist yet
+    // Write the default layout when imgui.ini is missing, or migrate a layout
+    // saved before the Interactions panel existed (detected by its window name)
+    // so the panel actually appears docked above Items rather than not at all.
     {
-        std::FILE* f = std::fopen("imgui.ini", "r");
-        if (f) {
+        bool needDefault = true;
+        if (std::FILE* f = std::fopen("imgui.ini", "r")) {
+            std::string ini;
+            char buf[4096];
+            size_t n;
+            while ((n = std::fread(buf, 1, sizeof(buf), f)) > 0) ini.append(buf, n);
             std::fclose(f);
-        } else {
-            f = std::fopen("imgui.ini", "w");
-            if (f) {
+            if (ini.find("[Window][Interactions]") != std::string::npos) needDefault = false;
+        }
+        if (needDefault) {
+            if (std::FILE* f = std::fopen("imgui.ini", "w")) {
                 std::fputs(s_defaultLayout, f);
                 std::fclose(f);
             }
@@ -340,6 +356,13 @@ void Application::renderMenuBar() {
             }
 
             ImGui::Separator();
+            if (ImGui::MenuItem("Settings...")) {
+                // Stage the current bindings so the dialog can Cancel cleanly.
+                m_settingsOrbitButton = m_orbitButton;
+                m_settingsPanButton = m_panButton;
+                m_showSettings = true;
+            }
+            ImGui::Separator();
             if (ImGui::MenuItem("Exit", "Alt+F4")) glfwSetWindowShouldClose(m_window->handle(), true);
             ImGui::EndMenu();
         }
@@ -365,6 +388,90 @@ void Application::renderMenuBar() {
         }
         ImGui::EndMainMenuBar();
     }
+}
+
+static const char* mouseButtonName(int b) {
+    switch (b) {
+        case 0: return "Left";
+        case 1: return "Right";
+        case 2: return "Middle";
+        default: return "?";
+    }
+}
+
+void Application::renderSettings() {
+    if (!m_showSettings) return;
+    ImGui::SetNextWindowSize(ImVec2(320, 0), ImGuiCond_Appearing);
+    if (ImGui::Begin("Settings", &m_showSettings)) {
+        ImGui::SeparatorText("Mouse — Camera");
+        ImGui::TextWrapped("Choose which mouse button orbits and which pans. "
+                           "Zoom is always the scroll wheel.");
+        ImGui::Spacing();
+
+        const char* buttons[] = { "Left", "Middle", "Right" };
+        // Map button index <-> combo index (Left=0, Middle=2, Right=1 in ImGui).
+        auto toCombo = [](int b) { return b == 0 ? 0 : (b == 2 ? 1 : 2); };
+        auto fromCombo = [](int c) { return c == 0 ? 0 : (c == 1 ? 2 : 1); };
+
+        int orbitC = toCombo(m_settingsOrbitButton);
+        if (ImGui::Combo("Orbit", &orbitC, buttons, 3)) m_settingsOrbitButton = fromCombo(orbitC);
+        int panC = toCombo(m_settingsPanButton);
+        if (ImGui::Combo("Pan", &panC, buttons, 3)) m_settingsPanButton = fromCombo(panC);
+
+        if (m_settingsOrbitButton == 0 || m_settingsPanButton == 0) {
+            ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f),
+                "Note: Left is also used to select; assigning it here may conflict.");
+        }
+
+        ImGui::Spacing();
+        ImGui::Separator();
+        if (ImGui::Button("Apply", ImVec2(90, 0))) {
+            m_orbitButton = m_settingsOrbitButton;
+            m_panButton = m_settingsPanButton;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Close", ImVec2(90, 0))) {
+            m_showSettings = false;
+        }
+    }
+    ImGui::End();
+}
+
+void Application::renderInteractionsPanel() {
+    // A quick-reference of the viewport interactions, docked above Items. The
+    // camera rows reflect the live mouse bindings chosen in File > Settings.
+    ImGui::Begin("Interactions");
+    // Action label in a fixed left column, keys to its right. Keeping the action
+    // first (it's short) means a long key string extends rightward instead of
+    // overlapping the label.
+    auto row = [](const char* action, const char* keys) {
+        ImGui::TextUnformatted(action);
+        ImGui::SameLine(120.0f);
+        ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "%s", keys);
+    };
+    char orbitKeys[32], panKeys[32];
+    std::snprintf(orbitKeys, sizeof(orbitKeys), "%s-drag", mouseButtonName(m_orbitButton));
+    std::snprintf(panKeys, sizeof(panKeys), "%s-drag", mouseButtonName(m_panButton));
+    ImGui::SeparatorText("Camera");
+    row("Orbit", orbitKeys);
+    row("Pan", panKeys);
+    row("Zoom", "Scroll wheel");
+    row("Reset view", "Home");
+    ImGui::SeparatorText("Select");
+    row("Select face", "Click");
+    row("Select body", "Double-click");
+    row("Add to selection", "Ctrl+Click");
+    row("Delete selected", "Del");
+    ImGui::SeparatorText("Transform (body)");
+    row("Move / Rotate / Scale", "W / E / R");
+    ImGui::SeparatorText("Sketch");
+    row("Start", "Pick a base plane / face");
+    row("Finish / Cancel", "Enter / Esc");
+    row("Dimension", "Type value + Enter");
+    ImGui::SeparatorText("General");
+    row("Undo / Redo", "Ctrl+Z / Ctrl+Y");
+    row("Command palette", "Ctrl+K");
+    ImGui::End();
 }
 
 void Application::renderViewport() {
@@ -394,7 +501,28 @@ void Application::renderViewport() {
         glm::mat4 view = cam.getViewMatrix();
         glm::mat4 proj = cam.getProjectionMatrix();
 
-        m_grid->render(view, proj, 0.01f, 1000.0f);
+        // Grid: on a from-scratch (no-face) sketch, lay the world grid on the
+        // sketch plane so it shows face-on; otherwise use the XZ ground plane.
+        // Face-based sketches get their own face grid (drawn below) instead.
+        {
+            Grid::Plane gp; // defaults to the XZ ground
+            bool baseSketch = m_inSketchMode && m_activeSketch &&
+                              m_activeSketch->getSourceFace().IsNull();
+            if (baseSketch) {
+                const gp_Ax3& ax = m_activeSketch->getPlane().Position();
+                auto v3 = [](const gp_Dir& d){ return glm::vec3(d.X(), d.Y(), d.Z()); };
+                gp.origin = glm::vec3(ax.Location().X(), ax.Location().Y(), ax.Location().Z());
+                gp.u = v3(ax.XDirection());
+                gp.v = v3(ax.YDirection());
+                gp.normal = v3(ax.Direction());
+            }
+            // Fade radius sized to the view so the grid fills it without a hard edge.
+            float fadeDist = cam.isOrthographic()
+                ? cam.getOrthoSize() * 8.0f
+                : glm::length(cam.getPosition() - cam.getTarget()) * 8.0f;
+            m_grid->render(view, proj, cam.getTarget(), std::max(fadeDist, 10.0f),
+                           gp, std::max(m_sketchGridStep, 0.01f));
+        }
         m_planeRenderer->render(view, proj);
         m_shapeRenderer->render(view, proj, cam.getPosition());
         m_edgeRenderer->render(view, proj);
@@ -438,10 +566,12 @@ void Application::renderViewport() {
         if (m_inSketchMode && m_activeSketch) {
             // Keep the tool's snap step in sync with the user-chosen grid
             m_sketchTool->setGridStep(m_sketchGridStep);
-            // Draw face-local measurement grid first (under the sketch). Extent scales
-            // with the step so large grids stay readable and tiny grids don't overrun.
-            float extent = std::max(20.0f, m_sketchGridStep * 40.0f);
+            // Face-based sketches get a face-local measurement grid bounded to the
+            // host face. From-scratch (no-face) sketches instead use the world grid
+            // laid on the sketch plane (set up where m_grid is rendered above), so
+            // we only draw the face grid here when there is a source face.
             if (!m_activeSketch->getSourceFace().IsNull()) {
+                float extent = std::max(20.0f, m_sketchGridStep * 40.0f);
                 m_sketchRenderer->renderFaceGrid(m_activeSketch.get(),
                                                  extent,
                                                  m_sketchGridStep,
@@ -480,16 +610,137 @@ void Application::renderViewport() {
             ImVec2(1, 0)
         );
 
+        // --- Live dimension overlay: a measuring annotation (offset line with
+        // arrowheads + value) shown while drawing a sketch line/circle, extruding,
+        // or moving a body. Drawn in screen space over the viewport image. ---
+        {
+            ImVec2 imgMin = ImGui::GetItemRectMin();
+            ImVec2 imgSize = ImGui::GetItemRectSize();
+            glm::mat4 vpMat = proj * view;
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+
+            auto toImg = [&](glm::vec3 w, ImVec2& out) -> bool {
+                glm::vec4 c = vpMat * glm::vec4(w, 1.0f);
+                if (c.w <= 1e-5f) return false; // behind camera
+                out = ImVec2(imgMin.x + (c.x / c.w * 0.5f + 0.5f) * imgSize.x,
+                             imgMin.y + (1.0f - (c.y / c.w * 0.5f + 0.5f)) * imgSize.y);
+                return true;
+            };
+            auto drawDim = [&](glm::vec3 aW, glm::vec3 bW, const char* label) {
+                ImVec2 sa, sb;
+                if (!toImg(aW, sa) || !toImg(bW, sb)) return;
+                ImVec2 dir(sb.x - sa.x, sb.y - sa.y);
+                float len = std::sqrt(dir.x * dir.x + dir.y * dir.y);
+                if (len < 2.0f) return;
+                dir.x /= len; dir.y /= len;
+                ImVec2 perp(-dir.y, dir.x);
+                const float off = 26.0f, ah = 7.0f;
+                ImVec2 da(sa.x + perp.x * off, sa.y + perp.y * off);
+                ImVec2 db(sb.x + perp.x * off, sb.y + perp.y * off);
+                ImU32 col = IM_COL32(235, 235, 240, 255);
+                ImU32 ext = IM_COL32(170, 170, 180, 150);
+                dl->AddLine(sa, da, ext, 1.0f);                 // extension lines
+                dl->AddLine(sb, db, ext, 1.0f);
+                dl->AddLine(da, db, col, 1.5f);                 // dimension line
+                auto arrow = [&](ImVec2 tip, ImVec2 along) {
+                    ImVec2 base(tip.x - along.x * ah, tip.y - along.y * ah);
+                    dl->AddTriangleFilled(tip,
+                        ImVec2(base.x + perp.x * ah * 0.5f, base.y + perp.y * ah * 0.5f),
+                        ImVec2(base.x - perp.x * ah * 0.5f, base.y - perp.y * ah * 0.5f), col);
+                };
+                arrow(da, ImVec2(-dir.x, -dir.y));
+                arrow(db, dir);
+                ImVec2 ts = ImGui::CalcTextSize(label);
+                ImVec2 mid((da.x + db.x) * 0.5f + perp.x * 12.0f,
+                           (da.y + db.y) * 0.5f + perp.y * 12.0f);
+                ImVec2 tp(mid.x - ts.x * 0.5f, mid.y - ts.y * 0.5f);
+                dl->AddRectFilled(ImVec2(tp.x - 3, tp.y - 2), ImVec2(tp.x + ts.x + 3, tp.y + ts.y + 2),
+                                  IM_COL32(20, 20, 28, 205), 3.0f);
+                dl->AddText(tp, col, label);
+            };
+
+            char dbuf[40];
+            if (m_extruding) {
+                std::snprintf(dbuf, sizeof(dbuf), "%.1f mm", std::abs(m_extrudeDistance));
+                drawDim(m_extrudeOrigin,
+                        m_extrudeOrigin + m_extrudeNormal * m_extrudeDistance, dbuf);
+            } else if (m_gizmoDragging && glm::length(m_gizmoTotalDelta) > 1e-3f) {
+                // Translate drag: original body centre -> current centre.
+                try {
+                    Bnd_Box ob, cb;
+                    BRepBndLib::Add(m_gizmoDragOriginalShape, ob);
+                    BRepBndLib::Add(m_document->getBody(m_gizmoDragBodyId), cb);
+                    if (!ob.IsVoid() && !cb.IsVoid()) {
+                        double ox1, oy1, oz1, ox2, oy2, oz2, cx1, cy1, cz1, cx2, cy2, cz2;
+                        ob.Get(ox1, oy1, oz1, ox2, oy2, oz2);
+                        cb.Get(cx1, cy1, cz1, cx2, cy2, cz2);
+                        glm::vec3 oc((ox1 + ox2) * 0.5, (oy1 + oy2) * 0.5, (oz1 + oz2) * 0.5);
+                        glm::vec3 cc((cx1 + cx2) * 0.5, (cy1 + cy2) * 0.5, (cz1 + cz2) * 0.5);
+                        float dist = glm::length(cc - oc);
+                        if (dist > 1e-3f) {
+                            std::snprintf(dbuf, sizeof(dbuf), "%.1f mm", dist);
+                            drawDim(oc, cc, dbuf);
+                        }
+                    }
+                } catch (...) {}
+            }
+
+            // Sketch preview dimensions: line length, circle diameter (across the
+            // full width — makers dimension by diameter), rectangle both sides.
+            if (m_inSketchMode && m_activeSketch && m_sketchTool && m_sketchTool->hasPreview()) {
+                const gp_Ax3& ax = m_activeSketch->getPlane().Position();
+                glm::vec3 O(ax.Location().X(), ax.Location().Y(), ax.Location().Z());
+                glm::vec3 X(ax.XDirection().X(), ax.XDirection().Y(), ax.XDirection().Z());
+                glm::vec3 Y(ax.YDirection().X(), ax.YDirection().Y(), ax.YDirection().Z());
+                auto sketch2world = [&](glm::vec2 p) { return O + p.x * X + p.y * Y; };
+
+                SketchToolMode pm = m_sketchTool->getPreviewType();
+                glm::vec2 ps = m_sketchTool->getPreviewStart();
+                glm::vec2 pe = m_sketchTool->getPreviewEnd();
+
+                if (pm == SketchToolMode::Line) {
+                    float length = glm::length(pe - ps);
+                    if (length > 1e-3f) {
+                        std::snprintf(dbuf, sizeof(dbuf), "%.1f mm", length);
+                        drawDim(sketch2world(ps), sketch2world(pe), dbuf);
+                    }
+                } else if (pm == SketchToolMode::Circle) {
+                    // ps = centre, pe = a point on the rim. Span the full diameter.
+                    glm::vec2 rvec = pe - ps;
+                    float dia = 2.0f * glm::length(rvec);
+                    if (dia > 1e-3f) {
+                        std::snprintf(dbuf, sizeof(dbuf), "%.1f mm dia", dia);
+                        drawDim(sketch2world(ps - rvec), sketch2world(pe), dbuf);
+                    }
+                } else if (pm == SketchToolMode::Rectangle) {
+                    // ps, pe = opposite corners. Dimension the bottom and right sides.
+                    glm::vec2 bl(ps.x, ps.y), br(pe.x, ps.y), tr(pe.x, pe.y);
+                    float w = std::abs(pe.x - ps.x), h = std::abs(pe.y - ps.y);
+                    if (w > 1e-3f) {
+                        std::snprintf(dbuf, sizeof(dbuf), "%.1f mm", w);
+                        drawDim(sketch2world(bl), sketch2world(br), dbuf);
+                    }
+                    if (h > 1e-3f) {
+                        std::snprintf(dbuf, sizeof(dbuf), "%.1f mm", h);
+                        drawDim(sketch2world(br), sketch2world(tr), dbuf);
+                    }
+                }
+            }
+        }
+
         if (ImGui::IsItemHovered()) {
             ImGuiIO& io = ImGui::GetIO();
             if (io.MouseWheel != 0.0f) cam.zoom(io.MouseWheel);
-            if (ImGui::IsMouseDragging(ImGuiMouseButton_Middle)) {
+            // Camera drag uses the configurable bindings (File > Settings). The
+            // orbit button pans instead when Shift is held; a distinct pan button
+            // always pans.
+            if (ImGui::IsMouseDragging(m_orbitButton)) {
                 ImVec2 delta = io.MouseDelta;
                 if (io.KeyShift) cam.pan(delta.x, delta.y);
                 else cam.orbit(delta.x, delta.y);
             }
-            if (ImGui::IsMouseDragging(ImGuiMouseButton_Right)) {
-                cam.pan(ImGui::GetIO().MouseDelta.x, ImGui::GetIO().MouseDelta.y);
+            if (m_panButton != m_orbitButton && ImGui::IsMouseDragging(m_panButton)) {
+                cam.pan(io.MouseDelta.x, io.MouseDelta.y);
             }
 
             // Interactive extrude drag: left-drag moves distance along normal
@@ -660,6 +911,19 @@ void Application::renderViewport() {
                     // Sketch-region hover (takes priority over body picking when present)
                     SketchRegionHit regionHit = pickSketchRegion(localX, localY,
                         contentSize.x, contentSize.y);
+                    // Reject a sketch region that sits behind a body under the cursor —
+                    // only what's visible should be selectable. Compare hit distances
+                    // from the camera (origin-independent) and drop the region if the
+                    // body face is nearer.
+                    if (regionHit.regionIndex >= 0 && result.hit) {
+                        glm::vec3 camPos = cam.getPosition();
+                        float bodyD = glm::length(result.hitPoint - camPos);
+                        float sketchD = glm::length(regionHit.worldPoint - camPos);
+                        if (bodyD < sketchD - 1e-3f) {
+                            regionHit.sketchId = -1;
+                            regionHit.regionIndex = -1;
+                        }
+                    }
                     m_hoveredSketchId = regionHit.sketchId;
                     m_hoveredRegionIndex = regionHit.regionIndex;
 
@@ -1041,6 +1305,16 @@ void Application::handleToolAction(int action) {
     ToolAction a = static_cast<ToolAction>(action);
     switch (a) {
         case ToolAction::StartSketch: enterSketchMode(); break;
+        // Each plane is built so that alignCameraToActiveSketch (camera at +normal,
+        // up = plane YDirection) reproduces the matching ViewCube view exactly, in
+        // this Y-up world: XY = Top, XZ = Front, YZ = Right. gp_Ax3(origin, normal,
+        // xDir); YDirection (the camera up) = normal × xDir.
+        case ToolAction::StartSketchXY: // Top: camera +Y, up -Z
+            enterSketchOnPlane(gp_Pln(gp_Ax3(gp_Pnt(0, 0, 0), gp_Dir(0, 1, 0), gp_Dir(1, 0, 0)))); break;
+        case ToolAction::StartSketchXZ: // Front: camera +Z, up +Y
+            enterSketchOnPlane(gp_Pln(gp_Ax3(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1), gp_Dir(1, 0, 0)))); break;
+        case ToolAction::StartSketchYZ: // Right: camera +X, up +Y
+            enterSketchOnPlane(gp_Pln(gp_Ax3(gp_Pnt(0, 0, 0), gp_Dir(1, 0, 0), gp_Dir(0, 0, -1)))); break;
         case ToolAction::SketchOnFace: {
             const auto& sel = m_selection->getSelection();
             for (const auto& entry : sel) {
@@ -1061,8 +1335,11 @@ void Application::handleToolAction(int action) {
         }
         case ToolAction::EditSketch: {
             const auto& sel = m_selection->getSelection();
+            // Accept a selected whole sketch OR a selected sketch region (edit the
+            // region's parent sketch) so "Edit Sketch" works from the region tools.
             for (const auto& entry : sel) {
-                if (entry.type == SelectionType::Sketch && entry.sketchId >= 0) {
+                if ((entry.type == SelectionType::Sketch ||
+                     entry.type == SelectionType::SketchRegion) && entry.sketchId >= 0) {
                     editSketch(entry.sketchId);
                     break;
                 }
@@ -1235,8 +1512,17 @@ void Application::handleShortcuts() {
     if (ImGui::IsKeyPressed(ImGuiKey_Delete) && m_selection->hasSelection()) {
         const auto& sel = m_selection->getSelection();
         std::vector<int> bodiesToDelete;
+        std::vector<int> sketchesToDelete;
         for (const auto& entry : sel) {
-            if (entry.bodyId >= 0) {
+            // A selected sketch (or sketch region) deletes the whole sketch; a
+            // body/face/edge selection deletes its body.
+            if (entry.type == SelectionType::Sketch || entry.type == SelectionType::SketchRegion) {
+                if (entry.sketchId >= 0) {
+                    bool already = false;
+                    for (int s : sketchesToDelete) { if (s == entry.sketchId) { already = true; break; } }
+                    if (!already) sketchesToDelete.push_back(entry.sketchId);
+                }
+            } else if (entry.bodyId >= 0) {
                 bool already = false;
                 for (int b : bodiesToDelete) { if (b == entry.bodyId) { already = true; break; } }
                 if (!already) bodiesToDelete.push_back(entry.bodyId);
@@ -1246,6 +1532,10 @@ void Application::handleShortcuts() {
             auto op = std::make_unique<DeleteOp>();
             op->setBodyId(bodyId);
             m_history->pushOperation(std::move(op), *m_document);
+        }
+        for (int sketchId : sketchesToDelete) {
+            m_document->removeSketch(sketchId);
+            markDirty();
         }
         m_selection->clear();
         m_hoveredBodyId = -1;
@@ -1475,6 +1765,25 @@ void Application::enterSketchMode() {
     m_activeSketch = std::make_shared<Sketch>();
     m_sketchSolver = std::make_unique<SketchSolver>();
     m_activeSketchId = -1;
+
+    m_sketchTool->setSketch(m_activeSketch.get());
+    m_sketchTool->setSolver(m_sketchSolver.get());
+    m_sketchTool->setMode(SketchToolMode::Line);
+    m_inSketchMode = true;
+    m_toolbar->setSketchMode(true);
+    alignCameraToActiveSketch();
+}
+
+void Application::enterSketchOnPlane(const gp_Pln& plane) {
+    // Start a fresh, freestanding sketch on a world base plane (no source face),
+    // so the user can model from scratch with no existing body. Drawing tools,
+    // the adjustable grid and the ortho camera all come from the shared sketch
+    // path via alignCameraToActiveSketch() / renderSketchTools().
+    m_activeSketch = std::make_shared<Sketch>();
+    m_sketchSolver = std::make_unique<SketchSolver>();
+    m_activeSketchId = -1;
+
+    m_activeSketch->setPlane(plane);
 
     m_sketchTool->setSketch(m_activeSketch.get());
     m_sketchTool->setSolver(m_sketchSolver.get());
@@ -1874,14 +2183,19 @@ Application::SketchRegionHit Application::pickSketchRegion(float screenX, float 
     glm::mat4 proj = cam.getProjectionMatrix();
     glm::mat4 invVP = glm::inverse(proj * view);
 
-    float nx = (screenX / vpW) * 2.0f - 1.0f;
-    float ny = 1.0f - (screenY / vpH) * 2.0f;
-    glm::vec4 nearPt = invVP * glm::vec4(nx, ny, -1.0f, 1.0f);
-    glm::vec4 farPt  = invVP * glm::vec4(nx, ny,  1.0f, 1.0f);
-    nearPt /= nearPt.w;
-    farPt /= farPt.w;
-    glm::vec3 rayOrigin(nearPt);
-    glm::vec3 rayDir = glm::normalize(glm::vec3(farPt) - glm::vec3(nearPt));
+    // Build a world-space ray through a given pixel.
+    auto rayAt = [&](float sx, float sy, glm::vec3& origin, glm::vec3& dir) {
+        float ndcx = (sx / vpW) * 2.0f - 1.0f;
+        float ndcy = 1.0f - (sy / vpH) * 2.0f;
+        glm::vec4 n = invVP * glm::vec4(ndcx, ndcy, -1.0f, 1.0f);
+        glm::vec4 f = invVP * glm::vec4(ndcx, ndcy, 1.0f, 1.0f);
+        n /= n.w; f /= f.w;
+        origin = glm::vec3(n);
+        dir = glm::normalize(glm::vec3(f) - glm::vec3(n));
+    };
+
+    glm::vec3 rayOrigin, rayDir;
+    rayAt(screenX, screenY, rayOrigin, rayDir);
 
     float bestT = std::numeric_limits<float>::infinity();
 
@@ -1893,21 +2207,37 @@ Application::SketchRegionHit Application::pickSketchRegion(float screenX, float 
         glm::vec3 planeX(ax.XDirection().X(), ax.XDirection().Y(), ax.XDirection().Z());
         glm::vec3 planeY(ax.YDirection().X(), ax.YDirection().Y(), ax.YDirection().Z());
 
-        float denom = glm::dot(rayDir, planeNormal);
-        if (std::abs(denom) < 1e-8f) return;
-        float t = glm::dot(planeOrigin - rayOrigin, planeNormal) / denom;
-        if (t <= 0.0f || t >= bestT) return;
-        glm::vec3 hitWorld = rayOrigin + rayDir * t;
-        glm::vec3 local = hitWorld - planeOrigin;
-        glm::vec2 p2d(glm::dot(local, planeX), glm::dot(local, planeY));
+        auto projectToPlane = [&](glm::vec3 o, glm::vec3 d, float& tOut, glm::vec2& p2dOut) -> bool {
+            float denom = glm::dot(d, planeNormal);
+            if (std::abs(denom) < 1e-8f) return false;
+            float t = glm::dot(planeOrigin - o, planeNormal) / denom;
+            if (t <= 0.0f) return false;
+            glm::vec3 local = (o + d * t) - planeOrigin;
+            tOut = t;
+            p2dOut = glm::vec2(glm::dot(local, planeX), glm::dot(local, planeY));
+            return true;
+        };
+
+        float t;
+        glm::vec2 p2d;
+        if (!projectToPlane(rayOrigin, rayDir, t, p2d)) return;
+        if (t >= bestT) return;
+
+        // Screen-space pick tolerance: how far ~6px maps to on this plane, so the
+        // boundary catch area is a consistent, comfortable width at any zoom.
+        float tol = 0.0f;
+        glm::vec3 o2, d2; float t2; glm::vec2 p2d2;
+        rayAt(screenX + 6.0f, screenY, o2, d2);
+        if (projectToPlane(o2, d2, t2, p2d2)) tol = glm::length(p2d2 - p2d);
 
         auto regions = sketch.buildRegions();
         for (size_t i = 0; i < regions.size(); ++i) {
-            if (sketch.isPointInRegion(regions[i], p2d)) {
+            if (sketch.isPointInOrNearRegion(regions[i], p2d, tol)) {
                 bestT = t;
                 hit.sketchId = sketchId;
                 hit.regionIndex = static_cast<int>(i);
-                break; // first match per sketch is fine; nesting handled by isPointInRegion
+                hit.worldPoint = rayOrigin + rayDir * t;
+                break; // first match per sketch is fine; nesting handled by the test
             }
         }
     };
@@ -2079,11 +2409,17 @@ void Application::run() {
             // Active interactive tool (plugin system)
             if (auto* tool = PluginRegistry::instance().activeTool()) {
                 if (!tool->update(*m_pluginContext)) {
-                    PluginRegistry::instance().deactivateTool(*m_pluginContext);
+                    // The tool finished (it ran its own commit()/cancel()); just
+                    // clear it. Do NOT call deactivateTool() here — that cancels,
+                    // which would undo a just-committed operation (e.g. push/pull).
+                    PluginRegistry::instance().finishActiveTool();
                 } else {
                     tool->renderOverlay(*m_pluginContext);
                 }
             }
+
+            renderInteractionsPanel();
+            renderSettings();
 
             if (m_historyPanel->render()) {
                 m_meshesDirty = true;

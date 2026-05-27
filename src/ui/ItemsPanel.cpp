@@ -189,24 +189,56 @@ bool ItemsPanel::render() {
                 }
             }
 
-            std::string name = m_document->getSketchName(id);
-            if (ImGui::Selectable(name.c_str(), isSelected)) {
-                if (m_selection) {
-                    SelectionEntry entry;
-                    entry.type = SelectionType::Sketch;
-                    entry.sketchId = id;
-                    m_selection->select(entry);
-                }
-            }
+            // Rename ids are namespaced (1000000 + id) so they don't collide with
+            // body rename ids in the shared m_renamingId.
+            const int renameKey = 1000000 + id;
+            auto beginRename = [&]() {
+                m_renamingId = renameKey;
+                std::string n = m_document->getSketchName(id);
+                std::strncpy(m_renameBuffer, n.c_str(), sizeof(m_renameBuffer) - 1);
+                m_renameBuffer[sizeof(m_renameBuffer) - 1] = '\0';
+            };
 
             bool deleted = false;
-            if (ImGui::BeginPopupContextItem("SketchContextMenu")) {
-                if (ImGui::MenuItem("Delete")) {
-                    m_document->removeSketch(id);
-                    if (m_selection) m_selection->clear();
-                    deleted = true;
+            if (m_renamingId == renameKey) {
+                ImGui::SetKeyboardFocusHere();
+                if (ImGui::InputText("##srename", m_renameBuffer, sizeof(m_renameBuffer),
+                                     ImGuiInputTextFlags_EnterReturnsTrue |
+                                     ImGuiInputTextFlags_AutoSelectAll)) {
+                    m_document->setSketchName(id, m_renameBuffer);
+                    m_renamingId = -1;
                 }
-                ImGui::EndPopup();
+                if (ImGui::IsKeyPressed(ImGuiKey_Escape) ||
+                    (!ImGui::IsItemActive() && ImGui::IsMouseClicked(0))) {
+                    m_renamingId = -1;
+                }
+            } else {
+                std::string name = m_document->getSketchName(id);
+                if (ImGui::Selectable(name.c_str(), isSelected)) {
+                    if (m_selection) {
+                        SelectionEntry entry;
+                        entry.type = SelectionType::Sketch;
+                        entry.sketchId = id;
+                        m_selection->select(entry);
+                    }
+                }
+
+                if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
+                    beginRename();
+                }
+
+                if (ImGui::BeginPopupContextItem("SketchContextMenu")) {
+                    if (ImGui::MenuItem("Rename")) {
+                        beginRename();
+                    }
+                    if (ImGui::MenuItem("Delete")) {
+                        m_document->removeSketch(id);
+                        if (m_selection) m_selection->clear();
+                        m_renamingId = -1;
+                        deleted = true;
+                    }
+                    ImGui::EndPopup();
+                }
             }
 
             ImGui::PopID();

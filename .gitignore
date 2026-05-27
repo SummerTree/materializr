@@ -15,6 +15,9 @@ compile_commands.json
 .DS_Store
 Thumbs.db
 
+# Runtime-generated UI layout (written on first launch from the built-in default)
+imgui.ini
+
 # Dependencies (fetched by CMake)
 third_party/imgui/
 third_party/glfw/

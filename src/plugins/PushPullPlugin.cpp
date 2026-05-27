@@ -61,6 +61,9 @@ public:
     bool update(materializr::PluginContext&) override { return !m_done; }
 
     void commit(materializr::PluginContext& ctx) override {
+        // The last preview push IS the committed result — clear the flag so a
+        // later cancel() can never undo it.
+        m_previewPushed = false;
         m_done = true;
         m_targets.clear();
         ctx.selection().clear();

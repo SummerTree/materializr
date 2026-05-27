@@ -3,6 +3,9 @@
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
+#include <BOPAlgo_Builder.hxx>
+#include <BRepAlgoAPI_Splitter.hxx>
+#include <TopTools_ListOfShape.hxx>
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepGProp.hxx>
 #include <BRepTools.hxx>
@@ -275,20 +278,74 @@ std::vector<TopoDS_Wire> Sketch::buildWires() const {
     };
     std::vector<EdgeSpec> edges;
 
-    // Add line edges. If any sketch point lies on the interior of a line (e.g.
-    // because trim split the line geometrically but not topologically), emit
-    // sub-edges so adjacency can route through that point. Without this, the
-    // line stays one edge from corner to corner and any element ending mid-line
-    // can never form a closed region.
+    // Coordinate table for every adjacency node: real sketch points plus the
+    // synthetic crossing points generated just below. Keyed by id. Synthetic
+    // ids start well past the live id counter so they can't collide with real
+    // ones. emitOcctEdge() and the splitting loops below resolve coordinates
+    // through this table rather than getPoint(), so synthetic nodes work too.
+    std::unordered_map<int, glm::vec2> coord;
+    for (const auto& pt : m_points) coord[pt.id] = pt.pos;
+    int nextSynthId = m_nextId + 100000;
+
     const float onLineTol = 1e-2f;
+
+    // Register a synthetic point at each proper line-line crossing (an
+    // intersection strictly interior to BOTH segments). This lets closed shapes
+    // formed by *crossing* lines be detected even when the user never placed a
+    // vertex at the crossing — matching what the trim tool produces, but without
+    // requiring a trim first. Crossings at shared endpoints are excluded (the
+    // interior-parameter test rejects them), so already-working profiles like a
+    // plain rectangle are untouched.
+    {
+        auto cross2 = [](glm::vec2 p, glm::vec2 q) { return p.x * q.y - p.y * q.x; };
+        const int nL = static_cast<int>(m_lines.size());
+        std::vector<glm::vec2> A(nL), B(nL);
+        std::vector<bool> ok(nL, false);
+        for (int i = 0; i < nL; ++i) {
+            auto ia = coord.find(m_lines[i].startPointId);
+            auto ib = coord.find(m_lines[i].endPointId);
+            if (ia != coord.end() && ib != coord.end()) {
+                A[i] = ia->second; B[i] = ib->second; ok[i] = true;
+            }
+        }
+        const float pe = 1e-4f; // keep crossings off the segment endpoints
+        for (int i = 0; i < nL; ++i) {
+            if (!ok[i]) continue;
+            for (int j = i + 1; j < nL; ++j) {
+                if (!ok[j]) continue;
+                glm::vec2 di = B[i] - A[i];
+                glm::vec2 dj = B[j] - A[j];
+                float den = cross2(di, dj);
+                if (std::abs(den) < 1e-9f) continue; // parallel / collinear
+                glm::vec2 off = A[j] - A[i];
+                float t = cross2(off, dj) / den;
+                float u = cross2(off, di) / den;
+                if (t < pe || t > 1.0f - pe || u < pe || u > 1.0f - pe) continue;
+                glm::vec2 ip = A[i] + t * di;
+                // Reuse a nearby existing node (real or synthetic) so three lines
+                // meeting at one point share a single graph node.
+                bool dup = false;
+                for (const auto& kv : coord) {
+                    if (glm::length(kv.second - ip) < onLineTol) { dup = true; break; }
+                }
+                if (!dup) coord[nextSynthId++] = ip;
+            }
+        }
+    }
+
+    // Add line edges. If any point (real sketch point OR synthetic crossing)
+    // lies on the interior of a line, emit sub-edges so adjacency can route
+    // through that point. Without this, the line stays one edge from corner to
+    // corner and any element ending mid-line can never form a closed region.
     for (const auto& line : m_lines) {
-        const SketchPoint* a = getPoint(line.startPointId);
-        const SketchPoint* b = getPoint(line.endPointId);
-        if (!a || !b) {
+        auto ai = coord.find(line.startPointId);
+        auto bi = coord.find(line.endPointId);
+        if (ai == coord.end() || bi == coord.end()) {
             edges.push_back({false, line.startPointId, line.endPointId, -1, 0, 0});
             continue;
         }
-        glm::vec2 dir = b->pos - a->pos;
+        glm::vec2 aPos = ai->second;
+        glm::vec2 dir = bi->second - aPos;
         float len2 = glm::dot(dir, dir);
         if (len2 < 1e-12f) {
             edges.push_back({false, line.startPointId, line.endPointId, -1, 0, 0});
@@ -299,14 +356,14 @@ std::vector<TopoDS_Wire> Sketch::buildWires() const {
         std::vector<Onseg> onseg;
         onseg.push_back({0.0f, line.startPointId});
         onseg.push_back({1.0f, line.endPointId});
-        for (const auto& pt : m_points) {
-            if (pt.id == line.startPointId || pt.id == line.endPointId) continue;
-            glm::vec2 v = pt.pos - a->pos;
+        for (const auto& kv : coord) {
+            if (kv.first == line.startPointId || kv.first == line.endPointId) continue;
+            glm::vec2 v = kv.second - aPos;
             float t = glm::dot(v, dir) / len2;
             if (t < 1e-3f || t > 1.0f - 1e-3f) continue;
-            glm::vec2 proj = a->pos + t * dir;
-            if (glm::length(pt.pos - proj) > onLineTol) continue;
-            onseg.push_back({t, pt.id});
+            glm::vec2 proj = aPos + t * dir;
+            if (glm::length(kv.second - proj) > onLineTol) continue;
+            onseg.push_back({t, kv.first});
         }
         std::sort(onseg.begin(), onseg.end(),
                   [](const Onseg& x, const Onseg& y) { return x.t < y.t; });
@@ -401,9 +458,38 @@ std::vector<TopoDS_Wire> Sketch::buildWires() const {
 
     if (edges.empty()) return wires;
 
-    // Adjacency: pointId -> list of edge indices
+    // Prune dangling edges. An edge hanging off a free end — a vertex touched by
+    // only one edge — can never be part of a closed loop, so iteratively drop
+    // such edges until only the cycle core remains. This keeps the greedy walker
+    // below from wandering down a tail, marking its edges used, failing to
+    // close, and rolling back: e.g. a triangle drawn with three *crossing* lines
+    // has six dangling tails past the corners that would otherwise trap it.
+    // Profiles with no free ends (a plain rectangle, a circle) are unaffected.
+    std::vector<bool> alive(edges.size(), true);
+    {
+        bool changed = true;
+        while (changed) {
+            changed = false;
+            std::unordered_map<int, int> degree;
+            for (size_t i = 0; i < edges.size(); ++i) {
+                if (!alive[i]) continue;
+                degree[edges[i].startPtId]++;
+                degree[edges[i].endPtId]++;
+            }
+            for (size_t i = 0; i < edges.size(); ++i) {
+                if (!alive[i]) continue;
+                if (degree[edges[i].startPtId] < 2 || degree[edges[i].endPtId] < 2) {
+                    alive[i] = false;
+                    changed = true;
+                }
+            }
+        }
+    }
+
+    // Adjacency: pointId -> list of surviving edge indices
     std::unordered_map<int, std::vector<int>> pointToEdges;
     for (size_t i = 0; i < edges.size(); ++i) {
+        if (!alive[i]) continue;
         pointToEdges[edges[i].startPtId].push_back(static_cast<int>(i));
         pointToEdges[edges[i].endPtId].push_back(static_cast<int>(i));
     }
@@ -415,11 +501,13 @@ std::vector<TopoDS_Wire> Sketch::buildWires() const {
     };
 
     auto emitOcctEdge = [&](const EdgeSpec& es, int fromPt, BRepBuilderAPI_MakeWire& wm) -> bool {
-        const SketchPoint* sp = getPoint(es.startPtId);
-        const SketchPoint* ep = getPoint(es.endPtId);
-        if (!sp || !ep) return false;
-        gp_Pnt p1 = sketchToWorld(sp->pos);
-        gp_Pnt p2 = sketchToWorld(ep->pos);
+        // Resolve through the coord table so synthetic crossing nodes (which have
+        // no SketchPoint) work alongside real points.
+        auto sc = coord.find(es.startPtId);
+        auto ec = coord.find(es.endPtId);
+        if (sc == coord.end() || ec == coord.end()) return false;
+        gp_Pnt p1 = sketchToWorld(sc->second);
+        gp_Pnt p2 = sketchToWorld(ec->second);
         if (p1.Distance(p2) < 1e-10 && !es.isArc) return false;
 
         if (!es.isArc) {
@@ -470,6 +558,7 @@ std::vector<TopoDS_Wire> Sketch::buildWires() const {
     };
 
     for (size_t startIdx = 0; startIdx < edges.size(); ++startIdx) {
+        if (!alive[startIdx]) continue;
         if (usedEdges.count(static_cast<int>(startIdx))) continue;
 
         std::vector<int> chain;
@@ -592,131 +681,114 @@ bool pointInPolygon2D(const std::vector<glm::vec2>& poly, glm::vec2 p) {
 
 std::vector<Sketch::Region> Sketch::buildRegions() const {
     std::vector<Region> regions;
+
+    // Build a planar face from every closed wire the sketch forms.
     auto wires = buildWires();
-    if (wires.empty()) return regions;
+    std::vector<TopoDS_Face> faces;
+    for (const auto& w : wires) {
+        BRepBuilderAPI_MakeFace mf(m_plane, w);
+        if (mf.IsDone()) faces.push_back(mf.Face());
+    }
+    // If the sketch was started on an existing face, include it so the leftover
+    // area outside the drawn shapes (but inside the host face) is also selectable.
+    if (!m_sourceFace.IsNull()) faces.push_back(m_sourceFace);
 
-    // Densify each wire into a 2D polygon (sketch-plane coordinates) for containment tests.
-    std::vector<std::vector<glm::vec2>> polys(wires.size());
-    std::vector<glm::vec2> samplePoints(wires.size());
-    for (size_t i = 0; i < wires.size(); ++i) {
-        densifyWire2D(wires[i], m_plane, polys[i]);
-        samplePoints[i] = sampleWirePoint(wires[i], m_plane);
+    if (faces.empty()) return regions;
+
+    // Partition the union of all faces into atomic, non-overlapping regions.
+    // General-fusing the faces splits every overlap into its own face — the lens
+    // where two shapes cross, the surrounding crescents, an annulus where one
+    // shape sits inside another — so each piece can be selected and push/pulled
+    // independently. (This is what makes intersecting shapes selectable.) A lone
+    // face has nothing to fuse, and a one-argument general fuse is invalid, so
+    // use it directly in that case.
+    std::vector<TopoDS_Face> atomic;
+    if (faces.size() == 1) {
+        atomic.push_back(faces.front());
+    } else {
+        try {
+            BOPAlgo_Builder gf;
+            for (const auto& f : faces) gf.AddArgument(f);
+            gf.Perform();
+            if (!gf.HasErrors()) {
+                for (TopExp_Explorer ex(gf.Shape(), TopAbs_FACE); ex.More(); ex.Next())
+                    atomic.push_back(TopoDS::Face(ex.Current()));
+            }
+        } catch (...) {}
+        if (atomic.empty()) atomic = faces; // fall back to the un-fused faces
     }
 
-    // For each pair (a, b), check if a's sample point lies inside b's polygon.
-    std::vector<std::vector<int>> containedBy(wires.size()); // wires whose polygon contains me
-    for (size_t a = 0; a < wires.size(); ++a) {
-        for (size_t b = 0; b < wires.size(); ++b) {
-            if (a == b) continue;
-            if (pointInPolygon2D(polys[b], samplePoints[a])) {
-                containedBy[a].push_back(static_cast<int>(b));
-            }
+    // Split those faces by every sketch line, so an open interior line that
+    // divides a region (e.g. a wall splitting a room) yields separate selectable
+    // cells. Lines that merely trace a face boundary are no-ops here; only lines
+    // crossing a face's interior actually subdivide it. (GF above handles closed
+    // overlaps/holes; this handles open dividing lines.)
+    {
+        TopTools_ListOfShape toolEdges;
+        for (const auto& line : m_lines) {
+            const SketchPoint* a = getPoint(line.startPointId);
+            const SketchPoint* b = getPoint(line.endPointId);
+            if (!a || !b) continue;
+            gp_Pnt p1 = sketchToWorld(a->pos);
+            gp_Pnt p2 = sketchToWorld(b->pos);
+            if (p1.Distance(p2) < 1e-9) continue;
+            BRepBuilderAPI_MakeEdge mk(p1, p2);
+            if (mk.IsDone()) toolEdges.Append(mk.Edge());
+        }
+        if (!toolEdges.IsEmpty() && !atomic.empty()) {
+            try {
+                BRepAlgoAPI_Splitter sp;
+                TopTools_ListOfShape args;
+                for (const auto& f : atomic) args.Append(f);
+                sp.SetArguments(args);
+                sp.SetTools(toolEdges);
+                sp.Build();
+                if (!sp.HasErrors()) {
+                    std::vector<TopoDS_Face> split;
+                    for (TopExp_Explorer ex(sp.Shape(), TopAbs_FACE); ex.More(); ex.Next())
+                        split.push_back(TopoDS::Face(ex.Current()));
+                    if (!split.empty()) atomic.swap(split);
+                }
+            } catch (...) {}
         }
     }
 
-    // For each wire, its direct parent is the wire that contains it but isn't contained by any
-    // intermediate wire. We build a containment tree, then each wire becomes one region whose
-    // holes are its direct children.
-    auto directParent = [&](int i) -> int {
-        int best = -1;
-        size_t bestDepth = 0;
-        for (int candidate : containedBy[i]) {
-            // depth = how many wires contain `candidate`
-            size_t depth = containedBy[candidate].size();
-            if (best < 0 || depth > bestDepth) {
-                best = candidate;
-                bestDepth = depth;
-            }
-        }
-        return best;
+    // Project a 3D point onto sketch-plane 2D coordinates.
+    const gp_Ax3& ax = m_plane.Position();
+    gp_Pnt planeOrigin = ax.Location();
+    gp_Dir xd = ax.XDirection();
+    gp_Dir yd = ax.YDirection();
+    auto toSketch2D = [&](const gp_Pnt& w) {
+        gp_Vec v(planeOrigin, w);
+        return glm::vec2(static_cast<float>(v.Dot(gp_Vec(xd))),
+                         static_cast<float>(v.Dot(gp_Vec(yd))));
     };
 
-    std::vector<std::vector<int>> children(wires.size());
-    for (size_t i = 0; i < wires.size(); ++i) {
-        int p = directParent(static_cast<int>(i));
-        if (p >= 0) children[p].push_back(static_cast<int>(i));
-    }
-
-    // Emit one region per wire: outer = this wire, holes = direct children
-    for (size_t i = 0; i < wires.size(); ++i) {
+    for (const auto& f : atomic) {
         Region region;
-        region.outerWire = wires[i];
-        for (int c : children[i]) {
-            // Reverse child wire so it acts as a hole
-            region.holeWires.push_back(TopoDS::Wire(wires[c].Reversed()));
+        region.face = f;
+        region.outerWire = BRepTools::OuterWire(f);
+        for (TopExp_Explorer wexp(f, TopAbs_WIRE); wexp.More(); wexp.Next()) {
+            TopoDS_Wire w = TopoDS::Wire(wexp.Current());
+            if (!region.outerWire.IsNull() && !w.IsSame(region.outerWire))
+                region.holeWires.push_back(w);
         }
 
-        // Representative point: sample point of this wire, nudged toward the interior.
-        // For simplicity use the centroid of the polygon (mean of samples).
-        glm::vec2 mean(0);
-        for (auto& q : polys[i]) mean += q;
-        if (!polys[i].empty()) mean /= float(polys[i].size());
-        // If mean falls inside a hole, nudge to the wire sample point.
-        bool meanInHole = false;
-        for (int c : children[i]) {
-            if (pointInPolygon2D(polys[c], mean)) { meanInHole = true; break; }
-        }
-        region.representativePoint = meanInHole ? samplePoints[i] : mean;
-
-        // Build the planar face
+        // Representative point: the face's area centroid in 2D. For a ring/annulus
+        // the centroid can fall in the hole, so fall back to a point on the outer
+        // wire when the centroid isn't actually inside the region.
+        glm::vec2 rep(0);
         try {
-            BRepBuilderAPI_MakeFace mf(m_plane, region.outerWire);
-            for (const auto& h : region.holeWires) mf.Add(h);
-            mf.Build();
-            if (mf.IsDone()) region.face = mf.Face();
-        } catch (...) { /* leave face null */ }
+            GProp_GProps props;
+            BRepGProp::SurfaceProperties(f, props);
+            rep = toSketch2D(props.CentreOfMass());
+        } catch (...) {}
+        if (region.outerWire.IsNull() || !isPointInRegion(region, rep)) {
+            if (!region.outerWire.IsNull()) rep = sampleWirePoint(region.outerWire, m_plane);
+        }
+        region.representativePoint = rep;
 
         regions.push_back(std::move(region));
-    }
-
-    // Complement region: if this sketch was started on an existing face, emit
-    // one extra region representing the source face minus all top-level sketch
-    // regions. Lets users push/pull the area inside the host face but outside
-    // the sketch (e.g. the square area surrounding a circle drawn on it).
-    if (!m_sourceFace.IsNull()) {
-        std::vector<int> topLevel;
-        for (size_t i = 0; i < wires.size(); ++i) {
-            if (directParent(static_cast<int>(i)) < 0) topLevel.push_back(static_cast<int>(i));
-        }
-        TopoDS_Wire faceOuter = BRepTools::OuterWire(m_sourceFace);
-        if (!topLevel.empty() && !faceOuter.IsNull()) {
-            Region complement;
-            complement.outerWire = faceOuter;
-            // Holes: the source face's own inner wires (existing holes in the host
-            // face) plus each top-level sketch region (reversed for OCCT).
-            for (TopExp_Explorer wexp(m_sourceFace, TopAbs_WIRE); wexp.More(); wexp.Next()) {
-                TopoDS_Wire w = TopoDS::Wire(wexp.Current());
-                if (!w.IsSame(faceOuter)) complement.holeWires.push_back(w);
-            }
-            for (int t : topLevel) {
-                complement.holeWires.push_back(TopoDS::Wire(wires[t].Reversed()));
-            }
-            try {
-                BRepBuilderAPI_MakeFace mf(m_plane, complement.outerWire);
-                for (const auto& h : complement.holeWires) mf.Add(h);
-                mf.Build();
-                if (mf.IsDone()) complement.face = mf.Face();
-            } catch (...) {}
-
-            std::vector<glm::vec2> outerPoly;
-            densifyWire2D(complement.outerWire, m_plane, outerPoly);
-            glm::vec2 candidate(0);
-            if (!outerPoly.empty()) {
-                for (auto& q : outerPoly) candidate += q;
-                candidate /= float(outerPoly.size());
-            }
-            // If the centroid happens to fall inside a top-level region, fall back
-            // to a sample on the source face's outer wire (just inside the face).
-            for (int t : topLevel) {
-                if (pointInPolygon2D(polys[t], candidate)) {
-                    candidate = sampleWirePoint(complement.outerWire, m_plane);
-                    break;
-                }
-            }
-            complement.representativePoint = candidate;
-
-            regions.push_back(std::move(complement));
-        }
     }
 
     return regions;
@@ -732,6 +804,31 @@ bool Sketch::isPointInRegion(const Region& region, glm::vec2 p) const {
         if (pointInPolygon2D(holePoly, p)) return false;
     }
     return true;
+}
+
+bool Sketch::isPointInOrNearRegion(const Region& region, glm::vec2 p, float tol) const {
+    if (isPointInRegion(region, p)) return true;
+    if (tol <= 0.0f) return false;
+
+    auto distToSeg = [](glm::vec2 q, glm::vec2 a, glm::vec2 b) {
+        glm::vec2 ab = b - a;
+        float len2 = glm::dot(ab, ab);
+        float t = len2 > 1e-12f ? glm::clamp(glm::dot(q - a, ab) / len2, 0.0f, 1.0f) : 0.0f;
+        return glm::length(q - (a + t * ab));
+    };
+    auto nearWire = [&](const TopoDS_Wire& w) {
+        std::vector<glm::vec2> poly;
+        densifyWire2D(w, m_plane, poly);
+        for (size_t i = 0; i + 1 < poly.size(); ++i) {
+            if (distToSeg(p, poly[i], poly[i + 1]) <= tol) return true;
+        }
+        return false;
+    };
+    if (nearWire(region.outerWire)) return true;
+    for (const auto& h : region.holeWires) {
+        if (nearWire(h)) return true;
+    }
+    return false;
 }
 
 bool Sketch::getSourceFaceCentroid(glm::vec2& out) const {

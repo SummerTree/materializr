@@ -76,4 +76,10 @@ void PluginRegistry::deactivateTool(PluginContext& ctx) {
     }
 }
 
+void PluginRegistry::finishActiveTool() {
+    // No cancel(): the tool already finished itself (commit or cancel) before
+    // signalling done, so cancelling again would undo a committed operation.
+    m_activeTool.reset();
+}
+
 } // namespace materializr

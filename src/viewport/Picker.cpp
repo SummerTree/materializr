@@ -16,6 +16,8 @@
 #include <TopoDS_Edge.hxx>
 #include <BRepAdaptor_Curve.hxx>
 #include <GCPnts_TangentialDeflection.hxx>
+#include <BRepGProp_Face.hxx>
+#include <gp_Vec.hxx>
 
 #include <cmath>
 #include <limits>
@@ -202,12 +204,23 @@ void Picker::findNearestEdge(const TopoDS_Shape& shape, const glm::vec3& hitPt,
     glm::vec2 mouse(screenX, screenY);
     screenDist = 1e6f;
 
+    glm::vec3 camPos = camera.getPosition();
+    glm::vec3 viewDir = glm::normalize(camera.getTarget() - camPos);
+
     auto worldToScreen = [&](glm::vec3 p) -> glm::vec2 {
         glm::vec4 clip = vp * glm::vec4(p, 1.0f);
         if (std::abs(clip.w) < 1e-6f) return glm::vec2(1e6f);
         glm::vec2 ndc(clip.x / clip.w, clip.y / clip.w);
         return glm::vec2((ndc.x * 0.5f + 0.5f) * vpW, (0.5f - ndc.y * 0.5f) * vpH);
     };
+
+    // Depth of the picked front surface at the cursor, along the view direction.
+    // Edges noticeably deeper than this sit behind the body at this screen point
+    // and must not be selectable through it. The tolerance scales with the view
+    // distance so silhouette/visible edges (≈ faceDepth) stay selectable while
+    // far-side edges (behind by ~the body's depth) are rejected.
+    float faceDepth = glm::dot(hitPt - camPos, viewDir);
+    float depthTol = std::max(0.04f * std::abs(faceDepth), 0.1f);
 
     for (TopExp_Explorer exp(shape, TopAbs_EDGE); exp.More(); exp.Next()) {
         TopoDS_Edge edge = TopoDS::Edge(exp.Current());
@@ -219,20 +232,27 @@ void Picker::findNearestEdge(const TopoDS_Shape& shape, const glm::vec3& hitPt,
             for (int i = 1; i < nPts; i++) {
                 gp_Pnt p1 = discretizer.Value(i);
                 gp_Pnt p2 = discretizer.Value(i + 1);
+                glm::vec3 w1(p1.X(), p1.Y(), p1.Z());
+                glm::vec3 w2(p2.X(), p2.Y(), p2.Z());
 
-                glm::vec2 s1 = worldToScreen(glm::vec3(p1.X(), p1.Y(), p1.Z()));
-                glm::vec2 s2 = worldToScreen(glm::vec3(p2.X(), p2.Y(), p2.Z()));
+                glm::vec2 s1 = worldToScreen(w1);
+                glm::vec2 s2 = worldToScreen(w2);
 
-                // Distance from mouse to this line segment in screen space
                 glm::vec2 seg = s2 - s1;
                 float segLen2 = glm::dot(seg, seg);
+                float t = 0.0f;
                 float d;
                 if (segLen2 < 1e-6f) {
                     d = glm::length(mouse - s1);
                 } else {
-                    float t = glm::clamp(glm::dot(mouse - s1, seg) / segLen2, 0.0f, 1.0f);
+                    t = glm::clamp(glm::dot(mouse - s1, seg) / segLen2, 0.0f, 1.0f);
                     d = glm::length(mouse - (s1 + t * seg));
                 }
+
+                // Occlusion: the segment point nearest the cursor must be at or in
+                // front of the picked surface, else it's hidden behind the body.
+                glm::vec3 wp = w1 + t * (w2 - w1);
+                if (glm::dot(wp - camPos, viewDir) > faceDepth + depthTol) continue;
 
                 if (d < screenDist) {
                     screenDist = d;

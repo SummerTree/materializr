@@ -137,6 +137,13 @@ ToolAction Toolbar::renderSketchTools() {
 ToolAction Toolbar::renderNoSelectionTools() {
     ToolAction action = ToolAction::None;
 
+    // Start a sketch on a base plane — lets you model from scratch with no body.
+    ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "Create");
+    ImGui::Separator();
+    if (ImGui::Button("Sketch on XY", ImVec2(-1, 30))) action = ToolAction::StartSketchXY;
+    if (ImGui::Button("Sketch on XZ", ImVec2(-1, 30))) action = ToolAction::StartSketchXZ;
+    if (ImGui::Button("Sketch on YZ", ImVec2(-1, 30))) action = ToolAction::StartSketchYZ;
+
     // Plugin buttons: NoSelection + Always
     int mask = (1 << static_cast<int>(SelectionContext::NoSelection))
              | (1 << static_cast<int>(SelectionContext::Always));
@@ -218,8 +225,12 @@ ToolAction Toolbar::renderSketchRegionTools() {
     ImGui::Text("%d region%s selected", n, n == 1 ? "" : "s");
     ImGui::Spacing();
 
-    // Plugin buttons for HasSketchRegions context
+    // Plugin buttons for HasSketchRegions context (Push/Pull etc.)
     renderPluginButtons(1 << static_cast<int>(SelectionContext::HasSketchRegions));
+
+    // Edit the sketch this region belongs to — re-enter sketch mode to revise it.
+    if (ImGui::Button("Edit Sketch", ImVec2(-1, 30)))
+        action = ToolAction::EditSketch;
 
     ImGui::Spacing();
     ImGui::TextWrapped("Drag positive distance to extrude, negative to cut into the body the sketch sits on.");

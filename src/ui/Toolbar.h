@@ -11,7 +11,8 @@ class PluginContext;
 enum class ToolAction {
     None,
     // Sketch tools (still dispatched via ToolAction — tightly coupled to viewport)
-    StartSketch, SketchOnFace, Line, Circle, Rectangle, Arc, Spline, Polygon, Trim,
+    StartSketch, StartSketchXY, StartSketchXZ, StartSketchYZ,
+    SketchOnFace, Line, Circle, Rectangle, Arc, Spline, Polygon, Trim,
     FinishSketch, EditSketch, ExtrudeSketch, PushPull, LookAtSketch,
     // 3D tools that still need the old dispatch path
     Extrude, Fillet, Chamfer,

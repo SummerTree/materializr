@@ -7,6 +7,7 @@
 #include <glm/glm.hpp>
 #include <TopoDS_Shape.hxx>
 #include <TopoDS_Face.hxx>
+#include <gp_Pln.hxx>
 
 namespace materializr {
 
@@ -60,6 +61,8 @@ private:
     void renderDockspace();
     void renderViewport();
     void renderMenuBar();
+    void renderInteractionsPanel();
+    void renderSettings();
     void handleToolAction(int action);
     void handleShortcuts();
     void handleViewCubeAction(int action);
@@ -81,6 +84,7 @@ private:
     void requestClose();        // called when the user clicks the window X
 
     void enterSketchMode();
+    void enterSketchOnPlane(const gp_Pln& plane);
     void enterSketchOnFace(const TopoDS_Face& face);
     void editSketch(int sketchId);
     void extrudeSketchById(int sketchId);
@@ -96,7 +100,7 @@ private:
     void alignCameraToActiveSketch();
 
     // Sketch region hover/pick + Push/Pull
-    struct SketchRegionHit { int sketchId = -1; int regionIndex = -1; };
+    struct SketchRegionHit { int sketchId = -1; int regionIndex = -1; glm::vec3 worldPoint{0.0f}; };
     SketchRegionHit pickSketchRegion(float screenX, float screenY,
                                      float vpW, float vpH) const;
     void beginPushPull();
@@ -162,6 +166,14 @@ private:
 
     // Snap-to-grid for gizmo translate (shares the grid step with the sketch grid).
     bool m_snapToGrid = true;
+
+    // Configurable camera mouse bindings (ImGuiMouseButton values: 0=Left,1=Right,
+    // 2=Middle). Zoom is always the scroll wheel. Edited in File > Settings.
+    int m_orbitButton = 2; // Middle
+    int m_panButton = 1;   // Right
+    bool m_showSettings = false;
+    int m_settingsOrbitButton = 2; // staged value in the Settings dialog
+    int m_settingsPanButton = 1;
     // Each entry: a separate region operation to perform on commit
     struct PushPullTarget {
         int sketchId;

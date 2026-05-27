@@ -108,6 +108,11 @@ public:
     // 2D point-in-region test (sketch-space coordinates)
     bool isPointInRegion(const Region& region, glm::vec2 p) const;
 
+    // As isPointInRegion, but also returns true when p lies within `tol` of the
+    // region's boundary. Used so clicks just on/near the lines still select the
+    // region, widening the otherwise pixel-thin boundary catch area.
+    bool isPointInOrNearRegion(const Region& region, glm::vec2 p, float tol) const;
+
     // Originating face / body — set when the sketch was started on a planar face.
     // -1 means the sketch is on a freestanding plane (e.g. world XY).
     void setSourceBody(int bodyId) { m_sourceBodyId = bodyId; }

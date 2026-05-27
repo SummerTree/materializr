@@ -780,28 +780,29 @@ void SketchRenderer::renderFaceGrid(const Sketch* sketch, float faceExtent, floa
 
     glm::mat4 vp = projection * view;
 
-    std::vector<float> verts;
+    // Split lines into minor and every-10th major so the major lines read clearly.
+    std::vector<float> minorVerts, majorVerts;
     int steps = static_cast<int>(std::floor(faceExtent / gridStep));
+    auto pushLine = [](std::vector<float>& v, glm::vec3 a, glm::vec3 b) {
+        v.push_back(a.x); v.push_back(a.y); v.push_back(a.z);
+        v.push_back(b.x); v.push_back(b.y); v.push_back(b.z);
+    };
     for (int i = -steps; i <= steps; ++i) {
         float t = i * gridStep;
-        // Vertical line at x = t
-        glm::vec3 a = toWorld(sketch, glm::vec2(t, -faceExtent));
-        glm::vec3 b = toWorld(sketch, glm::vec2(t,  faceExtent));
-        verts.push_back(a.x); verts.push_back(a.y); verts.push_back(a.z);
-        verts.push_back(b.x); verts.push_back(b.y); verts.push_back(b.z);
-        // Horizontal line at y = t
-        glm::vec3 c = toWorld(sketch, glm::vec2(-faceExtent, t));
-        glm::vec3 d = toWorld(sketch, glm::vec2( faceExtent, t));
-        verts.push_back(c.x); verts.push_back(c.y); verts.push_back(c.z);
-        verts.push_back(d.x); verts.push_back(d.y); verts.push_back(d.z);
+        std::vector<float>& dst = (i % 10 == 0) ? majorVerts : minorVerts;
+        pushLine(dst, toWorld(sketch, glm::vec2(t, -faceExtent)),
+                      toWorld(sketch, glm::vec2(t,  faceExtent)));
+        pushLine(dst, toWorld(sketch, glm::vec2(-faceExtent, t)),
+                      toWorld(sketch, glm::vec2( faceExtent, t)));
     }
 
     glDisable(GL_DEPTH_TEST);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-    // Use a faint gray; finer than the main lines so it reads as a grid.
-    uploadAndDraw(verts, GL_LINES, glm::vec3(0.45f, 0.5f, 0.55f), vp, 0.7f);
+    // Faint minor lines, then brighter/thicker major (every 10th) on top.
+    uploadAndDraw(minorVerts, GL_LINES, glm::vec3(0.33f, 0.37f, 0.42f), vp, 0.7f);
+    uploadAndDraw(majorVerts, GL_LINES, glm::vec3(0.62f, 0.68f, 0.78f), vp, 1.6f);
 
     glEnable(GL_DEPTH_TEST);
     glDisable(GL_BLEND);
