@@ -229,25 +229,36 @@ target_link_libraries(materializr PRIVATE
     glfw
     OpenGL::GL
     glm::glm
-    TKernel
-    TKMath
-    TKG3d
-    TKBRep
-    TKGeomBase
-    TKGeomAlgo
-    TKTopAlgo
-    TKPrim
-    TKBool
-    TKBO
-    TKFillet
-    TKOffset
-    TKShHealing
-    TKMesh
-    TKSTEP
-    TKXSBase
-    TKIGES
-    TKSTL
 )
+
+if(WIN32)
+    # vcpkg ships OpenCASCADE 7.8+, which renamed several data-exchange toolkits
+    # (TKSTEP -> TKDESTEP, etc.). Link via the umbrella variable from OCCT's
+    # CMake config so we don't have to track its toolkit reshuffles by hand.
+    message(STATUS "OpenCASCADE libraries: ${OpenCASCADE_LIBRARIES}")
+    target_link_libraries(materializr PRIVATE ${OpenCASCADE_LIBRARIES})
+else()
+    target_link_libraries(materializr PRIVATE
+        TKernel
+        TKMath
+        TKG3d
+        TKBRep
+        TKGeomBase
+        TKGeomAlgo
+        TKTopAlgo
+        TKPrim
+        TKBool
+        TKBO
+        TKFillet
+        TKOffset
+        TKShHealing
+        TKMesh
+        TKSTEP
+        TKXSBase
+        TKIGES
+        TKSTL
+    )
+endif()
 
 # ─── Windows specifics ───────────────────────────────────────────────────────
 # Everything here is gated on Windows/MSVC, so the Linux build is unaffected.
