@@ -3,6 +3,14 @@
 All notable changes to Materializr are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow SemVer.
 
+## [0.2.1] — 2026-05-29
+
+CI hotfix: the v0.2.0 Linux Build workflow couldn't execute
+`scripts/build-appimage.sh` because the file lacked its executable bit in
+the repo (locally I'd been invoking it through `bash`, which masked it).
+Nothing else changes — this is the same code as 0.2.0 with a chmod
+correction so the published AppImages actually build.
+
 ## [0.2.0] — 2026-05-29
 
 Two new editability features on top of the 0.1.1 polish: previously-applied
