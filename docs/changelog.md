@@ -3,6 +3,24 @@
 All notable changes to Materializr are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow SemVer.
 
+## [0.3.4] — 2026-05-30
+
+Tiny cleanup release — drops scaffolding left over from troubleshooting in
+0.3.3 that didn't end up driving any behaviour. No user-facing changes.
+
+### Internal
+
+- Removed the `wasOrtho` flag in `Camera::orbitLevel` (and its `(void)`
+  discard). It was captured for an experiment that snapped the orbit
+  target to world origin on ortho-exit; the experiment was reverted
+  earlier in the same session in favour of preserving the sketch's
+  grid-aligned anchor, so the variable served no purpose.
+- Removed the `SavedCamera` struct, `m_savedCameraForSketch` member, and
+  the `saveCameraInto` helper. The original purpose — restoring the
+  pre-sketch camera in `exitSketchMode` — was deleted in 0.3.3 in
+  favour of leaving the camera in place. The snapshot was still being
+  captured at every sketch entry but nothing read it.
+
 ## [0.3.3] — 2026-05-30
 
 A long session of polish: ViewCube redesign + axis triad + roll buttons,

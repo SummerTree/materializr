@@ -1632,18 +1632,6 @@ void Application::exportStepFile() {
         });
 }
 
-// Snapshot the current camera so exitSketchMode can put the user back where
-// they were instead of leaving them looking at the sketch plane from a fixed
-// angle (which often ends up "inside" or "behind" the body for face sketches).
-static void saveCameraInto(Application::SavedCamera& dst, materializr::Camera& cam) {
-    dst.position  = cam.getPosition();
-    dst.target    = cam.getTarget();
-    dst.up        = cam.getUp();
-    dst.ortho     = cam.isOrthographic();
-    dst.orthoSize = cam.getOrthoSize();
-    dst.valid     = true;
-}
-
 void Application::enterSketchMode() {
     // If a planar face is selected, route through enterSketchOnFace for consistency
     if (m_selection && m_selection->hasSelectedFaces()) {
@@ -1655,8 +1643,6 @@ void Application::enterSketchMode() {
             }
         }
     }
-
-    saveCameraInto(m_savedCameraForSketch, m_viewport->getCamera());
 
     m_activeSketch = std::make_shared<Sketch>();
     m_sketchSolver = std::make_unique<SketchSolver>();
@@ -1672,8 +1658,6 @@ void Application::enterSketchMode() {
 }
 
 void Application::enterSketchOnPlane(const gp_Pln& plane) {
-    saveCameraInto(m_savedCameraForSketch, m_viewport->getCamera());
-
     // Start a fresh, freestanding sketch on a world base plane (no source face),
     // so the user can model from scratch with no existing body. Drawing tools,
     // the adjustable grid and the ortho camera all come from the shared sketch
@@ -1694,8 +1678,6 @@ void Application::enterSketchOnPlane(const gp_Pln& plane) {
 }
 
 void Application::enterSketchOnFace(const TopoDS_Face& face, int sourceBodyId) {
-    saveCameraInto(m_savedCameraForSketch, m_viewport->getCamera());
-
     m_activeSketch = std::make_shared<Sketch>();
     m_sketchSolver = std::make_unique<SketchSolver>();
     m_activeSketchId = -1;
@@ -2081,7 +2063,6 @@ void Application::exitSketchMode() {
     // looked at remains framed, only the sketch grid disappears. Any orbit
     // they do drops ortho mode and returns to perspective with a level
     // horizon (handled in Camera::orbitLevel).
-    m_savedCameraForSketch.valid = false;
 }
 
 void Application::run() {

@@ -197,22 +197,7 @@ private:
     std::string m_updateReleaseUrl;
     bool m_updateAvailable = false;
 
-public:
-    // Camera state captured at sketch entry so exitSketchMode can put the user
-    // back where they were instead of leaving them inside/behind the face.
-    // Public so a file-scope helper in Application.cpp can populate it.
-    struct SavedCamera {
-        bool valid = false;
-        glm::vec3 position{0.0f};
-        glm::vec3 target{0.0f};
-        glm::vec3 up{0.0f, 1.0f, 0.0f};
-        bool ortho = false;
-        float orthoSize = 10.0f;
-    };
-
 private:
-    SavedCamera m_savedCameraForSketch;
-
     // Sketch
     std::shared_ptr<Sketch> m_activeSketch;
     // Snapshot taken at left-mouse-down in Select mode so a point/line drag
