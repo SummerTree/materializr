@@ -90,9 +90,6 @@ void ShortcutsPanel::render() {
         ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableHeadersRow();
 
-        ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::Text("Ctrl+K");
-        ImGui::TableNextColumn(); ImGui::Text("Command Palette");
-
         ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::Text("S");
         ImGui::TableNextColumn(); ImGui::Text("Start Sketch");
 

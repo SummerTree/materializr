@@ -30,7 +30,6 @@
 #include "ui/Toolbar.h"
 #include "ui/HistoryPanel.h"
 #include "ui/ItemsPanel.h"
-#include "ui/CommandPalette.h"
 #include "ui/StatusBar.h"
 #include "ui/ThemeManager.h"
 #include "ui/PropertiesPanel.h"

@@ -196,7 +196,6 @@ add_executable(materializr
     src/ui/Toolbar.cpp
     src/ui/HistoryPanel.cpp
     src/ui/ItemsPanel.cpp
-    src/ui/CommandPalette.cpp
     src/ui/StatusBar.cpp
     src/ui/ThemeManager.cpp
     src/ui/PropertiesPanel.cpp

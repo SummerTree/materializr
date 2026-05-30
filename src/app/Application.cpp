@@ -30,7 +30,6 @@
 #include "ui/Toolbar.h"
 #include "ui/HistoryPanel.h"
 #include "ui/ItemsPanel.h"
-#include "ui/CommandPalette.h"
 #include "ui/StatusBar.h"
 #include "ui/ThemeManager.h"
 #include "ui/PropertiesPanel.h"
@@ -116,7 +115,6 @@ Application::Application(bool safeMode) : m_safeMode(safeMode) {
     m_toolbar = std::make_unique<Toolbar>();
     m_historyPanel = std::make_unique<HistoryPanel>();
     m_itemsPanel = std::make_unique<ItemsPanel>();
-    m_commandPalette = std::make_unique<CommandPalette>();
 
     m_sketchTool = std::make_unique<SketchTool>();
     m_viewCube = std::make_unique<ViewCube>();
@@ -165,14 +163,6 @@ Application::Application(bool safeMode) : m_safeMode(safeMode) {
                           m_eventBus.get(), &m_viewport->getCamera(), &m_meshesDirty);
     materializr::force_link::linkAll();
     PluginRegistry::instance().initAll(*m_pluginContext);
-
-    // Register plugin commands in the command palette
-    for (auto& cmd : PluginRegistry::instance().commandContributions()) {
-        auto* ctxPtr = m_pluginContext.get();
-        m_commandPalette->addCommand(cmd.name, cmd.shortcut, [&cmd, ctxPtr]() {
-            if (cmd.action) cmd.action(*ctxPtr);
-        });
-    }
 }
 
 Application::~Application() {
@@ -380,7 +370,6 @@ void Application::initRenderers() {
 
 void Application::setupCommands() {
     // Commands are now registered by plugins via PluginRegistry.
-    // Plugin commands are added to the command palette after initAll().
 }
 
 void Application::beginFrame() {
@@ -488,7 +477,6 @@ void Application::renderMenuBar() {
         }
         if (ImGui::BeginMenu("View")) {
             if (ImGui::MenuItem("Reset Camera", "Home")) m_viewport->getCamera().reset();
-            if (ImGui::MenuItem("Command Palette", "Ctrl+K")) m_commandPalette->toggle();
             ImGui::Separator();
             if (m_themeManager->renderSelector()) {
                 m_themeManager->apply();
@@ -962,10 +950,6 @@ void Application::handleShortcuts() {
             }
         }
     }
-    if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_K)) {
-        m_commandPalette->toggle();
-    }
-
     // Ctrl+A: context-aware select-all. Skipped when ImGui has text-input focus
     // so the standard "select all text" behaviour in input fields still works.
     if (ctrlHeld && ImGui::IsKeyPressed(ImGuiKey_A, false) && !io.WantTextInput) {
@@ -1939,7 +1923,6 @@ void Application::run() {
             }
             m_statusBar->setSketchMode(m_inSketchMode);
             m_statusBar->render();
-            m_commandPalette->render();
             FileDialogs::render();
             renderSavePrompt();
 

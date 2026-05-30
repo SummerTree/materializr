@@ -181,7 +181,6 @@ as you drag or type:
 - **Properties panel** — edit any operation's parameters after creation.
   Clicking a fillet or chamfer face in the viewport jumps straight to its
   history step.
-- **Command Palette** (Ctrl+K) — fuzzy search all commands.
 - **Material panel** — assign PBR materials to bodies.
 - **Measure tool** — distance, area, edge length, bounding box.
 - **2D Drawing workspace** — Front/Top/Right/Isometric projections with

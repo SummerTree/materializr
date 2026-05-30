@@ -127,7 +127,6 @@ tag and tells you whether you're up to date. If a newer release exists, the
 | Ctrl+O | Open Project |
 | Ctrl+I | Import STEP |
 | Ctrl+E | Export STEP |
-| Ctrl+K | Command Palette |
 | Ctrl+C | Copy |
 | Ctrl+D | Duplicate |
 | Delete | Delete Selected |

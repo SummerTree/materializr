@@ -29,7 +29,6 @@
 #include "ui/Toolbar.h"
 #include "ui/HistoryPanel.h"
 #include "ui/ItemsPanel.h"
-#include "ui/CommandPalette.h"
 #include "ui/StatusBar.h"
 #include "ui/ThemeManager.h"
 #include "ui/PropertiesPanel.h"
@@ -777,7 +776,6 @@ void Application::renderInteractionsPanel() {
     row("Dimension", "Type value + Enter");
     ImGui::SeparatorText("General");
     row("Undo / Redo", "Ctrl+Z / Ctrl+Y");
-    row("Command palette", "Ctrl+K");
     ImGui::End();
 }
 

@@ -33,7 +33,6 @@ class ShortcutsPanel;
 class HelpPanel;
 class MeasureTool;
 class ItemsPanel;
-class CommandPalette;
 class StatusBar;
 class ThemeManager;
 class PropertiesPanel;
@@ -175,7 +174,6 @@ private:
     std::unique_ptr<Toolbar> m_toolbar;
     std::unique_ptr<HistoryPanel> m_historyPanel;
     std::unique_ptr<ItemsPanel> m_itemsPanel;
-    std::unique_ptr<CommandPalette> m_commandPalette;
     std::unique_ptr<StatusBar> m_statusBar;
     std::unique_ptr<ThemeManager> m_themeManager;
     std::unique_ptr<PropertiesPanel> m_propertiesPanel;

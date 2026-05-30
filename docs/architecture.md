@@ -13,7 +13,7 @@ src/
 ├── plugin/       # Plugin registry + contribution types (toolbar/command/IO/tool)
 ├── plugins/      # Each operation, tool, and IO format registered as a plugin
 ├── viewport/     # 3D rendering (Camera, Grid, ShapeRenderer, Gizmo, ViewCube, Picker)
-├── ui/           # ImGui panels (Toolbar, History, Items, CommandPalette, …)
+├── ui/           # ImGui panels (Toolbar, History, Items, Properties, …)
 └── io/           # File I/O (STEP, STL, IGES, glTF, ProjectIO, Settings, FileDialogs)
 shaders/          # GLSL shaders (grid, mesh, outline)
 tests/            # Google Test unit tests
