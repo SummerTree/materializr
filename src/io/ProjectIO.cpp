@@ -165,6 +165,17 @@ ProjectSaveResult ProjectIO::save(const std::string& filePath, const Document& d
             ofs << "\n";
         }
 
+        // Constraints: opt-in user-applied sketch constraints. One line each,
+        // type stored as the enum's int value (stable as long as we only append
+        // to ConstraintType in SketchConstraints.h — which is the policy).
+        const auto& cns = sk->getConstraints();
+        ofs << "CONSTRAINT_COUNT " << static_cast<int>(cns.size()) << "\n";
+        for (const auto& c : cns) {
+            ofs << "K " << c.id << " " << static_cast<int>(c.type) << " "
+                << c.entityA << " " << c.entityB << " "
+                << c.value << " " << c.valueY << "\n";
+        }
+
         ofs << "SKETCH_END\n";
     }
 
@@ -264,6 +275,7 @@ void readSketch(std::ifstream& ifs, const std::string& startLine, Document& doc)
 
     auto sk = std::make_shared<Sketch>();
     int maxId = 0;
+    int maxConstraintId = 0;
     auto bump = [&](int id) { maxId = std::max(maxId, id); };
 
     std::string line;
@@ -328,11 +340,23 @@ void readSketch(std::ifstream& ifs, const std::string& startLine, Document& doc)
                 for (int k = 0; k < nl; ++k) { int id = 0; s >> id; g.lineIds.push_back(id); }
                 bump(g.id); sk->addRawPolygon(g);
             }
+        } else if (tok == "CONSTRAINT_COUNT") {
+            int n = 0; iss >> n;
+            for (int i = 0; i < n && std::getline(ifs, line); ++i) {
+                std::istringstream s(line); std::string t; Constraint c{};
+                int tval = 0;
+                s >> t >> c.id >> tval >> c.entityA >> c.entityB >> c.value >> c.valueY;
+                c.type = static_cast<ConstraintType>(tval);
+                c.isSatisfied = false; // recomputed on next solve()
+                maxConstraintId = std::max(maxConstraintId, c.id);
+                sk->addRawConstraint(c);
+            }
         }
         // Unknown tokens inside a sketch are ignored for forward compatibility.
     }
 
     sk->setNextId(maxId + 1);
+    sk->setNextConstraintId(maxConstraintId + 1);
     sk->setSourceBody(source);
     int newId = doc.addSketch(sk, name);
     doc.setSketchVisible(newId, visible != 0);

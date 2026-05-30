@@ -29,9 +29,12 @@ void SketchTool::setMode(SketchToolMode mode) {
     m_clickCount = 0;
     m_isPlacing = false;
     m_lastPointId = -1;
+    m_chainStartPointId = -1;
     m_isDragging = false;
     m_dragPointId = -1;
     m_splinePoints.clear();
+    m_hasPrevLineDir = false;
+    m_activeInferences.clear();
 }
 
 SketchToolMode SketchTool::getMode() const {
@@ -132,13 +135,19 @@ void SketchTool::onConfirm() {
     m_isPlacing = false;
     m_clickCount = 0;
     m_lastPointId = -1;
+    m_chainStartPointId = -1;
+    m_hasPrevLineDir = false;
+    m_activeInferences.clear();
 }
 
 void SketchTool::onCancel() {
     m_isPlacing = false;
     m_clickCount = 0;
     m_lastPointId = -1;
+    m_chainStartPointId = -1;
     m_splinePoints.clear();
+    m_hasPrevLineDir = false;
+    m_activeInferences.clear();
 }
 
 bool SketchTool::applyDimension(float value) {
@@ -209,6 +218,10 @@ bool SketchTool::isActive() const {
 }
 
 glm::vec2 SketchTool::snap(glm::vec2 pos) const {
+    // Fresh inference set every snap — the renderer treats this as "what's
+    // active right now".
+    m_activeInferences.clear();
+
     // Point snap radius scales with grid step so it remains useful at 10 mm grids
     // and isn't overaggressive at 0.1 mm grids.
     float pointSnapThreshold = std::max(0.15f, m_gridStep * 0.4f);
@@ -219,6 +232,7 @@ glm::vec2 SketchTool::snap(glm::vec2 pos) const {
         const auto& points = m_sketch->getPoints();
         for (const auto& pt : points) {
             if (glm::length(pos - pt.pos) < pointSnapThreshold) {
+                m_activeInferences.push_back({InferenceGuide::Endpoint, pt.pos, pt.pos, pt.id});
                 return pt.pos;
             }
         }
@@ -261,7 +275,10 @@ glm::vec2 SketchTool::snap(glm::vec2 pos) const {
             const SketchPoint* p2 = m_sketch->getPoint(ln.endPointId);
             if (!p1 || !p2) continue;
             glm::vec2 mid = 0.5f * (p1->pos + p2->pos);
-            if (glm::length(pos - mid) < pointSnapThreshold) return mid;
+            if (glm::length(pos - mid) < pointSnapThreshold) {
+                m_activeInferences.push_back({InferenceGuide::Midpoint, mid, mid, ln.id});
+                return mid;
+            }
         }
         // Snap to arc midpoints.
         for (const auto& a : arcs) {
@@ -286,6 +303,152 @@ glm::vec2 SketchTool::snap(glm::vec2 pos) const {
             glm::length(pos - faceCenter) < pointSnapThreshold) {
             return faceCenter;
         }
+
+        // On-line snap: cursor lands on the perpendicular projection onto any
+        // existing line (excluding endpoints/midpoint, which are handled above).
+        // Tighter threshold than endpoint snap so it doesn't drown out the
+        // axis-from-point inferences below.
+        {
+            const float onLineThresh = pointSnapThreshold * 0.7f;
+            const SketchLine* bestLn = nullptr;
+            glm::vec2 bestProj{0.0f};
+            float bestD = onLineThresh;
+            for (const auto& ln : lines) {
+                const SketchPoint* p1 = m_sketch->getPoint(ln.startPointId);
+                const SketchPoint* p2 = m_sketch->getPoint(ln.endPointId);
+                if (!p1 || !p2) continue;
+                glm::vec2 ab = p2->pos - p1->pos;
+                float len2 = glm::dot(ab, ab);
+                if (len2 < 1e-12f) continue;
+                float t = glm::clamp(glm::dot(pos - p1->pos, ab) / len2, 0.0f, 1.0f);
+                glm::vec2 proj = p1->pos + ab * t;
+                float d = glm::distance(pos, proj);
+                if (d < bestD) {
+                    bestD = d;
+                    bestProj = proj;
+                    bestLn = &ln;
+                }
+            }
+            if (bestLn) {
+                m_activeInferences.push_back(
+                    {InferenceGuide::OnLine, bestProj, bestProj, bestLn->id});
+                return bestProj;
+            }
+        }
+
+        // --- Inferences (draw-time alignment, no persistent constraint) ----
+        // Axis-from-point: cursor's X / Y aligns with an existing point's X / Y.
+        // The "purple line down from point 1" interaction. Width of the snap
+        // band is the same as the grid snap so feel is consistent.
+        const float axisThresh = std::max(0.2f, m_gridStep * 0.3f);
+        const SketchPoint* axisVRef = nullptr; // for the cursor's X matching this point's X
+        const SketchPoint* axisHRef = nullptr; // for the cursor's Y matching this point's Y
+        float bestVDist = axisThresh;
+        float bestHDist = axisThresh;
+        // Includes the chain anchor itself — drawing a horizontal or vertical
+        // line FROM the anchor is one of the most common cases, so the anchor's
+        // axis must be a candidate, not a skipped one.
+        for (const auto& pt : m_sketch->getPoints()) {
+            float dX = std::abs(pos.x - pt.pos.x);
+            float dY = std::abs(pos.y - pt.pos.y);
+            if (dX < bestVDist) { bestVDist = dX; axisVRef = &pt; }
+            if (dY < bestHDist) { bestHDist = dY; axisHRef = &pt; }
+        }
+
+        // Perpendicular / parallel to previous: when drawing a line chain and
+        // we have a direction from the last committed segment, snap the
+        // current direction to either perp or parallel when within ~5° of it.
+        // Whichever is closer wins; they can't both fire simultaneously.
+        bool perpFires = false, parFires = false;
+        glm::vec2 perpDir(0.0f), parDir(0.0f);
+        glm::vec2 perpProj = pos, parProj = pos;
+        if (m_isPlacing && m_hasPrevLineDir && m_mode == SketchToolMode::Line) {
+            perpDir = glm::vec2(-m_prevLineDir.y, m_prevLineDir.x); // 90° rotate
+            parDir  = m_prevLineDir;
+            glm::vec2 v = pos - m_firstClick;
+            float len = glm::length(v);
+            if (len > 1e-6f) {
+                float alongPerp = glm::dot(v, perpDir);
+                float alongPar  = glm::dot(v, parDir);
+                perpProj = m_firstClick + perpDir * alongPerp;
+                parProj  = m_firstClick + parDir  * alongPar;
+                float perpOffset = glm::distance(pos, perpProj);
+                float parOffset  = glm::distance(pos, parProj);
+                // Within ~5° (sin5° ≈ 0.087) of perp / parallel, OR within
+                // axisThresh in absolute world units — whichever is more
+                // generous at this segment length.
+                float angleTol = 0.087f * len;
+                float tol = std::max(axisThresh, angleTol);
+                bool perpClose = perpOffset < tol;
+                bool parClose  = parOffset  < tol;
+                if (perpClose && parClose) {
+                    if (perpOffset <= parOffset) perpFires = true;
+                    else                          parFires  = true;
+                } else if (perpClose) {
+                    perpFires = true;
+                } else if (parClose) {
+                    parFires = true;
+                }
+            }
+        }
+
+        // Combine: if a direction-lock (perp / parallel) AND an axis-from-point
+        // both fire, snap to their intersection — the canonical "even with
+        // that point AND square to the previous side" lock that makes
+        // square-drawing one-click. Solved by parametric line / axis intersect.
+        bool snapped = false;
+        glm::vec2 result = pos;
+        auto applyDirLock = [&](glm::vec2 dir, InferenceGuide::Kind dirKind,
+                                glm::vec2 projFallback) -> bool {
+            if (axisVRef && std::abs(dir.x) > 1e-3f) {
+                float t = (axisVRef->pos.x - m_firstClick.x) / dir.x;
+                result = m_firstClick + dir * t;
+                m_activeInferences.push_back(
+                    {dirKind, m_firstClick, result, -1});
+                m_activeInferences.push_back(
+                    {InferenceGuide::AxisVFromPoint, axisVRef->pos, result, axisVRef->id});
+                return true;
+            }
+            if (axisHRef && std::abs(dir.y) > 1e-3f) {
+                float t = (axisHRef->pos.y - m_firstClick.y) / dir.y;
+                result = m_firstClick + dir * t;
+                m_activeInferences.push_back(
+                    {dirKind, m_firstClick, result, -1});
+                m_activeInferences.push_back(
+                    {InferenceGuide::AxisHFromPoint, axisHRef->pos, result, axisHRef->id});
+                return true;
+            }
+            // No axis intersection — just snap onto the locked direction.
+            result = projFallback;
+            m_activeInferences.push_back({dirKind, m_firstClick, result, -1});
+            return true;
+        };
+        if (perpFires) {
+            snapped = applyDirLock(perpDir, InferenceGuide::PerpToPrev, perpProj);
+        } else if (parFires) {
+            snapped = applyDirLock(parDir, InferenceGuide::ParallelToPrev, parProj);
+        } else if (axisVRef || axisHRef) {
+            // Pure axis-from-point: snap each matched coordinate independently.
+            if (axisVRef) {
+                result.x = axisVRef->pos.x;
+                m_activeInferences.push_back(
+                    {InferenceGuide::AxisVFromPoint, axisVRef->pos, glm::vec2(result.x, pos.y),
+                     axisVRef->id});
+            }
+            if (axisHRef) {
+                result.y = axisHRef->pos.y;
+                m_activeInferences.push_back(
+                    {InferenceGuide::AxisHFromPoint, axisHRef->pos, glm::vec2(pos.x, result.y),
+                     axisHRef->id});
+            }
+            // Refresh the guide endpoints with the final snapped cursor.
+            for (auto& g : m_activeInferences) {
+                if (g.kind == InferenceGuide::AxisVFromPoint) g.to.x = result.x;
+                if (g.kind == InferenceGuide::AxisHFromPoint) g.to.y = result.y;
+            }
+            snapped = true;
+        }
+        if (snapped) return result;
     }
 
     // Grid snap: only kicks in when within `gridSnapThreshold` of a grid line.
@@ -313,80 +476,6 @@ int SketchTool::findCoincidentPoint(glm::vec2 pos, int excludeId) const {
         }
     }
     return -1;
-}
-
-void SketchTool::autoConstrain(int lineId) {
-    if (!m_sketch || !m_solver) return;
-
-    // Find the line we just created
-    const SketchLine* targetLine = nullptr;
-    for (const auto& line : m_sketch->getLines()) {
-        if (line.id == lineId) {
-            targetLine = &line;
-            break;
-        }
-    }
-    if (!targetLine) return;
-
-    const SketchPoint* p1 = m_sketch->getPoint(targetLine->startPointId);
-    const SketchPoint* p2 = m_sketch->getPoint(targetLine->endPointId);
-    if (!p1 || !p2) return;
-
-    float dx = p2->pos.x - p1->pos.x;
-    float dy = p2->pos.y - p1->pos.y;
-    float angle = std::atan2(dy, dx);
-    float absDeg = std::abs(angle * 180.0f / static_cast<float>(M_PI));
-
-    // Check for near-horizontal (within 5 degrees)
-    if (absDeg < 5.0f || absDeg > 175.0f) {
-        Constraint c;
-        c.id = 0; // solver will assign the real id
-        c.type = ConstraintType::Horizontal;
-        c.entityA = lineId;
-        c.entityB = -1;
-        c.value = 0.0;
-        c.isSatisfied = false;
-        m_solver->addConstraint(c);
-    }
-    // Check for near-vertical (within 5 degrees of 90)
-    else if (std::abs(absDeg - 90.0f) < 5.0f) {
-        Constraint c;
-        c.id = 0;
-        c.type = ConstraintType::Vertical;
-        c.entityA = lineId;
-        c.entityB = -1;
-        c.value = 0.0;
-        c.isSatisfied = false;
-        m_solver->addConstraint(c);
-    }
-
-    // Check if start point is coincident with an existing point (other than itself)
-    // Look through all points that are NOT part of this line
-    const auto& allPoints = m_sketch->getPoints();
-    for (const auto& pt : allPoints) {
-        if (pt.id == p1->id || pt.id == p2->id) continue;
-
-        if (glm::length(p1->pos - pt.pos) < 1e-4f) {
-            Constraint c;
-            c.id = 0;
-            c.type = ConstraintType::Coincident;
-            c.entityA = p1->id;
-            c.entityB = pt.id;
-            c.value = 0.0;
-            c.isSatisfied = true; // they are already at the same position
-            m_solver->addConstraint(c);
-        }
-        if (glm::length(p2->pos - pt.pos) < 1e-4f) {
-            Constraint c;
-            c.id = 0;
-            c.type = ConstraintType::Coincident;
-            c.entityA = p2->id;
-            c.entityB = pt.id;
-            c.value = 0.0;
-            c.isSatisfied = true;
-            m_solver->addConstraint(c);
-        }
-    }
 }
 
 void SketchTool::selectAll() {
@@ -473,6 +562,9 @@ void SketchTool::handleLineTool(glm::vec2 pos) {
                 m_lastPointId = m_sketch->addPoint(pos);
             }
         }
+        // Remember where the chain started — closing back onto this point
+        // auto-completes the loop and ends placement (see below).
+        m_chainStartPointId = m_lastPointId;
     } else {
         // Second click: create line and continue chain
         int endPointId = -1;
@@ -491,7 +583,38 @@ void SketchTool::handleLineTool(glm::vec2 pos) {
         }
 
         int newLineId = m_sketch->addLine(m_lastPointId, endPointId);
-        autoConstrain(newLineId);
+        // Constraints are entirely opt-in — no autoConstrain on creation. The
+        // user applies Horizontal / Vertical / Coincident / etc. explicitly via
+        // the toolbar when they want one.
+        (void)newLineId;
+
+        // Remember the direction of the segment we just committed — the
+        // perpendicular- and parallel-to-previous inferences need it while the
+        // user places the next vertex in the chain.
+        const SketchPoint* spJustEnded = m_sketch->getPoint(m_lastPointId);
+        const SketchPoint* epJustEnded = m_sketch->getPoint(endPointId);
+        if (spJustEnded && epJustEnded) {
+            glm::vec2 d = epJustEnded->pos - spJustEnded->pos;
+            float dl = glm::length(d);
+            if (dl > 1e-6f) {
+                m_prevLineDir = d / dl;
+                m_hasPrevLineDir = true;
+            }
+        }
+
+        // Auto-close: if the chain has at least two committed segments and the
+        // endpoint we just placed IS the chain's starting point, the loop is
+        // closed — commit and end the chain so the user doesn't have to hit
+        // Esc/Enter to escape line mode.
+        if (m_clickCount >= 2 && endPointId == m_chainStartPointId) {
+            m_isPlacing = false;
+            m_clickCount = 0;
+            m_lastPointId = -1;
+            m_chainStartPointId = -1;
+            m_hasPrevLineDir = false;
+            m_activeInferences.clear();
+            return;
+        }
 
         // Continue chaining: the end becomes the new start
         m_lastPointId = endPointId;

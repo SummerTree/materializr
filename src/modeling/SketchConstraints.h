@@ -23,7 +23,8 @@ struct Constraint {
     ConstraintType type;
     int entityA = -1;  // point or line id
     int entityB = -1;  // second entity (for Coincident, Parallel, Perpendicular)
-    double value = 0.0; // for Distance, Radius, Angle
+    double value = 0.0;  // Distance / Radius / Angle. For Fixed, the X coord.
+    double valueY = 0.0; // Y coord of the locked position (Fixed only).
     bool isSatisfied = false;
 };
 

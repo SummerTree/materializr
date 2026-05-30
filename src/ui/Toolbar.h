@@ -22,6 +22,11 @@ enum class ToolAction {
     Fillet, Chamfer, EditFilletChamfer, EditDiameter, Shell,
     // Gizmo modes + Mirror
     Move, Rotate, Scale, Mirror,
+    // Sketch constraints (operate on the current SketchTool element selection).
+    // All seven are opt-in — none of them runs unless the user clicks the button.
+    SketchConstrainCoincident, SketchConstrainHorizontal, SketchConstrainVertical,
+    SketchConstrainParallel, SketchConstrainPerpendicular, SketchConstrainEqual,
+    SketchConstrainFixed,
     // General
     Measure, ResetCamera
 };
@@ -59,6 +64,15 @@ public:
     // unambiguous at a glance.
     void setActiveSketchMode(int mode) { m_activeSketchMode = mode; }
 
+    // Current sketch-element selection counts. Application updates these each
+    // frame from SketchTool so the Constraints section of the sketch toolbar
+    // can show only the buttons that match the selection arity, and stay
+    // hidden entirely when nothing is selected.
+    void setSketchSelectionCounts(int points, int lines) {
+        m_selPoints = points;
+        m_selLines = lines;
+    }
+
     // When true (the default) every toolbar button shows a hover tooltip
     // describing what it does. Off via Settings → Interface for users who
     // don't want them. Settable any frame; takes effect on the next frame.
@@ -75,6 +89,8 @@ private:
     bool m_canEditDiameter = false;
     bool m_showTooltips = true;
     int  m_activeSketchMode = 0; // SketchToolMode (see setActiveSketchMode)
+    int  m_selPoints = 0;        // sketch points currently selected (see setSketchSelectionCounts)
+    int  m_selLines = 0;         // sketch lines currently selected
 
     ToolAction renderSketchTools();
     ToolAction renderSketchSelectedTools();

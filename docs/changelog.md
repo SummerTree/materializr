@@ -3,6 +3,49 @@
 All notable changes to Materializr are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow SemVer.
 
+## [0.4.0] — 2026-05-30
+
+### Added
+
+- **SketchUp-style drawing-time inferences.** While you place sketch points,
+  ghost guide lines show what the cursor is aligned to and the cursor snaps to
+  that alignment — without leaving any persistent constraint behind. Seven
+  inference kinds: endpoint (yellow square), midpoint (cyan triangle), on-line
+  (lavender diamond), axis-from-point red horizontal and green vertical
+  dashed guides, perpendicular-to-previous (orange dashed), and parallel-to
+  -previous (magenta dashed). When two inferences fire at once (e.g. the line
+  is perpendicular to the previous segment AND the cursor's X is aligned with
+  an earlier point) the cursor snaps to their **intersection**, which makes
+  drawing a square or any axis-aligned closed shape effectively one click per
+  corner. Every guide is haloed in black so it stays visible against the
+  light-blue sketch face / dark grid backdrop.
+- **Auto-close on chain-start.** Clicking back onto the starting point of a
+  line chain commits the closing segment and ends placement. Combines with
+  the endpoint inference so you don't have to aim precisely — get within snap
+  range, click, done.
+- **Opt-in formal sketch constraints.** Right-click any selected sketch
+  element(s) and a context menu offers "Add Constraint ▸" with seven types:
+  Horizontal, Vertical, Coincident, Parallel, Perpendicular, Equal length,
+  Fix Position. Items are filtered by selection arity so you only ever see
+  options that can actually apply. Once added, a constraint enforces itself
+  during subsequent drags (e.g. dragging a Horizontal line can shorten or
+  reposition it but never tilt it). Constraints round-trip through the
+  project file so they survive save/reload. Geometry you never click a
+  constraint on stays totally free — constraints are 100% opt-in.
+
+### Changed
+
+- **No more silent autoConstrain.** Newly drawn lines used to pick up
+  invisible Horizontal / Vertical / Coincident constraints based on their
+  drawn angle. They no longer do — the inference system above provides the
+  alignment help drawing-time, and persistent constraints come only from
+  explicit user clicks.
+- **Sketch line palette.** Committed sketch lines (lines / circles / arcs) are
+  now deep cobalt (was pastel blue, washed out against the sketch face tint).
+  Preview lines are bright yellow (was white, indistinguishable from the
+  dimension overlay). Dimension overlay stays grey-white. Three colours, three
+  clearly distinct meanings.
+
 ## [0.3.5] — 2026-05-30
 
 ### Added

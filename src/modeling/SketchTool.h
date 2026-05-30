@@ -9,6 +9,26 @@ namespace materializr {
 
 enum class SketchToolMode { None, Select, Line, Circle, Rectangle, Arc, Spline, Polygon, Trim };
 
+// One drawing-time alignment hint. Inferences are transient — they describe
+// what the cursor IS aligned to right now, get drawn as coloured ghost lines /
+// markers, and disappear after the click is placed. No constraint metadata is
+// stored on the resulting geometry; the placed point is just a point.
+struct InferenceGuide {
+    enum Kind {
+        Endpoint,       // cursor snapped onto an existing sketch point
+        Midpoint,       // cursor snapped onto the midpoint of a line / arc
+        OnLine,         // cursor projected onto an existing line (not at an endpoint/midpoint)
+        AxisHFromPoint, // cursor's Y aligns with an existing point's Y → red horizontal guide
+        AxisVFromPoint, // cursor's X aligns with an existing point's X → green vertical guide
+        PerpToPrev,     // cursor is on the perpendicular ray from the chain's previous segment → cyan guide
+        ParallelToPrev, // cursor is on the parallel-to-previous ray → magenta guide
+    };
+    Kind kind;
+    glm::vec2 from;    // ghost guide line start (sketch-space)
+    glm::vec2 to;      // ghost guide line end (typically the snapped cursor)
+    int refId = -1;    // id of the referenced point / line, or -1 if not applicable
+};
+
 class SketchTool {
 public:
     SketchTool();
@@ -83,6 +103,11 @@ public:
     // removed on the next click. Empty when nothing is hovered in Trim mode.
     const std::vector<glm::vec2>& getTrimHoverPoints() const { return m_trimHoverPoints; }
 
+    // The set of inferences active at the most recent snap. The renderer reads
+    // this each frame to draw ghost guide lines. Cleared whenever the cursor
+    // doesn't align with anything.
+    const std::vector<InferenceGuide>& getActiveInferences() const { return m_activeInferences; }
+
     // Is the tool actively placing something?
     bool isActive() const;
 
@@ -98,14 +123,15 @@ private:
     glm::vec2 m_secondClick{0};
     glm::vec2 m_currentPos{0};
 
-    // For line chaining
+    // For line chaining. m_lastPointId is the running tail of the chain that
+    // each new segment extends from. m_chainStartPointId remembers where the
+    // chain *began*, so when the user clicks back onto it we can auto-close
+    // the loop (commit the final segment and end placement).
     int m_lastPointId = -1;
+    int m_chainStartPointId = -1;
 
     // Snap to grid/points
     glm::vec2 snap(glm::vec2 pos) const;
-
-    // Auto-constrain a newly created line (horizontal/vertical/coincident)
-    void autoConstrain(int lineId);
 
     // Find an existing point near the given position (returns -1 if none)
     int findCoincidentPoint(glm::vec2 pos, int excludeId = -1) const;
@@ -135,6 +161,17 @@ private:
     // Updated each frame in Trim mode so the renderer can outline the segment
     // that would be deleted on click.
     std::vector<glm::vec2> m_trimHoverPoints;
+
+    // Direction (unit vector) of the previous segment in the current chain.
+    // Used so "perpendicular to previous" and "parallel to previous" inferences
+    // have something to anchor to while the user draws the next vertex.
+    // Reset on chain-break (onConfirm/onCancel/mode-switch).
+    glm::vec2 m_prevLineDir{0.0f, 0.0f};
+    bool m_hasPrevLineDir = false;
+
+    // Populated as a side-effect of snap(); read by the viewport overlay to
+    // draw ghost guide lines. Mutable so snap() can stay const.
+    mutable std::vector<InferenceGuide> m_activeInferences;
 };
 
 } // namespace materializr

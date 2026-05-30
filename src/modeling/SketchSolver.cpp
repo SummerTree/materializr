@@ -6,29 +6,31 @@ namespace materializr {
 
 SketchSolver::SketchSolver() = default;
 
+// Thin wrappers around the active sketch's constraint storage. The Sketch owns
+// the data; the solver only caches state/DOF from the last solve().
 int SketchSolver::addConstraint(const Constraint& c) {
-    Constraint constraint = c;
-    constraint.id = m_nextId++;
-    m_constraints.push_back(constraint);
-    return constraint.id;
+    if (!m_sketch) return -1;
+    return m_sketch->addConstraint(c);
 }
 
 void SketchSolver::removeConstraint(int id) {
-    m_constraints.erase(
-        std::remove_if(m_constraints.begin(), m_constraints.end(),
-            [id](const Constraint& c) { return c.id == id; }),
-        m_constraints.end());
+    if (!m_sketch) return;
+    m_sketch->removeConstraint(id);
 }
 
+static const std::vector<Constraint> s_emptyConstraints;
 const std::vector<Constraint>& SketchSolver::getConstraints() const {
-    return m_constraints;
+    if (!m_sketch) return s_emptyConstraints;
+    return m_sketch->getConstraints();
 }
 
 bool SketchSolver::solve(Sketch& sketch, int maxIterations, double tolerance) {
+    m_sketch = &sketch;
+    auto& constraints = sketch.getMutableConstraints();
     // Compute degrees of freedom
     int numPoints = sketch.pointCount();
     int numEquations = 0;
-    for (const auto& c : m_constraints) {
+    for (const auto& c : constraints) {
         switch (c.type) {
             case ConstraintType::Coincident:
                 numEquations += 2; // x and y must match
@@ -78,7 +80,7 @@ bool SketchSolver::solve(Sketch& sketch, int maxIterations, double tolerance) {
     for (int iter = 0; iter < maxIterations; ++iter) {
         double maxError = 0.0;
 
-        for (auto& constraint : m_constraints) {
+        for (auto& constraint : constraints) {
             double error = computeError(constraint, sketch);
             maxError = std::max(maxError, std::abs(error));
 
@@ -92,7 +94,7 @@ bool SketchSolver::solve(Sketch& sketch, int maxIterations, double tolerance) {
 
         if (maxError <= tolerance) {
             // Mark all as satisfied
-            for (auto& c : m_constraints) {
+            for (auto& c : constraints) {
                 c.isSatisfied = true;
             }
             return true;
@@ -111,8 +113,10 @@ int SketchSolver::degreesOfFreedom() const {
 }
 
 void SketchSolver::clear() {
-    m_constraints.clear();
-    m_nextId = 1;
+    if (m_sketch) {
+        m_sketch->getMutableConstraints().clear();
+        m_sketch->setNextConstraintId(1);
+    }
     m_state = SketchState::UnderConstrained;
     m_dof = 0;
 }
@@ -176,13 +180,10 @@ double SketchSolver::computeError(const Constraint& c, const Sketch& sketch) con
         case ConstraintType::Fixed: {
             const SketchPoint* pa = sketch.getPoint(c.entityA);
             if (!pa) return 0.0;
+            // Fixed = pin this point at the (value, valueY) it had when the
+            // constraint was added.
             glm::vec2 target(static_cast<float>(c.value),
-                             static_cast<float>(c.entityB != -1 ? static_cast<double>(c.entityB) : 0.0));
-            // For Fixed, we store x in value and y in entityB (as int, limited precision)
-            // Better approach: use value as distance from origin of fixed pos
-            // Actually, Fixed constraint just means "don't move from current position"
-            // We store the fixed position at constraint creation time
-            // For simplicity, error is always 0 if we just prevent movement
+                             static_cast<float>(c.valueY));
             return glm::length(pa->pos - target);
         }
 
@@ -395,7 +396,7 @@ void SketchSolver::applyCorrection(const Constraint& c, Sketch& sketch, double e
 
         case ConstraintType::Fixed: {
             glm::vec2 target(static_cast<float>(c.value),
-                             c.entityB != -1 ? static_cast<float>(c.entityB) : 0.0f);
+                             static_cast<float>(c.valueY));
             sketch.movePoint(c.entityA, target);
             break;
         }

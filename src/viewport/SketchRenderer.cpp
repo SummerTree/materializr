@@ -194,7 +194,9 @@ void SketchRenderer::drawLines(const Sketch* sketch, const glm::mat4& vp) {
         verts.push_back(w2.x); verts.push_back(w2.y); verts.push_back(w2.z);
     }
 
-    glm::vec3 color = glm::vec3(0.2f, 0.6f, 1.0f); // blue for sketch lines
+    // Deep cobalt — saturated enough to pop against the light-blue sketch face
+    // tint, while keeping the "blue = sketch" convention.
+    glm::vec3 color = glm::vec3(0.10f, 0.35f, 0.95f);
     uploadAndDraw(verts, GL_LINES, color, vp, 2.0f);
 }
 
@@ -220,7 +222,7 @@ void SketchRenderer::drawCircles(const Sketch* sketch, const glm::mat4& vp) {
         }
     }
 
-    glm::vec3 color = glm::vec3(0.2f, 0.6f, 1.0f);
+    glm::vec3 color = glm::vec3(0.10f, 0.35f, 0.95f); // deep cobalt
     uploadAndDraw(verts, GL_LINES, color, vp, 2.0f);
 }
 
@@ -255,7 +257,7 @@ void SketchRenderer::drawArcs(const Sketch* sketch, const glm::mat4& vp) {
         }
     }
 
-    glm::vec3 color = glm::vec3(0.2f, 0.6f, 1.0f);
+    glm::vec3 color = glm::vec3(0.10f, 0.35f, 0.95f); // deep cobalt
     uploadAndDraw(verts, GL_LINES, color, vp, 2.0f);
 }
 
@@ -392,7 +394,10 @@ void SketchRenderer::drawPreview(const Sketch* sketch, const SketchTool* tool,
     };
 
     std::vector<float> verts;
-    glm::vec3 color(1.0f, 1.0f, 1.0f);
+    // Bright yellow — distinct from both committed sketch lines (cobalt) and
+    // the dimension overlay (light grey-white). Matches the existing "yellow =
+    // active / being placed" convention used elsewhere (point markers).
+    glm::vec3 color(1.0f, 0.85f, 0.2f);
 
     if (mode == SketchToolMode::Line || mode == SketchToolMode::Spline) {
         pushPt(verts, pw(start));
@@ -691,6 +696,38 @@ void SketchRenderer::drawConstraints(const Sketch* sketch, const SketchSolver* s
 
             uploadAndDraw(verts, GL_LINES, color, vp, 1.5f);
 
+        } else if (c.type == ConstraintType::Equal) {
+            // Two short "=" tick pairs near the midpoint of each constrained line.
+            const SketchLine* lA = nullptr;
+            const SketchLine* lB = nullptr;
+            for (const auto& line : sketch->getLines()) {
+                if (line.id == c.entityA) lA = &line;
+                if (line.id == c.entityB) lB = &line;
+            }
+            if (!lA || !lB) continue;
+            auto drawTicks = [&](const SketchLine* l) {
+                const SketchPoint* p1 = sketch->getPoint(l->startPointId);
+                const SketchPoint* p2 = sketch->getPoint(l->endPointId);
+                if (!p1 || !p2) return;
+                glm::vec2 mid = (p1->pos + p2->pos) * 0.5f;
+                glm::vec2 dir = p2->pos - p1->pos;
+                float ll = glm::length(dir);
+                if (ll < 1e-6f) return;
+                dir /= ll;
+                glm::vec2 perp(-dir.y, dir.x);
+                float s = markerSize * 0.4f;
+                // Two short ticks perpendicular to the line, separated along it.
+                glm::vec2 t1 = mid - dir * (s * 0.4f);
+                glm::vec2 t2 = mid + dir * (s * 0.4f);
+                push2d(verts, t1.x - perp.x * s, t1.y - perp.y * s);
+                push2d(verts, t1.x + perp.x * s, t1.y + perp.y * s);
+                push2d(verts, t2.x - perp.x * s, t2.y - perp.y * s);
+                push2d(verts, t2.x + perp.x * s, t2.y + perp.y * s);
+            };
+            drawTicks(lA);
+            drawTicks(lB);
+            uploadAndDraw(verts, GL_LINES, color, vp, 1.5f);
+
         } else if (c.type == ConstraintType::Parallel || c.type == ConstraintType::Perpendicular) {
             // Draw a small marker at the midpoint of the first line
             glm::vec2 midpoint(0.0f);
@@ -737,7 +774,7 @@ void SketchRenderer::drawConstraints(const Sketch* sketch, const SketchSolver* s
             stateColor = glm::vec3(0.0f, 0.85f, 0.3f);  // green
             break;
         case SketchState::UnderConstrained:
-            stateColor = glm::vec3(0.2f, 0.6f, 1.0f);   // blue
+            stateColor = glm::vec3(0.10f, 0.35f, 0.95f); // deep cobalt — matches sketch line colour
             break;
         case SketchState::OverConstrained:
             stateColor = glm::vec3(0.95f, 0.15f, 0.15f); // red

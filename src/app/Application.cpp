@@ -832,6 +832,22 @@ void Application::handleToolAction(int action) {
             if (m_inSketchMode) m_sketchTool->setMode(SketchToolMode::Trim);
             break;
 
+        // --- Sketch constraints (opt-in only; nothing autoConstrains) ---
+        case ToolAction::SketchConstrainCoincident:
+            applySketchConstraint(ConstraintType::Coincident); break;
+        case ToolAction::SketchConstrainHorizontal:
+            applySketchConstraint(ConstraintType::Horizontal); break;
+        case ToolAction::SketchConstrainVertical:
+            applySketchConstraint(ConstraintType::Vertical); break;
+        case ToolAction::SketchConstrainParallel:
+            applySketchConstraint(ConstraintType::Parallel); break;
+        case ToolAction::SketchConstrainPerpendicular:
+            applySketchConstraint(ConstraintType::Perpendicular); break;
+        case ToolAction::SketchConstrainEqual:
+            applySketchConstraint(ConstraintType::Equal); break;
+        case ToolAction::SketchConstrainFixed:
+            applySketchConstraint(ConstraintType::Fixed); break;
+
         // --- Sketch element transforms (operate on the Select-mode selection) ---
         // Rotate is handled by the sketch gizmo's ring handle (see Application_
         // Viewport.cpp), not as a toolbar action.
@@ -1687,6 +1703,7 @@ void Application::enterSketchMode() {
 
     m_sketchTool->setSketch(m_activeSketch.get());
     m_sketchTool->setSolver(m_sketchSolver.get());
+    m_sketchSolver->setSketch(m_activeSketch.get());
     m_sketchTool->setMode(SketchToolMode::Line);
     m_inSketchMode = true;
     m_sketchEntryHistoryStep = m_history ? m_history->currentStep() : -1;
@@ -1707,6 +1724,7 @@ void Application::enterSketchOnPlane(const gp_Pln& plane) {
 
     m_sketchTool->setSketch(m_activeSketch.get());
     m_sketchTool->setSolver(m_sketchSolver.get());
+    m_sketchSolver->setSketch(m_activeSketch.get());
     m_sketchTool->setMode(SketchToolMode::Line);
     m_inSketchMode = true;
     m_sketchEntryHistoryStep = m_history ? m_history->currentStep() : -1;
@@ -1793,11 +1811,87 @@ void Application::enterSketchOnFace(const TopoDS_Face& face, int sourceBodyId) {
 
     m_sketchTool->setSketch(m_activeSketch.get());
     m_sketchTool->setSolver(m_sketchSolver.get());
+    m_sketchSolver->setSketch(m_activeSketch.get());
     m_sketchTool->setMode(SketchToolMode::Line);
     m_inSketchMode = true;
     m_sketchEntryHistoryStep = m_history ? m_history->currentStep() : -1;
     m_toolbar->setSketchMode(true);
     alignCameraToActiveSketch();
+}
+
+void Application::applySketchConstraint(ConstraintType type) {
+    if (!m_inSketchMode || !m_activeSketch || !m_sketchTool || !m_sketchSolver) return;
+
+    const auto& selPts = m_sketchTool->getSelectedPoints();
+    const auto& selLns = m_sketchTool->getSelectedLines();
+
+    auto pushConstraint = [&](ConstraintType t, int a, int b = -1,
+                              double v = 0.0, double vy = 0.0) {
+        Constraint c;
+        c.id = 0; // sketch assigns
+        c.type = t;
+        c.entityA = a;
+        c.entityB = b;
+        c.value = v;
+        c.valueY = vy;
+        c.isSatisfied = false;
+        m_activeSketch->addConstraint(c);
+    };
+
+    int added = 0;
+    switch (type) {
+        case ConstraintType::Horizontal:
+        case ConstraintType::Vertical: {
+            // Apply to every selected line independently.
+            for (int lid : selLns) {
+                pushConstraint(type, lid);
+                ++added;
+            }
+            break;
+        }
+        case ConstraintType::Coincident: {
+            // Chain pairs: (p0,p1), (p0,p2), ... so any number of points fuse
+            // to the same spot. (Pairwise from the first is cheaper than full
+            // mesh and the solver converges to the same result.)
+            std::vector<int> v(selPts.begin(), selPts.end());
+            for (size_t i = 1; i < v.size(); ++i) {
+                pushConstraint(ConstraintType::Coincident, v[0], v[i]);
+                ++added;
+            }
+            break;
+        }
+        case ConstraintType::Parallel:
+        case ConstraintType::Perpendicular:
+        case ConstraintType::Equal: {
+            // Each subsequent line gets bound to the first.
+            std::vector<int> v(selLns.begin(), selLns.end());
+            for (size_t i = 1; i < v.size(); ++i) {
+                pushConstraint(type, v[0], v[i]);
+                ++added;
+            }
+            break;
+        }
+        case ConstraintType::Fixed: {
+            // Pin each selected point at its CURRENT position.
+            for (int pid : selPts) {
+                const SketchPoint* pp = m_activeSketch->getPoint(pid);
+                if (!pp) continue;
+                pushConstraint(ConstraintType::Fixed, pid, -1,
+                               static_cast<double>(pp->pos.x),
+                               static_cast<double>(pp->pos.y));
+                ++added;
+            }
+            break;
+        }
+        default:
+            break; // Distance / Radius / Tangent / Concentric land in later sessions
+    }
+
+    if (added > 0) {
+        m_sketchSolver->setSketch(m_activeSketch.get());
+        m_sketchSolver->solve(*m_activeSketch);
+        markDirty();
+    }
 }
 
 void Application::recordSketchMutation(const std::function<void()>& mutator) {
@@ -1839,6 +1933,7 @@ void Application::editSketch(int sketchId) {
 
     m_sketchTool->setSketch(m_activeSketch.get());
     m_sketchTool->setSolver(m_sketchSolver.get());
+    m_sketchSolver->setSketch(m_activeSketch.get());
     // When re-entering an existing sketch the user is much more likely to want
     // to tweak it than draw fresh geometry; start in Select/Move mode so they
     // can immediately click & drag points/lines.
@@ -2140,6 +2235,16 @@ void Application::run() {
             // use (Line vs Circle vs etc.) when in sketch mode.
             m_toolbar->setActiveSketchMode(m_inSketchMode && m_sketchTool
                 ? static_cast<int>(m_sketchTool->getMode()) : 0);
+            // Drive the Constraints section: it only appears when sketch
+            // elements are actually selected, and only shows buttons that
+            // match the selection arity.
+            if (m_inSketchMode && m_sketchTool) {
+                m_toolbar->setSketchSelectionCounts(
+                    static_cast<int>(m_sketchTool->getSelectedPoints().size()),
+                    static_cast<int>(m_sketchTool->getSelectedLines().size()));
+            } else {
+                m_toolbar->setSketchSelectionCounts(0, 0);
+            }
             ToolAction action = m_toolbar->render();
             m_sketchGridStep = m_toolbar->getGridStep();
             m_snapToGrid = m_toolbar->getSnapToGrid();

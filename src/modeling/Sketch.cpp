@@ -256,7 +256,23 @@ void Sketch::clear() {
     m_arcs.clear();
     m_splines.clear();
     m_polygons.clear();
+    m_constraints.clear();
     m_nextId = 1;
+    m_nextConstraintId = 1;
+}
+
+int Sketch::addConstraint(const Constraint& c) {
+    Constraint copy = c;
+    copy.id = m_nextConstraintId++;
+    m_constraints.push_back(copy);
+    return copy.id;
+}
+
+void Sketch::removeConstraint(int id) {
+    m_constraints.erase(
+        std::remove_if(m_constraints.begin(), m_constraints.end(),
+            [id](const Constraint& c) { return c.id == id; }),
+        m_constraints.end());
 }
 
 // Build OCCT wires from closed profiles.

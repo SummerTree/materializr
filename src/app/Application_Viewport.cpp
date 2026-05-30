@@ -406,6 +406,110 @@ void Application::renderViewport() {
                 }
             }
 
+            // Inference guides — the SketchUp-style "purple line down from
+            // point 1" ghost markers. Drawn during placement / hover so the
+            // user can see WHY the cursor is being snapped before they click.
+            // Pure visual cue: nothing in the placed geometry remembers them.
+            if (m_inSketchMode && m_activeSketch && m_sketchTool) {
+                const gp_Ax3& iax = m_activeSketch->getPlane().Position();
+                glm::vec3 iO(iax.Location().X(), iax.Location().Y(), iax.Location().Z());
+                glm::vec3 iX(iax.XDirection().X(), iax.XDirection().Y(), iax.XDirection().Z());
+                glm::vec3 iY(iax.YDirection().X(), iax.YDirection().Y(), iax.YDirection().Z());
+                auto sk2w = [&](glm::vec2 p) { return iO + p.x * iX + p.y * iY; };
+
+                // Dark halo drawn under every coloured marker / guide so the
+                // inferences read clearly against the busy sketch background
+                // (light-blue host face, blue sketch lines, dark grid). Without
+                // this the mid-saturation guides are nearly invisible.
+                const ImU32 halo = IM_COL32(0, 0, 0, 220);
+                for (const auto& g : m_sketchTool->getActiveInferences()) {
+                    ImU32 col;
+                    bool dashed = false;
+                    switch (g.kind) {
+                        case InferenceGuide::Endpoint:
+                            col = IM_COL32(255, 220, 50, 255); // yellow
+                            break;
+                        case InferenceGuide::Midpoint:
+                            col = IM_COL32(140, 220, 255, 255); // light cyan
+                            break;
+                        case InferenceGuide::OnLine:
+                            col = IM_COL32(210, 150, 255, 255); // bright lavender
+                            break;
+                        case InferenceGuide::AxisHFromPoint:
+                            col = IM_COL32(255, 80, 80, 255); // red horizontal
+                            dashed = true;
+                            break;
+                        case InferenceGuide::AxisVFromPoint:
+                            col = IM_COL32(80, 230, 100, 255); // green vertical
+                            dashed = true;
+                            break;
+                        case InferenceGuide::PerpToPrev:
+                            col = IM_COL32(255, 165, 0, 255); // bright orange (cyan was too close to face tint)
+                            dashed = true;
+                            break;
+                        case InferenceGuide::ParallelToPrev:
+                            col = IM_COL32(255, 90, 255, 255); // bright magenta
+                            dashed = true;
+                            break;
+                    }
+                    ImVec2 sa, sb;
+                    if (!toImg(sk2w(g.from), sa)) continue;
+                    if (!toImg(sk2w(g.to), sb))   continue;
+                    if (g.kind == InferenceGuide::Endpoint) {
+                        // Square marker AT the anchor point, with dark halo.
+                        const float r = 5.0f;
+                        dl->AddRect(ImVec2(sa.x - r - 1, sa.y - r - 1),
+                                    ImVec2(sa.x + r + 1, sa.y + r + 1),
+                                    halo, 0.0f, 0, 4.0f);
+                        dl->AddRect(ImVec2(sa.x - r, sa.y - r),
+                                    ImVec2(sa.x + r, sa.y + r), col, 0.0f, 0, 2.5f);
+                    } else if (g.kind == InferenceGuide::Midpoint) {
+                        // Triangle marker with halo.
+                        const float r = 5.5f;
+                        ImVec2 t0(sa.x,         sa.y - r);
+                        ImVec2 t1(sa.x - r,     sa.y + r * 0.6f);
+                        ImVec2 t2(sa.x + r,     sa.y + r * 0.6f);
+                        dl->AddTriangle(t0, t1, t2, halo, 4.0f);
+                        dl->AddTriangle(t0, t1, t2, col, 2.5f);
+                    } else if (g.kind == InferenceGuide::OnLine) {
+                        // Diamond marker with halo.
+                        const float r = 5.0f;
+                        ImVec2 d0(sa.x,     sa.y - r);
+                        ImVec2 d1(sa.x + r, sa.y);
+                        ImVec2 d2(sa.x,     sa.y + r);
+                        ImVec2 d3(sa.x - r, sa.y);
+                        dl->AddQuad(d0, d1, d2, d3, halo, 4.0f);
+                        dl->AddQuad(d0, d1, d2, d3, col, 2.2f);
+                    } else if (dashed) {
+                        // Dashed guide with a dark halo behind each dash.
+                        ImVec2 d(sb.x - sa.x, sb.y - sa.y);
+                        float len = std::sqrt(d.x * d.x + d.y * d.y);
+                        if (len < 1.0f) continue;
+                        d.x /= len; d.y /= len;
+                        // Extend the guide past the cursor so it reads as a
+                        // true axis, not just a finite segment.
+                        const float extend = 60.0f;
+                        ImVec2 a0(sa.x - d.x * extend, sa.y - d.y * extend);
+                        float total = len + 2.0f * extend;
+                        const float dashOn = 11.0f, dashOff = 7.0f;
+                        for (float t = 0.0f; t < total; t += dashOn + dashOff) {
+                            float t1 = std::min(t + dashOn, total);
+                            ImVec2 p0(a0.x + d.x * t,  a0.y + d.y * t);
+                            ImVec2 p1(a0.x + d.x * t1, a0.y + d.y * t1);
+                            dl->AddLine(p0, p1, halo, 5.0f);
+                            dl->AddLine(p0, p1, col,  2.5f);
+                        }
+                        // Marker at the reference point so the user can see
+                        // which existing feature the guide is sourced from.
+                        if (g.kind == InferenceGuide::AxisHFromPoint ||
+                            g.kind == InferenceGuide::AxisVFromPoint) {
+                            dl->AddCircleFilled(sa, 5.5f, halo);
+                            dl->AddCircleFilled(sa, 4.0f, col);
+                        }
+                    }
+                }
+            }
+
             // Measure tool — Line mode: render the two captured points and the
             // segment between them in screen space, in a colour deliberately
             // unlike anything else (body edges = white/cyan, sketches = blue,
@@ -1597,6 +1701,17 @@ void Application::renderViewport() {
                         m_sketchTool->selectAll();
                     }
                     m_sketchDragBefore.reset(); // not a drag
+                } else if (ImGui::IsMouseReleased(ImGuiMouseButton_Right)) {
+                    // Right-click in sketch mode opens the constraint context menu
+                    // — but only when (a) the click wasn't a camera-orbit drag and
+                    // (b) the user has at least one sketch element selected. The
+                    // formal-constraints UI lives entirely here so the toolbar
+                    // stays clean for newcomers.
+                    ImVec2 rDrag = ImGui::GetMouseDragDelta(ImGuiMouseButton_Right);
+                    bool wasOrbiting = (std::abs(rDrag.x) > 1.0f || std::abs(rDrag.y) > 1.0f);
+                    if (!wasOrbiting && m_sketchTool->hasElementSelection()) {
+                        m_sketchCtxMenuPending = true;
+                    }
                 } else if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
                     // Pick first to decide between element-drag and box-select.
                     bool tryBoxSelect = (m_sketchTool->getMode() == SketchToolMode::Select);
@@ -1758,6 +1873,55 @@ void Application::renderViewport() {
         ImGui::Separator();
         if (ImGui::MenuItem("Cancel")) {
             m_contextMenuFace.Nullify();
+        }
+        ImGui::EndPopup();
+    }
+
+    // Sketch constraint context menu — appears on right-click in the sketch
+    // viewport when at least one sketch element is selected. Items are filtered
+    // by selection arity so the user never sees an option that can't apply
+    // (e.g. "Parallel" only shows with 2+ lines selected).
+    if (m_sketchCtxMenuPending) {
+        ImGui::OpenPopup("SketchContextMenu");
+        m_sketchCtxMenuPending = false;
+    }
+    if (m_inSketchMode && m_sketchTool && ImGui::BeginPopup("SketchContextMenu")) {
+        int nPts = static_cast<int>(m_sketchTool->getSelectedPoints().size());
+        int nLns = static_cast<int>(m_sketchTool->getSelectedLines().size());
+        ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f),
+                           "Selection: %d point%s, %d line%s",
+                           nPts, nPts == 1 ? "" : "s",
+                           nLns, nLns == 1 ? "" : "s");
+        ImGui::Separator();
+        if (ImGui::BeginMenu("Add Constraint")) {
+            if (nLns >= 1) {
+                if (ImGui::MenuItem("Horizontal"))
+                    applySketchConstraint(ConstraintType::Horizontal);
+                if (ImGui::MenuItem("Vertical"))
+                    applySketchConstraint(ConstraintType::Vertical);
+            }
+            if (nPts >= 2) {
+                if (ImGui::MenuItem("Coincident"))
+                    applySketchConstraint(ConstraintType::Coincident);
+            }
+            if (nLns >= 2) {
+                if (ImGui::MenuItem("Parallel"))
+                    applySketchConstraint(ConstraintType::Parallel);
+                if (ImGui::MenuItem("Perpendicular"))
+                    applySketchConstraint(ConstraintType::Perpendicular);
+                if (ImGui::MenuItem("Equal length"))
+                    applySketchConstraint(ConstraintType::Equal);
+            }
+            if (nPts >= 1) {
+                if (ImGui::MenuItem("Fix Position"))
+                    applySketchConstraint(ConstraintType::Fixed);
+            }
+            // ImGui automatically greys out an empty submenu, but we want to
+            // hint at the cause when nothing matches the selection.
+            if (nPts == 0 && nLns == 0) {
+                ImGui::TextDisabled("(nothing selected)");
+            }
+            ImGui::EndMenu();
         }
         ImGui::EndPopup();
     }

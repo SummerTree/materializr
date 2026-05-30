@@ -1,4 +1,5 @@
 #pragma once
+#include "SketchConstraints.h"
 #include <glm/glm.hpp>
 #include <vector>
 #include <string>
@@ -143,6 +144,19 @@ public:
     void setNextId(int n) { m_nextId = n; }
     int  getNextId() const { return m_nextId; }
 
+    // --- Constraints (entirely opt-in; only user-applied constraints land here) ---
+    // The solver reads from and writes back to this vector. Constraints persist
+    // with the sketch so multiple sketches don't share solver state and project
+    // files can round-trip them.
+    int addConstraint(const Constraint& c);
+    void removeConstraint(int id);
+    const std::vector<Constraint>& getConstraints() const { return m_constraints; }
+    std::vector<Constraint>& getMutableConstraints() { return m_constraints; }
+    // Serialization helper: append a constraint preserving its id (used by ProjectIO).
+    void addRawConstraint(const Constraint& c) { m_constraints.push_back(c); }
+    void setNextConstraintId(int n) { m_nextConstraintId = n; }
+    int  getNextConstraintId() const { return m_nextConstraintId; }
+
 private:
     int m_nextId = 1;
     std::string m_name = "Sketch";
@@ -156,6 +170,8 @@ private:
     std::vector<SketchArc> m_arcs;
     std::vector<SketchSpline> m_splines;
     std::vector<SketchPolygon> m_polygons;
+    std::vector<Constraint> m_constraints;
+    int m_nextConstraintId = 1;
 
     mutable bool m_centroidValid = false;
     mutable glm::vec2 m_centroid{0};

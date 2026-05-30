@@ -159,6 +159,11 @@ ToolAction Toolbar::renderSketchTools() {
     if (ImGui::Button("Radial Pattern", ImVec2(-1, 28))) action = ToolAction::SketchRadialPattern;
     tip("Copy the selected sketch elements around an origin you specify.");
 
+    // Formal constraints (Horizontal/Vertical/Parallel/…) intentionally aren't
+    // surfaced here — they're a power-user feature that overwhelms the panel
+    // for newcomers. They live in the sketch-viewport right-click menu instead;
+    // most users will reach for the SketchUp-style draw-time inferences instead.
+
     ImGui::Separator();
     if (ImGui::Button("Measure", ImVec2(-1, 28))) action = ToolAction::Measure;
     tip("Measure distance / length between picked sketch elements.");

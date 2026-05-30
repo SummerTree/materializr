@@ -11,6 +11,7 @@
 #include <gp_Pln.hxx>
 
 #include "modeling/ExtrudeOp.h" // for ExtrudeMode
+#include "modeling/SketchConstraints.h" // for ConstraintType (applySketchConstraint)
 
 namespace materializr {
 
@@ -142,6 +143,14 @@ private:
     // changed, push a SketchEditOp so the user can Ctrl+Z drawing actions.
     void recordSketchMutation(const std::function<void()>& mutator);
 
+    // Apply a sketch constraint of the given type to the current
+    // SketchTool element selection. Inspects the selection counts to decide
+    // which arity to use (e.g. Coincident chains pairs of selected points;
+    // Parallel pairs each line with the first one). No-op if the selection
+    // doesn't match the constraint's requirements. Routed from the toolbar
+    // Constraints section; constraints are always opt-in.
+    void applySketchConstraint(ConstraintType type);
+
     // Align the orbit camera to look straight at the active sketch's plane in ortho.
     // Called when entering sketch mode / editing an existing sketch.
     void alignCameraToActiveSketch();
@@ -238,6 +247,12 @@ private:
     // the shared m_boxSelect overlay so the rectangle visuals are identical to
     // the 3D mode's.
     bool m_sketchBoxSelectActive = false;
+
+    // Right-click in the sketch viewport with at least one element selected
+    // opens a context menu (currently: Add Constraint ▸ submenu). Set by the
+    // input handler; consumed by the popup-render block on the next frame so
+    // ImGui's OpenPopup happens inside the same window stack as the popup.
+    bool m_sketchCtxMenuPending = false;
 
     std::unique_ptr<SketchSolver> m_sketchSolver;
     std::unique_ptr<SketchTool> m_sketchTool;
