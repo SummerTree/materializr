@@ -527,6 +527,7 @@ void Application::loadAppSettings() {
     m_lightFill = s.lightFill;
     m_msaaSamples = s.msaaSamples;
     m_meshQuality = s.meshQuality;
+    m_selectionLineWidth = s.selectionLineWidth;
     m_autoOpenLastProject = s.autoOpenLastProject;
     m_checkForUpdatesOnLaunch = s.checkForUpdatesOnLaunch;
 
@@ -588,6 +589,7 @@ void Application::applyRenderingSettings() {
     lp.fill = m_lightFill;
     m_shapeRenderer->setLighting(lp);
     m_viewport->setSamples(m_msaaSamples);
+    if (m_selectionHighlight) m_selectionHighlight->setLineWidth(m_selectionLineWidth);
 }
 
 void Application::meshQualityParams(float& deflection, float& angularDeflection) const {
@@ -616,6 +618,7 @@ void Application::saveAppSettings() {
     s.lightFill = m_lightFill;
     s.msaaSamples = m_msaaSamples;
     s.meshQuality = m_meshQuality;
+    s.selectionLineWidth = m_selectionLineWidth;
     s.autoOpenLastProject = m_autoOpenLastProject;
     s.lastProjectPath = m_currentProjectPath; // empty after closeProject()
     s.checkForUpdatesOnLaunch = m_checkForUpdatesOnLaunch;

@@ -297,7 +297,8 @@ private:
     bool  m_lightFill = true;       // soft opposing fill light
     int   m_msaaSamples = 4;        // viewport anti-aliasing: 0=off, 2, 4, 8
     int   m_meshQuality = 1;        // tessellation density: 0=Low..3=Ultra
-    // Apply m_light*/m_msaaSamples to the renderer + viewport.
+    float m_selectionLineWidth = 3.0f; // px width of highlighted edges/body outlines
+    // Apply m_light*/m_msaaSamples/m_selectionLineWidth to the renderer + viewport.
     void applyRenderingSettings();
     // Map m_meshQuality to OCCT tessellation parameters.
     void meshQualityParams(float& deflection, float& angularDeflection) const;

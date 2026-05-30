@@ -18,6 +18,7 @@
 
 #include <vector>
 #include <cstdio>
+#include <algorithm>
 
 namespace materializr {
 
@@ -39,10 +40,49 @@ void main() {
 }
 )";
 
+// Expands each GL_LINES segment into a screen-space quad `u_halfWidth` pixels
+// wide. glLineWidth > 1 is not guaranteed in the 3.3 core profile (the spec
+// only requires a [1,1] aliased range), so wide selection lines have to be
+// built as geometry. Offsets are applied in NDC then scaled back by w so the
+// quad keeps a constant pixel width under perspective.
+static const char* s_lineGeomSrc = R"(
+#version 330 core
+layout(lines) in;
+layout(triangle_strip, max_vertices = 4) out;
+uniform vec2  u_viewport;   // framebuffer size in pixels
+uniform float u_halfWidth;  // half the line width, in pixels
+void main() {
+    vec4 p0 = gl_in[0].gl_Position;
+    vec4 p1 = gl_in[1].gl_Position;
+    if (p0.w <= 0.0 || p1.w <= 0.0) return; // behind the camera
+
+    vec2 ndc0 = p0.xy / p0.w;
+    vec2 ndc1 = p1.xy / p1.w;
+
+    // Direction in pixel space, then a perpendicular pixel offset.
+    vec2 dir = (ndc1 - ndc0) * u_viewport;
+    if (dot(dir, dir) < 1e-12) return;
+    dir = normalize(dir);
+    vec2 normalPx = vec2(-dir.y, dir.x) * u_halfWidth;
+    vec2 ndcOffset = normalPx * 2.0 / u_viewport; // pixels -> NDC
+
+    gl_Position = vec4((ndc0 + ndcOffset) * p0.w, p0.z, p0.w); EmitVertex();
+    gl_Position = vec4((ndc0 - ndcOffset) * p0.w, p0.z, p0.w); EmitVertex();
+    gl_Position = vec4((ndc1 + ndcOffset) * p1.w, p1.z, p1.w); EmitVertex();
+    gl_Position = vec4((ndc1 - ndcOffset) * p1.w, p1.z, p1.w); EmitVertex();
+    EndPrimitive();
+}
+)";
+
 SelectionHighlight::SelectionHighlight() {}
+
+void SelectionHighlight::setLineWidth(float w) {
+    m_edgeLineWidth = std::clamp(w, 1.0f, 10.0f);
+}
 
 SelectionHighlight::~SelectionHighlight() {
     if (m_program) glDeleteProgram(m_program);
+    if (m_lineProgram) glDeleteProgram(m_lineProgram);
     if (m_vao) glDeleteVertexArrays(1, &m_vao);
     if (m_vbo) glDeleteBuffers(1, &m_vbo);
 }
@@ -67,6 +107,35 @@ bool SelectionHighlight::initialize() {
 
     m_locMVP = glGetUniformLocation(m_program, "u_mvp");
     m_locColor = glGetUniformLocation(m_program, "u_color");
+
+    // Second program with a geometry shader for thick lines.
+    unsigned int lvert = 0, lgeom = 0, lfrag = 0;
+    if (!compileShader(lvert, GL_VERTEX_SHADER, s_vertSrc)) return false;
+    if (!compileShader(lgeom, GL_GEOMETRY_SHADER, s_lineGeomSrc)) {
+        glDeleteShader(lvert);
+        return false;
+    }
+    if (!compileShader(lfrag, GL_FRAGMENT_SHADER, s_fragSrc)) {
+        glDeleteShader(lvert);
+        glDeleteShader(lgeom);
+        return false;
+    }
+    m_lineProgram = glCreateProgram();
+    glAttachShader(m_lineProgram, lvert);
+    glAttachShader(m_lineProgram, lgeom);
+    glAttachShader(m_lineProgram, lfrag);
+    glLinkProgram(m_lineProgram);
+    glDeleteShader(lvert);
+    glDeleteShader(lgeom);
+    glDeleteShader(lfrag);
+
+    glGetProgramiv(m_lineProgram, GL_LINK_STATUS, &success);
+    if (!success) return false;
+
+    m_locLineMVP   = glGetUniformLocation(m_lineProgram, "u_mvp");
+    m_locLineColor = glGetUniformLocation(m_lineProgram, "u_color");
+    m_locViewport  = glGetUniformLocation(m_lineProgram, "u_viewport");
+    m_locHalfWidth = glGetUniformLocation(m_lineProgram, "u_halfWidth");
 
     glGenVertexArrays(1, &m_vao);
     glGenBuffers(1, &m_vbo);
@@ -176,22 +245,7 @@ void SelectionHighlight::renderEdge(const TopoDS_Shape& edgeShape, const glm::ma
             verts.insert(verts.end(), {(float)p2.X(),(float)p2.Y(),(float)p2.Z()});
         }
 
-        glUseProgram(m_program);
-        glUniformMatrix4fv(m_locMVP, 1, GL_FALSE, glm::value_ptr(vp));
-        glUniform4f(m_locColor, color.r, color.g, color.b, 1.0f);
-
-        glBindVertexArray(m_vao);
-        glBindBuffer(GL_ARRAY_BUFFER, m_vbo);
-        glBufferData(GL_ARRAY_BUFFER, verts.size() * sizeof(float), verts.data(), GL_DYNAMIC_DRAW);
-
-        glDisable(GL_DEPTH_TEST);
-        glLineWidth(3.0f);
-        glDrawArrays(GL_LINES, 0, static_cast<int>(verts.size() / 3));
-        glLineWidth(1.0f);
-        glEnable(GL_DEPTH_TEST);
-
-        glBindVertexArray(0);
-        glUseProgram(0);
+        drawThickLines(verts, vp, color, m_edgeLineWidth * 0.5f);
     } catch (...) {}
 }
 
@@ -215,18 +269,33 @@ void SelectionHighlight::renderBody(const TopoDS_Shape& bodyShape, const glm::ma
     }
     if (verts.empty()) return;
 
-    glUseProgram(m_program);
-    glUniformMatrix4fv(m_locMVP, 1, GL_FALSE, glm::value_ptr(vp));
-    glUniform4f(m_locColor, color.r, color.g, color.b, 1.0f);
+    // Body outlines track the configured edge width but stay a touch thinner
+    // (the original 2.5:3.0 ratio) so a whole body reads differently from a
+    // single picked edge.
+    drawThickLines(verts, vp, color, m_edgeLineWidth * 0.5f * (2.5f / 3.0f));
+}
+
+void SelectionHighlight::drawThickLines(const std::vector<float>& verts, const glm::mat4& vp,
+                                        const glm::vec3& color, float halfWidthPx) {
+    if (verts.empty() || !m_lineProgram) return;
+
+    GLint viewport[4] = {0, 0, 1, 1};
+    glGetIntegerv(GL_VIEWPORT, viewport);
+    float vw = static_cast<float>(viewport[2] > 0 ? viewport[2] : 1);
+    float vh = static_cast<float>(viewport[3] > 0 ? viewport[3] : 1);
+
+    glUseProgram(m_lineProgram);
+    glUniformMatrix4fv(m_locLineMVP, 1, GL_FALSE, glm::value_ptr(vp));
+    glUniform4f(m_locLineColor, color.r, color.g, color.b, 1.0f);
+    glUniform2f(m_locViewport, vw, vh);
+    glUniform1f(m_locHalfWidth, std::max(0.5f, halfWidthPx));
 
     glBindVertexArray(m_vao);
     glBindBuffer(GL_ARRAY_BUFFER, m_vbo);
     glBufferData(GL_ARRAY_BUFFER, verts.size() * sizeof(float), verts.data(), GL_DYNAMIC_DRAW);
 
     glDisable(GL_DEPTH_TEST);
-    glLineWidth(2.5f);
     glDrawArrays(GL_LINES, 0, static_cast<int>(verts.size() / 3));
-    glLineWidth(1.0f);
     glEnable(GL_DEPTH_TEST);
 
     glBindVertexArray(0);

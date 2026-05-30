@@ -100,141 +100,178 @@ namespace materializr {
 
 void Application::renderSettings() {
     if (!m_showSettings) return;
-    ImGui::SetNextWindowSize(ImVec2(320, 0), ImGuiCond_Appearing);
+    ImGui::SetNextWindowSize(ImVec2(420, 420), ImGuiCond_Appearing);
     if (ImGui::Begin("Settings", &m_showSettings)) {
         bool changed = false; // any change persists the settings file
 
-        ImGui::SeparatorText("Appearance");
-        // Theme selector (the existing one in the View menu mirrors this).
-        if (m_themeManager->renderSelector()) {
-            m_themeManager->apply();
-            changed = true;
+        // Tabs share the same `changed` flag; the Apply/Close row below the
+        // tab bar stays visible regardless of which tab is open. A scrolling
+        // child holds the tab contents so the buttons stay pinned at the
+        // bottom even when a tab's controls overflow.
+        const float footer = ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y;
+        if (ImGui::BeginChild("SettingsBody", ImVec2(0, -footer))) {
+            if (ImGui::BeginTabBar("SettingsTabs")) {
+
+                // ── General ───────────────────────────────────────────────
+                if (ImGui::BeginTabItem("General")) {
+                    ImGui::SeparatorText("Appearance");
+                    // Theme selector (the View menu mirrors this).
+                    if (m_themeManager->renderSelector()) {
+                        m_themeManager->apply();
+                        changed = true;
+                    }
+
+                    ImGui::Spacing();
+                    ImGui::SeparatorText("Autosave");
+                    if (ImGui::Checkbox("Autosave saved projects", &m_autosaveEnabled)) changed = true;
+                    ImGui::TextWrapped("Periodically re-saves the project once it has been "
+                                       "saved to a file at least once.");
+                    ImGui::BeginDisabled(!m_autosaveEnabled);
+                    int interval = static_cast<int>(m_autosaveIntervalSec);
+                    if (ImGui::SliderInt("Interval (s)", &interval, 15, 600, "%d s")) {
+                        m_autosaveIntervalSec = static_cast<float>(interval);
+                        changed = true;
+                    }
+                    ImGui::EndDisabled();
+                    if (m_autosaveEnabled && m_currentProjectPath.empty()) {
+                        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f),
+                            "Save the project once to start autosaving.");
+                    }
+
+                    ImGui::Spacing();
+                    ImGui::SeparatorText("Session");
+                    if (ImGui::Checkbox("Open last project on launch", &m_autoOpenLastProject)) {
+                        changed = true;
+                    }
+                    ImGui::TextWrapped("If on, Materializr reopens the project you had open the last "
+                                       "time you quit. Using File → Close Project before quitting "
+                                       "makes the next launch start empty instead.");
+
+                    ImGui::Spacing();
+                    if (ImGui::Checkbox("Check for updates on launch", &m_checkForUpdatesOnLaunch)) {
+                        changed = true;
+                    }
+                    ImGui::TextWrapped("If on, Materializr asks GitHub for the latest release at "
+                                       "startup and pops a small dialog when a newer build is "
+                                       "available. Turn off for offline or portable use; you can "
+                                       "still check manually via Help → Check for Updates.");
+                    ImGui::EndTabItem();
+                }
+
+                // ── Camera ────────────────────────────────────────────────
+                if (ImGui::BeginTabItem("Camera")) {
+                    ImGui::SeparatorText("Mouse");
+                    ImGui::TextWrapped("Choose which mouse button orbits and which pans. "
+                                       "Zoom is always the scroll wheel.");
+                    ImGui::Spacing();
+
+                    const char* buttons[] = { "Left", "Middle", "Right" };
+                    // Map button index <-> combo index (Left=0, Middle=2, Right=1 in ImGui).
+                    auto toCombo = [](int b) { return b == 0 ? 0 : (b == 2 ? 1 : 2); };
+                    auto fromCombo = [](int c) { return c == 0 ? 0 : (c == 1 ? 2 : 1); };
+
+                    // Trackpad preset: both orbit and pan on the left button (with Shift
+                    // toggling between them). Mirrors what most laptops without a middle
+                    // mouse button can reach. Editing the combos manually disables the box.
+                    bool trackpad = (m_settingsOrbitButton == 0 && m_settingsPanButton == 0);
+                    if (ImGui::Checkbox("Trackpad mode (left-drag = orbit, Shift+left = pan)",
+                                        &trackpad)) {
+                        if (trackpad) { m_settingsOrbitButton = 0; m_settingsPanButton = 0; }
+                        else          { m_settingsOrbitButton = 2; m_settingsPanButton = 1; }
+                    }
+
+                    int orbitC = toCombo(m_settingsOrbitButton);
+                    if (ImGui::Combo("Orbit", &orbitC, buttons, 3)) m_settingsOrbitButton = fromCombo(orbitC);
+                    int panC = toCombo(m_settingsPanButton);
+                    if (ImGui::Combo("Pan", &panC, buttons, 3)) m_settingsPanButton = fromCombo(panC);
+
+                    if (!trackpad && (m_settingsOrbitButton == 0 || m_settingsPanButton == 0)) {
+                        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f),
+                            "Note: Left is also used to select; assigning it here may conflict.");
+                    }
+                    ImGui::TextDisabled("Orbit/Pan buttons take effect on Apply.");
+
+                    ImGui::Spacing();
+                    ImGui::SeparatorText("Orbit behaviour");
+                    // Level (turntable) orbit toggle — applied live.
+                    bool level = m_viewport->getCamera().isLevelOrbit();
+                    if (ImGui::Checkbox("Level orbit (keep horizon flat)", &level)) {
+                        m_viewport->getCamera().setLevelOrbit(level);
+                        changed = true;
+                    }
+                    ImGui::TextWrapped("On: orbiting is a level turntable. Off: free trackball "
+                                       "that can tumble in any direction.");
+
+                    // Invert the cube-drag → orbit direction.
+                    if (ImGui::Checkbox("Invert ViewCube drag direction", &m_invertCubeDrag)) {
+                        changed = true;
+                    }
+                    ImGui::EndTabItem();
+                }
+
+                // ── Rendering ─────────────────────────────────────────────
+                if (ImGui::BeginTabItem("Rendering")) {
+                    ImGui::SeparatorText("Lighting");
+                    // Lighting — tame the harsh single-direction shadows.
+                    ImGui::TextWrapped("Lighting controls how evenly the model is lit.");
+                    if (ImGui::SliderFloat("Ambient", &m_lightAmbient, 0.0f, 1.0f, "%.2f")) {
+                        applyRenderingSettings();
+                        changed = true;
+                    }
+                    ImGui::SetItemTooltip("Higher values brighten shadowed faces for more uniform lighting.");
+                    if (ImGui::Checkbox("Headlight (light follows camera)", &m_lightHeadlight)) {
+                        applyRenderingSettings();
+                        changed = true;
+                    }
+                    ImGui::SetItemTooltip("The face you're looking at is always lit; removes large cast shadows.");
+                    if (ImGui::Checkbox("Fill light (soften opposite side)", &m_lightFill)) {
+                        applyRenderingSettings();
+                        changed = true;
+                    }
+
+                    ImGui::Spacing();
+                    ImGui::SeparatorText("Quality");
+                    // Anti-aliasing.
+                    const char* aaItems[] = { "Off", "2x", "4x", "8x" };
+                    auto samplesToIdx = [](int s) { return s >= 8 ? 3 : (s >= 4 ? 2 : (s >= 2 ? 1 : 0)); };
+                    const int idxToSamples[] = { 0, 2, 4, 8 };
+                    int aaIdx = samplesToIdx(m_msaaSamples);
+                    if (ImGui::Combo("Anti-aliasing", &aaIdx, aaItems, 4)) {
+                        m_msaaSamples = idxToSamples[aaIdx];
+                        applyRenderingSettings();
+                        changed = true;
+                    }
+                    ImGui::SetItemTooltip("Multisampling (MSAA) smooths jagged edges in the viewport.");
+
+                    // Mesh quality — denser tessellation for smoother curved surfaces.
+                    const char* mqItems[] = { "Low", "Medium", "High", "Ultra" };
+                    if (ImGui::Combo("Mesh quality", &m_meshQuality, mqItems, 4)) {
+                        if (m_meshQuality < 0) m_meshQuality = 0;
+                        if (m_meshQuality > 3) m_meshQuality = 3;
+                        m_meshesDirty = true; // re-tessellate at the new density
+                        changed = true;
+                    }
+                    ImGui::SetItemTooltip("Higher quality uses more polygons, smoothing curves and holes.");
+
+                    ImGui::Spacing();
+                    ImGui::SeparatorText("Selection");
+                    // Selection line width — how boldly picked edges/bodies are outlined.
+                    if (ImGui::SliderFloat("Selection line width", &m_selectionLineWidth, 1.0f, 10.0f, "%.1f px")) {
+                        if (m_selectionLineWidth < 1.0f) m_selectionLineWidth = 1.0f;
+                        if (m_selectionLineWidth > 10.0f) m_selectionLineWidth = 10.0f;
+                        applyRenderingSettings();
+                        changed = true;
+                    }
+                    ImGui::SetItemTooltip("Thickness of the highlight drawn over selected edges and bodies. "
+                                          "Increase to make selected edges easier to see.");
+                    ImGui::EndTabItem();
+                }
+
+                ImGui::EndTabBar();
+            }
         }
+        ImGui::EndChild();
 
-        ImGui::SeparatorText("Mouse — Camera");
-        ImGui::TextWrapped("Choose which mouse button orbits and which pans. "
-                           "Zoom is always the scroll wheel.");
-        ImGui::Spacing();
-
-        const char* buttons[] = { "Left", "Middle", "Right" };
-        // Map button index <-> combo index (Left=0, Middle=2, Right=1 in ImGui).
-        auto toCombo = [](int b) { return b == 0 ? 0 : (b == 2 ? 1 : 2); };
-        auto fromCombo = [](int c) { return c == 0 ? 0 : (c == 1 ? 2 : 1); };
-
-        // Trackpad preset: both orbit and pan on the left button (with Shift
-        // toggling between them). Mirrors what most laptops without a middle
-        // mouse button can reach. Editing the combos manually disables the box.
-        bool trackpad = (m_settingsOrbitButton == 0 && m_settingsPanButton == 0);
-        if (ImGui::Checkbox("Trackpad mode (left-drag = orbit, Shift+left = pan)",
-                            &trackpad)) {
-            if (trackpad) { m_settingsOrbitButton = 0; m_settingsPanButton = 0; }
-            else          { m_settingsOrbitButton = 2; m_settingsPanButton = 1; }
-        }
-
-        int orbitC = toCombo(m_settingsOrbitButton);
-        if (ImGui::Combo("Orbit", &orbitC, buttons, 3)) m_settingsOrbitButton = fromCombo(orbitC);
-        int panC = toCombo(m_settingsPanButton);
-        if (ImGui::Combo("Pan", &panC, buttons, 3)) m_settingsPanButton = fromCombo(panC);
-
-        if (!trackpad && (m_settingsOrbitButton == 0 || m_settingsPanButton == 0)) {
-            ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f),
-                "Note: Left is also used to select; assigning it here may conflict.");
-        }
-
-        // Level (turntable) orbit toggle — applied live.
-        bool level = m_viewport->getCamera().isLevelOrbit();
-        if (ImGui::Checkbox("Level orbit (keep horizon flat)", &level)) {
-            m_viewport->getCamera().setLevelOrbit(level);
-            changed = true;
-        }
-        ImGui::TextWrapped("On: orbiting is a level turntable. Off: free trackball "
-                           "that can tumble in any direction.");
-
-        // Invert the cube-drag → orbit direction.
-        if (ImGui::Checkbox("Invert ViewCube drag direction", &m_invertCubeDrag)) {
-            changed = true;
-        }
-
-        ImGui::Spacing();
-        ImGui::SeparatorText("Autosave");
-        if (ImGui::Checkbox("Autosave saved projects", &m_autosaveEnabled)) changed = true;
-        ImGui::TextWrapped("Periodically re-saves the project once it has been "
-                           "saved to a file at least once.");
-        ImGui::BeginDisabled(!m_autosaveEnabled);
-        int interval = static_cast<int>(m_autosaveIntervalSec);
-        if (ImGui::SliderInt("Interval (s)", &interval, 15, 600, "%d s")) {
-            m_autosaveIntervalSec = static_cast<float>(interval);
-            changed = true;
-        }
-        ImGui::EndDisabled();
-        if (m_autosaveEnabled && m_currentProjectPath.empty()) {
-            ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f),
-                "Save the project once to start autosaving.");
-        }
-
-        ImGui::Spacing();
-        ImGui::SeparatorText("Session");
-        if (ImGui::Checkbox("Open last project on launch", &m_autoOpenLastProject)) {
-            changed = true;
-        }
-        ImGui::TextWrapped("If on, Materializr reopens the project you had open the last "
-                           "time you quit. Using File → Close Project before quitting "
-                           "makes the next launch start empty instead.");
-
-        ImGui::Spacing();
-        if (ImGui::Checkbox("Check for updates on launch", &m_checkForUpdatesOnLaunch)) {
-            changed = true;
-        }
-        ImGui::TextWrapped("If on, Materializr asks GitHub for the latest release at "
-                           "startup and pops a small dialog when a newer build is "
-                           "available. Turn off for offline or portable use; you can "
-                           "still check manually via Help → Check for Updates.");
-
-        ImGui::Spacing();
-        ImGui::SeparatorText("Rendering");
-
-        // Lighting — tame the harsh single-direction shadows.
-        ImGui::TextWrapped("Lighting controls how evenly the model is lit.");
-        if (ImGui::SliderFloat("Ambient", &m_lightAmbient, 0.0f, 1.0f, "%.2f")) {
-            applyRenderingSettings();
-            changed = true;
-        }
-        ImGui::SetItemTooltip("Higher values brighten shadowed faces for more uniform lighting.");
-        if (ImGui::Checkbox("Headlight (light follows camera)", &m_lightHeadlight)) {
-            applyRenderingSettings();
-            changed = true;
-        }
-        ImGui::SetItemTooltip("The face you're looking at is always lit; removes large cast shadows.");
-        if (ImGui::Checkbox("Fill light (soften opposite side)", &m_lightFill)) {
-            applyRenderingSettings();
-            changed = true;
-        }
-
-        ImGui::Spacing();
-        // Anti-aliasing.
-        const char* aaItems[] = { "Off", "2x", "4x", "8x" };
-        auto samplesToIdx = [](int s) { return s >= 8 ? 3 : (s >= 4 ? 2 : (s >= 2 ? 1 : 0)); };
-        const int idxToSamples[] = { 0, 2, 4, 8 };
-        int aaIdx = samplesToIdx(m_msaaSamples);
-        if (ImGui::Combo("Anti-aliasing", &aaIdx, aaItems, 4)) {
-            m_msaaSamples = idxToSamples[aaIdx];
-            applyRenderingSettings();
-            changed = true;
-        }
-        ImGui::SetItemTooltip("Multisampling (MSAA) smooths jagged edges in the viewport.");
-
-        ImGui::Spacing();
-        // Mesh quality — denser tessellation for smoother curved surfaces.
-        const char* mqItems[] = { "Low", "Medium", "High", "Ultra" };
-        if (ImGui::Combo("Mesh quality", &m_meshQuality, mqItems, 4)) {
-            if (m_meshQuality < 0) m_meshQuality = 0;
-            if (m_meshQuality > 3) m_meshQuality = 3;
-            m_meshesDirty = true; // re-tessellate at the new density
-            changed = true;
-        }
-        ImGui::SetItemTooltip("Higher quality uses more polygons, smoothing curves and holes.");
-
-        ImGui::Spacing();
         ImGui::Separator();
         if (ImGui::Button("Apply", ImVec2(90, 0))) {
             m_orbitButton = m_settingsOrbitButton;

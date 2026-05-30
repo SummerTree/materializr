@@ -104,6 +104,7 @@ AppSettings SettingsIO::load(const std::string& path) {
     readBool(kv, "lightFill",            s.lightFill);
     readInt (kv, "msaaSamples",          s.msaaSamples);
     readInt (kv, "meshQuality",          s.meshQuality);
+    readFloat(kv, "selectionLineWidth",  s.selectionLineWidth);
     readBool(kv, "autoOpenLastProject",  s.autoOpenLastProject);
     readString(kv, "lastProjectPath",    s.lastProjectPath);
     readBool(kv, "checkForUpdatesOnLaunch", s.checkForUpdatesOnLaunch);
@@ -137,6 +138,7 @@ bool SettingsIO::save(const std::string& path, const AppSettings& s) {
     ofs << "lightFill = "           << (s.lightFill ? "true" : "false") << "\n";
     ofs << "msaaSamples = "         << s.msaaSamples         << "\n";
     ofs << "meshQuality = "         << s.meshQuality         << "\n";
+    ofs << "selectionLineWidth = "  << s.selectionLineWidth  << "\n";
     ofs << "autoOpenLastProject = " << (s.autoOpenLastProject ? "true" : "false") << "\n";
     ofs << "lastProjectPath = "     << s.lastProjectPath     << "\n";
     ofs << "checkForUpdatesOnLaunch = " << (s.checkForUpdatesOnLaunch ? "true" : "false") << "\n";
