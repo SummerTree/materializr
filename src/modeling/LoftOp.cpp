@@ -40,7 +40,7 @@ bool LoftOp::execute(Document& doc) {
         }
 
         TopoDS_Shape loftedShape = thruSections.Shape();
-        m_createdBodyId = doc.addBody(loftedShape, "Loft");
+        doc.addOrPutBody(m_createdBodyId, loftedShape, "Loft");
 
         return true;
     } catch (...) {
@@ -52,7 +52,7 @@ bool LoftOp::undo(Document& doc) {
     try {
         if (m_createdBodyId >= 0) {
             doc.removeBody(m_createdBodyId);
-            m_createdBodyId = -1;
+            // Keep m_createdBodyId — tombstone restore on next execute().
         }
         return true;
     } catch (...) {

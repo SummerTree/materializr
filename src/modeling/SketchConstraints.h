@@ -15,7 +15,8 @@ enum class ConstraintType {
     Fixed,         // point locked in place
     Tangent,       // arc/circle tangent to line
     Equal,         // two lines have equal length
-    Concentric     // two circles/arcs share same center
+    Concentric,    // two circles/arcs share same center
+    Angle          // fixed angle (radians) between two lines
 };
 
 struct Constraint {

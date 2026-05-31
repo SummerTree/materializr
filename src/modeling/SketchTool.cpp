@@ -35,6 +35,8 @@ void SketchTool::setMode(SketchToolMode mode) {
     m_splinePoints.clear();
     m_hasPrevLineDir = false;
     m_activeInferences.clear();
+    m_rectDimStage = 0;
+    m_rectDimH = 0.0f;
 }
 
 SketchToolMode SketchTool::getMode() const {
@@ -48,6 +50,13 @@ void SketchTool::onMouseDown(glm::vec2 pos, bool addToSel) {
     // Trim picks by proximity to existing geometry; snapping the cursor first
     // would pull the click toward unrelated nearby points/edges and pick wrong.
     glm::vec2 snapped = (m_mode == SketchToolMode::Trim) ? pos : snap(pos);
+
+    // Rectangle stage-1 (width typed-in, cursor still drives height): the
+    // click that commits the second corner should use the LOCKED width on the
+    // X axis, not whatever the cursor happens to be at horizontally.
+    if (m_mode == SketchToolMode::Rectangle && m_rectDimStage == 1 && m_isPlacing) {
+        snapped.x = m_firstClick.x + m_rectDimH;
+    }
 
     if (m_mode == SketchToolMode::None) return;
 
@@ -88,6 +97,14 @@ void SketchTool::onMouseMove(glm::vec2 pos) {
     glm::vec2 delta  = newPos - m_currentPos;
     m_currentPos = newPos;
 
+    // Rectangle two-stage typed input: after the user has typed width + Enter
+    // (stage 1), the X side is locked. Override the cursor-driven X so the
+    // live preview keeps the typed width visible while the user adjusts /
+    // types / clicks for the height.
+    if (m_mode == SketchToolMode::Rectangle && m_rectDimStage == 1) {
+        m_currentPos.x = m_firstClick.x + m_rectDimH;
+    }
+
     if (m_mode == SketchToolMode::Trim) {
         computeTrimHover(pos);
     } else if (!m_trimHoverPoints.empty()) {
@@ -109,9 +126,30 @@ void SketchTool::onMouseMove(glm::vec2 pos) {
         }
         if (pts.empty() && m_dragPointId >= 0) pts.insert(m_dragPointId);
 
-        for (int pid : pts) {
-            const SketchPoint* p = m_sketch->getPoint(pid);
-            if (p) m_sketch->movePoint(pid, p->pos + delta);
+        // When a single point is being dragged, run inference snap on its
+        // target position so endpoint / midpoint / on-line / axis-from-point
+        // guides fire mid-drag (the same as during placement). The dragged
+        // point itself is excluded so it doesn't snap to its starting spot.
+        // For multi-point drags we skip inference snap — there's no single
+        // "cursor follows this point" semantic, and snapping one would slide
+        // the others off.
+        if (pts.size() == 1 && m_dragPointId >= 0) {
+            const SketchPoint* p = m_sketch->getPoint(m_dragPointId);
+            if (p) {
+                m_snapExcludePoints = pts;
+                glm::vec2 target = p->pos + delta;
+                glm::vec2 inferred = snap(target);
+                m_snapExcludePoints.clear();
+                m_sketch->movePoint(m_dragPointId, inferred);
+            }
+        } else {
+            for (int pid : pts) {
+                const SketchPoint* p = m_sketch->getPoint(pid);
+                if (p) m_sketch->movePoint(pid, p->pos + delta);
+            }
+            // Multi-point drag doesn't fire inferences; clear any stale ones
+            // so the overlay doesn't draw guides from the previous frame.
+            m_activeInferences.clear();
         }
         if (m_solver) m_solver->solve(*m_sketch);
     }
@@ -121,6 +159,9 @@ void SketchTool::onMouseUp(glm::vec2 /*pos*/) {
     if (m_isDragging) {
         m_isDragging = false;
         m_dragPointId = -1;
+        // No more drag — clear any drag-time inference guides so the overlay
+        // doesn't linger after the user releases the mouse.
+        m_activeInferences.clear();
     }
 }
 
@@ -136,18 +177,32 @@ void SketchTool::onConfirm() {
     m_clickCount = 0;
     m_lastPointId = -1;
     m_chainStartPointId = -1;
+    m_chainStartPointCreated = false;
     m_hasPrevLineDir = false;
     m_activeInferences.clear();
+    m_rectDimStage = 0;
+    m_rectDimH = 0.0f;
 }
 
 void SketchTool::onCancel() {
+    // If only the first click of a line chain was made and we created its
+    // anchor point fresh (no existing point was reused), drop that orphan so
+    // a cancelled draw doesn't leave a stray yellow endpoint marker behind.
+    if (m_sketch && m_mode == SketchToolMode::Line &&
+        m_clickCount == 1 && m_chainStartPointCreated &&
+        m_chainStartPointId >= 0) {
+        m_sketch->removeElement(m_chainStartPointId);
+    }
     m_isPlacing = false;
     m_clickCount = 0;
     m_lastPointId = -1;
     m_chainStartPointId = -1;
+    m_chainStartPointCreated = false;
     m_splinePoints.clear();
     m_hasPrevLineDir = false;
     m_activeInferences.clear();
+    m_rectDimStage = 0;
+    m_rectDimH = 0.0f;
 }
 
 bool SketchTool::applyDimension(float value) {
@@ -161,13 +216,22 @@ bool SketchTool::applyDimension(float value) {
 
     switch (m_mode) {
         case SketchToolMode::Line: {
+            // Type-to-place a single segment, then end the chain. Without the
+            // onConfirm() the chain stayed live and the next click would
+            // either extend the chain or — worse — get pulled onto the
+            // just-drawn line by the on-line inference and look like a point
+            // was added partway along the segment. The user wanted typing to
+            // commit the line and leave a fresh anchor for the next click.
             glm::vec2 endPos = m_firstClick + dir * value;
             handleLineTool(endPos);
+            onConfirm();
             return true;
         }
         case SketchToolMode::Circle: {
-            // value = radius. Pass any point at that radius to handleCircleTool.
-            glm::vec2 perimeter = m_firstClick + dir * value;
+            // Popup asks for DIAMETER (matching the on-canvas "X.X mm dia"
+            // readout). Convert to radius for the underlying circle.
+            float radius = value * 0.5f;
+            glm::vec2 perimeter = m_firstClick + dir * radius;
             handleCircleTool(perimeter);
             return true;
         }
@@ -181,12 +245,27 @@ bool SketchTool::applyDimension(float value) {
             return true;
         }
         case SketchToolMode::Rectangle: {
-            // value = side length; use the cursor direction's signs to decide which quadrant
+            // Two-stage typed input: first Enter sets the horizontal side
+            // (cursor X locks, user can still move cursor for Y), second Enter
+            // sets the vertical side AND commits. Quadrant comes from where
+            // the cursor is relative to the first click so the rectangle
+            // grows in the user's intended direction.
             float sx = (delta.x >= 0.0f) ? 1.0f : -1.0f;
             float sy = (delta.y >= 0.0f) ? 1.0f : -1.0f;
-            glm::vec2 corner = m_firstClick + glm::vec2(value * sx, value * sy);
-            handleRectangleTool(corner);
-            return true;
+            if (m_rectDimStage == 0) {
+                m_rectDimH = value * sx;
+                m_rectDimStage = 1;
+                // Lock the preview's X to the typed horizontal while the user
+                // either drags for vertical or types the second value.
+                m_currentPos.x = m_firstClick.x + m_rectDimH;
+                return true;
+            } else {
+                glm::vec2 corner = m_firstClick + glm::vec2(m_rectDimH, value * sy);
+                handleRectangleTool(corner);
+                m_rectDimStage = 0;
+                m_rectDimH = 0.0f;
+                return true;
+            }
         }
         case SketchToolMode::Arc: {
             // Arc needs three clicks; a single value can't fully specify it. No-op.
@@ -231,9 +310,22 @@ glm::vec2 SketchTool::snap(glm::vec2 pos) const {
     if (m_sketch) {
         const auto& points = m_sketch->getPoints();
         for (const auto& pt : points) {
+            // During a drag, skip the points being moved — they'd snap to
+            // their own starting position and lock the drag in place.
+            if (m_snapExcludePoints.count(pt.id)) continue;
             if (glm::length(pos - pt.pos) < pointSnapThreshold) {
                 m_activeInferences.push_back({InferenceGuide::Endpoint, pt.pos, pt.pos, pt.id});
                 return pt.pos;
+            }
+        }
+        // Face-reference points (vertices and curve samples from the host
+        // face). Same endpoint inference, just sourced from the 3D geometry
+        // the sketch was started on. refId of -1 since these aren't sketch
+        // points and don't have ids the rest of the system cares about.
+        for (const auto& fp : m_sketch->getFaceReferences().points) {
+            if (glm::length(pos - fp) < pointSnapThreshold) {
+                m_activeInferences.push_back({InferenceGuide::Endpoint, fp, fp, -1});
+                return fp;
             }
         }
 
@@ -271,12 +363,23 @@ glm::vec2 SketchTool::snap(glm::vec2 pos) const {
         // Snap to line midpoints (matches the green dots drawn by the renderer).
         const auto& lines = m_sketch->getLines();
         for (const auto& ln : lines) {
+            // Skip lines being dragged — their midpoint is moving with them.
+            if (m_snapExcludePoints.count(ln.startPointId) ||
+                m_snapExcludePoints.count(ln.endPointId)) continue;
             const SketchPoint* p1 = m_sketch->getPoint(ln.startPointId);
             const SketchPoint* p2 = m_sketch->getPoint(ln.endPointId);
             if (!p1 || !p2) continue;
             glm::vec2 mid = 0.5f * (p1->pos + p2->pos);
             if (glm::length(pos - mid) < pointSnapThreshold) {
                 m_activeInferences.push_back({InferenceGuide::Midpoint, mid, mid, ln.id});
+                return mid;
+            }
+        }
+        // Face-reference line midpoints — same idea on the host face's edges.
+        for (const auto& fl : m_sketch->getFaceReferences().lines) {
+            glm::vec2 mid = 0.5f * (fl.first + fl.second);
+            if (glm::length(pos - mid) < pointSnapThreshold) {
+                m_activeInferences.push_back({InferenceGuide::Midpoint, mid, mid, -1});
                 return mid;
             }
         }
@@ -314,6 +417,9 @@ glm::vec2 SketchTool::snap(glm::vec2 pos) const {
             glm::vec2 bestProj{0.0f};
             float bestD = onLineThresh;
             for (const auto& ln : lines) {
+                // Skip dragged lines.
+                if (m_snapExcludePoints.count(ln.startPointId) ||
+                    m_snapExcludePoints.count(ln.endPointId)) continue;
                 const SketchPoint* p1 = m_sketch->getPoint(ln.startPointId);
                 const SketchPoint* p2 = m_sketch->getPoint(ln.endPointId);
                 if (!p1 || !p2) continue;
@@ -334,6 +440,74 @@ glm::vec2 SketchTool::snap(glm::vec2 pos) const {
                     {InferenceGuide::OnLine, bestProj, bestProj, bestLn->id});
                 return bestProj;
             }
+            // Same on-line check against the face's straight edges.
+            glm::vec2 bestFaceProj{0.0f};
+            float bestFaceD = onLineThresh;
+            bool faceHit = false;
+            for (const auto& fl : m_sketch->getFaceReferences().lines) {
+                glm::vec2 ab = fl.second - fl.first;
+                float len2 = glm::dot(ab, ab);
+                if (len2 < 1e-12f) continue;
+                float t = glm::clamp(glm::dot(pos - fl.first, ab) / len2, 0.0f, 1.0f);
+                glm::vec2 proj = fl.first + ab * t;
+                float d = glm::distance(pos, proj);
+                if (d < bestFaceD) {
+                    bestFaceD = d;
+                    bestFaceProj = proj;
+                    faceHit = true;
+                }
+            }
+            if (faceHit) {
+                m_activeInferences.push_back(
+                    {InferenceGuide::OnLine, bestFaceProj, bestFaceProj, -1});
+                return bestFaceProj;
+            }
+        }
+
+        // Extension-of-line: cursor lands on the infinite line through an
+        // existing segment, but outside its endpoints. Useful for aligning
+        // new geometry with the direction of a diagonal line that doesn't
+        // happen to have a point exactly where you want to draw. Renders as
+        // a dashed guide from the original segment through the snapped cursor.
+        {
+            const float extThresh = pointSnapThreshold * 0.6f;
+            const SketchLine* bestLn = nullptr;
+            glm::vec2 bestProj{0.0f};
+            float bestD = extThresh;
+            for (const auto& ln : lines) {
+                if (m_snapExcludePoints.count(ln.startPointId) ||
+                    m_snapExcludePoints.count(ln.endPointId)) continue;
+                const SketchPoint* p1 = m_sketch->getPoint(ln.startPointId);
+                const SketchPoint* p2 = m_sketch->getPoint(ln.endPointId);
+                if (!p1 || !p2) continue;
+                glm::vec2 ab = p2->pos - p1->pos;
+                float len2 = glm::dot(ab, ab);
+                if (len2 < 1e-12f) continue;
+                float t = glm::dot(pos - p1->pos, ab) / len2; // UNCLAMPED
+                // Only fire OUTSIDE the segment — inside it was handled by
+                // the on-line snap above.
+                if (t >= 0.0f && t <= 1.0f) continue;
+                glm::vec2 proj = p1->pos + ab * t;
+                float d = glm::distance(pos, proj);
+                if (d < bestD) {
+                    bestD = d;
+                    bestProj = proj;
+                    bestLn = &ln;
+                }
+            }
+            if (bestLn) {
+                const SketchPoint* p1 = m_sketch->getPoint(bestLn->startPointId);
+                const SketchPoint* p2 = m_sketch->getPoint(bestLn->endPointId);
+                // Source the guide line from the existing segment's midpoint
+                // (or either endpoint) so the renderer's dashed-line "extend"
+                // visual draws the whole infinite line cleanly through both
+                // the existing segment and the snapped cursor.
+                glm::vec2 from = p1 ? p1->pos : bestProj;
+                if (p1 && p2) from = 0.5f * (p1->pos + p2->pos);
+                m_activeInferences.push_back(
+                    {InferenceGuide::OnLineExtension, from, bestProj, bestLn->id});
+                return bestProj;
+            }
         }
 
         // --- Inferences (draw-time alignment, no persistent constraint) ----
@@ -341,18 +515,38 @@ glm::vec2 SketchTool::snap(glm::vec2 pos) const {
         // The "purple line down from point 1" interaction. Width of the snap
         // band is the same as the grid snap so feel is consistent.
         const float axisThresh = std::max(0.2f, m_gridStep * 0.3f);
-        const SketchPoint* axisVRef = nullptr; // for the cursor's X matching this point's X
-        const SketchPoint* axisHRef = nullptr; // for the cursor's Y matching this point's Y
+        // Axis references can come from either an existing sketch point OR a
+        // face-reference point — the inference treats them the same way, so
+        // store as a generic 2D position + an optional sketch point id.
+        glm::vec2 axisVPos{0.0f}, axisHPos{0.0f};
+        int axisVRefId = -1, axisHRefId = -1;
+        bool axisVFires = false, axisHFires = false;
         float bestVDist = axisThresh;
         float bestHDist = axisThresh;
         // Includes the chain anchor itself — drawing a horizontal or vertical
         // line FROM the anchor is one of the most common cases, so the anchor's
-        // axis must be a candidate, not a skipped one.
+        // axis must be a candidate, not a skipped one. Dragged points are
+        // skipped (drawing a guide from a point to itself is meaningless).
         for (const auto& pt : m_sketch->getPoints()) {
+            if (m_snapExcludePoints.count(pt.id)) continue;
             float dX = std::abs(pos.x - pt.pos.x);
             float dY = std::abs(pos.y - pt.pos.y);
-            if (dX < bestVDist) { bestVDist = dX; axisVRef = &pt; }
-            if (dY < bestHDist) { bestHDist = dY; axisHRef = &pt; }
+            if (dX < bestVDist) {
+                bestVDist = dX; axisVPos = pt.pos; axisVRefId = pt.id; axisVFires = true;
+            }
+            if (dY < bestHDist) {
+                bestHDist = dY; axisHPos = pt.pos; axisHRefId = pt.id; axisHFires = true;
+            }
+        }
+        for (const auto& fp : m_sketch->getFaceReferences().points) {
+            float dX = std::abs(pos.x - fp.x);
+            float dY = std::abs(pos.y - fp.y);
+            if (dX < bestVDist) {
+                bestVDist = dX; axisVPos = fp; axisVRefId = -1; axisVFires = true;
+            }
+            if (dY < bestHDist) {
+                bestHDist = dY; axisHPos = fp; axisHRefId = -1; axisHFires = true;
+            }
         }
 
         // Perpendicular / parallel to previous: when drawing a line chain and
@@ -392,75 +586,150 @@ glm::vec2 SketchTool::snap(glm::vec2 pos) const {
             }
         }
 
-        // Combine: if a direction-lock (perp / parallel) AND an axis-from-point
-        // both fire, snap to their intersection — the canonical "even with
-        // that point AND square to the previous side" lock that makes
-        // square-drawing one-click. Solved by parametric line / axis intersect.
+        // Tangent-to-circle detection: compute direction now so the combine
+        // block below can treat it as another direction-lock candidate (so
+        // tangent + axis-from-point intersect like perp + axis does).
+        bool tangentFires = false;
+        glm::vec2 tangentDir(0.0f), tangentProj = pos;
+        int tangentRefId = -1;
+        if (m_isPlacing && m_mode == SketchToolMode::Line) {
+            glm::vec2 v = pos - m_firstClick;
+            float len = glm::length(v);
+            if (len > 0.5f) {
+                float cursorAngle = std::atan2(v.y, v.x);
+                const float angTol = 3.0f * static_cast<float>(M_PI) / 180.0f;
+                auto angDiff = [](float a, float b) {
+                    const float TWO_PI = 2.0f * static_cast<float>(M_PI);
+                    float d = std::fmod(std::abs(a - b), TWO_PI);
+                    if (d > static_cast<float>(M_PI)) d = TWO_PI - d;
+                    return d;
+                };
+                auto checkTangent = [&](glm::vec2 cpos, double cradius, int refId) {
+                    glm::vec2 toC = cpos - m_firstClick;
+                    float D = glm::length(toC);
+                    if (D <= static_cast<float>(cradius) + 1e-3f) return;
+                    float baseAngle = std::atan2(toC.y, toC.x);
+                    float tangentOffset = std::asin(static_cast<float>(cradius) / D);
+                    float ang1 = baseAngle + tangentOffset;
+                    float ang2 = baseAngle - tangentOffset;
+                    float d1 = angDiff(cursorAngle, ang1);
+                    float d2 = angDiff(cursorAngle, ang2);
+                    float bestDelta = std::min(d1, d2);
+                    if (bestDelta < angTol) {
+                        float snapAng = (d1 < d2) ? ang1 : ang2;
+                        tangentDir = glm::vec2(std::cos(snapAng), std::sin(snapAng));
+                        tangentProj = m_firstClick + tangentDir * len;
+                        tangentRefId = refId;
+                        tangentFires = true;
+                    }
+                };
+                for (const auto& circle : m_sketch->getCircles()) {
+                    if (tangentFires) break;
+                    const SketchPoint* center = m_sketch->getPoint(circle.centerPointId);
+                    if (center) checkTangent(center->pos, circle.radius, circle.id);
+                }
+                for (const auto& arc : m_sketch->getArcs()) {
+                    if (tangentFires) break;
+                    const SketchPoint* center = m_sketch->getPoint(arc.centerPointId);
+                    if (center) checkTangent(center->pos, arc.radius, arc.id);
+                }
+            }
+        }
+
+        // Combine: if a direction-lock (perp / parallel / tangent) AND an
+        // axis-from-point both fire, snap to their intersection — e.g. "tangent
+        // to that circle AND on its centre's vertical axis" lands on a single
+        // unique point. Solved by parametric line / axis intersect.
         bool snapped = false;
         glm::vec2 result = pos;
         auto applyDirLock = [&](glm::vec2 dir, InferenceGuide::Kind dirKind,
-                                glm::vec2 projFallback) -> bool {
-            if (axisVRef && std::abs(dir.x) > 1e-3f) {
-                float t = (axisVRef->pos.x - m_firstClick.x) / dir.x;
+                                glm::vec2 projFallback, int dirRefId = -1) -> bool {
+            if (axisVFires && std::abs(dir.x) > 1e-3f) {
+                float t = (axisVPos.x - m_firstClick.x) / dir.x;
                 result = m_firstClick + dir * t;
                 m_activeInferences.push_back(
-                    {dirKind, m_firstClick, result, -1});
+                    {dirKind, m_firstClick, result, dirRefId});
                 m_activeInferences.push_back(
-                    {InferenceGuide::AxisVFromPoint, axisVRef->pos, result, axisVRef->id});
+                    {InferenceGuide::AxisVFromPoint, axisVPos, result, axisVRefId});
                 return true;
             }
-            if (axisHRef && std::abs(dir.y) > 1e-3f) {
-                float t = (axisHRef->pos.y - m_firstClick.y) / dir.y;
+            if (axisHFires && std::abs(dir.y) > 1e-3f) {
+                float t = (axisHPos.y - m_firstClick.y) / dir.y;
                 result = m_firstClick + dir * t;
                 m_activeInferences.push_back(
-                    {dirKind, m_firstClick, result, -1});
+                    {dirKind, m_firstClick, result, dirRefId});
                 m_activeInferences.push_back(
-                    {InferenceGuide::AxisHFromPoint, axisHRef->pos, result, axisHRef->id});
+                    {InferenceGuide::AxisHFromPoint, axisHPos, result, axisHRefId});
                 return true;
             }
             // No axis intersection — just snap onto the locked direction.
             result = projFallback;
-            m_activeInferences.push_back({dirKind, m_firstClick, result, -1});
+            m_activeInferences.push_back({dirKind, m_firstClick, result, dirRefId});
             return true;
         };
         if (perpFires) {
             snapped = applyDirLock(perpDir, InferenceGuide::PerpToPrev, perpProj);
         } else if (parFires) {
             snapped = applyDirLock(parDir, InferenceGuide::ParallelToPrev, parProj);
-        } else if (axisVRef || axisHRef) {
-            // Pure axis-from-point: snap each matched coordinate independently.
-            if (axisVRef) {
-                result.x = axisVRef->pos.x;
-                m_activeInferences.push_back(
-                    {InferenceGuide::AxisVFromPoint, axisVRef->pos, glm::vec2(result.x, pos.y),
-                     axisVRef->id});
-            }
-            if (axisHRef) {
-                result.y = axisHRef->pos.y;
-                m_activeInferences.push_back(
-                    {InferenceGuide::AxisHFromPoint, axisHRef->pos, glm::vec2(pos.x, result.y),
-                     axisHRef->id});
-            }
-            // Refresh the guide endpoints with the final snapped cursor.
-            for (auto& g : m_activeInferences) {
-                if (g.kind == InferenceGuide::AxisVFromPoint) g.to.x = result.x;
-                if (g.kind == InferenceGuide::AxisHFromPoint) g.to.y = result.y;
-            }
-            snapped = true;
+        } else if (tangentFires) {
+            snapped = applyDirLock(tangentDir, InferenceGuide::TangentToCircle,
+                                   tangentProj, tangentRefId);
         }
+        // Standalone axis-from-point (cursor aligned with any point's X or Y
+        // but no perp/parallel/tangent lock) deliberately doesn't fire — with
+        // sketch points + face vertices around, the cursor is almost always
+        // incidentally aligned with someone's coordinate, so the standalone
+        // guide became visual noise. Axis still acts as a co-pilot inside
+        // applyDirLock above (perp/parallel/tangent + axis → intersection),
+        // which is the actually-useful case. Angle snap and endpoint snap
+        // cover everything else.
         if (snapped) return result;
+
+        // Angle-snap fallback: while drawing a line, if nothing above fired,
+        // check if the cursor direction from the anchor is within ~3° of a
+        // common 15° increment (0, 15, 30, 45, 60, 75, 90, …). If so, snap
+        // the angle and emit a grey guide so the user can see the lock.
+        // Skipped when the perpendicular / parallel inferences already had a
+        // chance — those are stronger semantic intents.
+        if (m_isPlacing && m_mode == SketchToolMode::Line) {
+            glm::vec2 v = pos - m_firstClick;
+            float len = glm::length(v);
+            if (len > 0.5f) {
+                float a = std::atan2(v.y, v.x);
+                const float step = 15.0f * static_cast<float>(M_PI) / 180.0f;
+                float snappedA = std::round(a / step) * step;
+                float angDelta = std::abs(a - snappedA);
+                // Wrap so e.g. 179° vs −180° doesn't read as a large delta.
+                const float TWO_PI = 2.0f * static_cast<float>(M_PI);
+                if (angDelta > static_cast<float>(M_PI))
+                    angDelta = TWO_PI - angDelta;
+                // ~3° tolerance — generous enough to feel sticky but small
+                // enough that off-axis lines still draw at the actual angle.
+                const float angTol = 3.0f * static_cast<float>(M_PI) / 180.0f;
+                if (angDelta < angTol) {
+                    glm::vec2 dir(std::cos(snappedA), std::sin(snappedA));
+                    glm::vec2 snappedPos = m_firstClick + dir * len;
+                    m_activeInferences.push_back(
+                        {InferenceGuide::AngleSnap, m_firstClick, snappedPos, -1});
+                    return snappedPos;
+                }
+            }
+        }
     }
 
-    // Grid snap: only kicks in when within `gridSnapThreshold` of a grid line.
-    // The threshold is a fraction of the grid step so 0.1 mm grids stay precise.
-    if (m_gridStep <= 0.0f) return pos;
-    const float gridSnapThreshold = m_gridStep * 0.25f;
-
-    glm::vec2 result = pos;
-    float nearestX = std::round(pos.x / m_gridStep) * m_gridStep;
-    float nearestY = std::round(pos.y / m_gridStep) * m_gridStep;
-    if (std::abs(pos.x - nearestX) < gridSnapThreshold) result.x = nearestX;
-    if (std::abs(pos.y - nearestY) < gridSnapThreshold) result.y = nearestY;
+    // Grid snap: ALWAYS round to the nearest grid increment when enabled.
+    // A fractional-threshold band (e.g. 25 % of the step) sounds reasonable
+    // but at any practical zoom level the band is sub-pixel cursor precision
+    // on BOTH axes simultaneously, so the snap silently misses and the user
+    // ends up with off-grid sketches when they explicitly asked for 1 mm
+    // precision. Inferences (endpoint / midpoint / axis-from-point / etc.)
+    // run earlier in this function and override grid snap when active, so
+    // precise-but-off-grid placements still work via those. The toolbar
+    // "Snap to grid" checkbox is the explicit opt-out for free-form drawing.
+    if (!m_snapToGridEnabled || m_gridStep <= 0.0f) return pos;
+    glm::vec2 result;
+    result.x = std::round(pos.x / m_gridStep) * m_gridStep;
+    result.y = std::round(pos.y / m_gridStep) * m_gridStep;
     return result;
 }
 
@@ -550,6 +819,7 @@ void SketchTool::handleLineTool(glm::vec2 pos) {
         m_clickCount = 1;
 
         // Check if we're snapping to an existing point
+        m_chainStartPointCreated = false;
         if (m_lastPointId == -1) {
             const auto& points = m_sketch->getPoints();
             for (const auto& pt : points) {
@@ -560,6 +830,7 @@ void SketchTool::handleLineTool(glm::vec2 pos) {
             }
             if (m_lastPointId == -1) {
                 m_lastPointId = m_sketch->addPoint(pos);
+                m_chainStartPointCreated = true; // brand-new, drop on Esc
             }
         }
         // Remember where the chain started — closing back onto this point

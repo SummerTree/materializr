@@ -38,7 +38,9 @@ bool CopyOp::execute(Document& doc) {
         // Add as a new body with a descriptive name
         std::string srcName = doc.getBodyName(m_sourceBodyId);
         std::string copyName = srcName.empty() ? "Copy" : srcName + " Copy";
-        m_createdBodyId = doc.addBody(transform.Shape(), copyName);
+        // Reuse the prior id on redo so the body's folder/colour/etc. survive
+        // through undo+redo via Document's tombstone restore.
+        doc.addOrPutBody(m_createdBodyId, transform.Shape(), copyName);
 
         return true;
     } catch (...) {
@@ -50,7 +52,7 @@ bool CopyOp::undo(Document& doc) {
     try {
         if (m_createdBodyId >= 0) {
             doc.removeBody(m_createdBodyId);
-            m_createdBodyId = -1;
+            // Keep m_createdBodyId for the redo path.
         }
         return true;
     } catch (...) {

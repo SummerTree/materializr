@@ -83,9 +83,10 @@ bool ItemsPanel::render() {
 
             // Tree-node arrow + name. Use TreeNodeEx so we can pre-set the
             // expanded state from the Document (persisted across frames).
-            ImGuiTreeNodeFlags fflags =
-                ImGuiTreeNodeFlags_OpenOnArrow |
-                ImGuiTreeNodeFlags_SpanAvailWidth;
+            // Deliberately NO SpanAvailWidth — it makes the whole row a tree-
+            // node hit target, which silently swallowed clicks on the colour
+            // swatch (popup never appeared).
+            ImGuiTreeNodeFlags fflags = ImGuiTreeNodeFlags_OpenOnArrow;
             bool wantExpanded = m_document->isFolderExpanded(folderId);
             ImGui::SetNextItemOpen(wantExpanded, ImGuiCond_Always);
 

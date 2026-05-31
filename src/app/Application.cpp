@@ -607,6 +607,7 @@ AppSettings Application::currentSettings() const {
     s.meshQuality = m_meshQuality;
     s.selectionLineWidth = m_selectionLineWidth;
     s.showToolbarTooltips = m_showToolbarTooltips;
+    s.sketchHelperMode = m_sketchHelperMode;
     s.autoOpenLastProject = m_autoOpenLastProject;
     s.lastProjectPath = m_currentProjectPath; // empty after closeProject()
     s.checkForUpdatesOnLaunch = m_checkForUpdatesOnLaunch;
@@ -635,6 +636,7 @@ void Application::applyAppSettings(const AppSettings& s) {
     m_meshQuality = s.meshQuality;
     m_selectionLineWidth = s.selectionLineWidth;
     m_showToolbarTooltips = s.showToolbarTooltips;
+    m_sketchHelperMode = s.sketchHelperMode;
     m_autoOpenLastProject = s.autoOpenLastProject;
     m_checkForUpdatesOnLaunch = s.checkForUpdatesOnLaunch;
 }
@@ -847,6 +849,10 @@ void Application::handleToolAction(int action) {
             applySketchConstraint(ConstraintType::Equal); break;
         case ToolAction::SketchConstrainFixed:
             applySketchConstraint(ConstraintType::Fixed); break;
+        case ToolAction::SketchDimDistance:
+            applySketchConstraint(ConstraintType::Distance); break;
+        case ToolAction::SketchDimAngle:
+            applySketchConstraint(ConstraintType::Angle); break;
 
         // --- Sketch element transforms (operate on the Select-mode selection) ---
         // Rotate is handled by the sketch gizmo's ring handle (see Application_
@@ -1051,8 +1057,15 @@ void Application::handleShortcuts() {
         if (!m_edgeOpActive && !m_extruding && !m_pushPullActive) {
             if (m_history->canUndo()) {
                 m_history->undo(*m_document);
-                m_selection->clear();
-                m_hoveredBodyId = -1;
+                // In sketch mode, the host face is the anchor for the whole
+                // sketch session — clearing the selection would drop its blue
+                // highlight even though the sketch is still active. Skip the
+                // body-selection reset (sketch-element selection inside the
+                // SketchTool is unaffected by m_selection).
+                if (!m_inSketchMode) {
+                    m_selection->clear();
+                    m_hoveredBodyId = -1;
+                }
                 m_meshesDirty = true;
             }
         }
@@ -1061,8 +1074,10 @@ void Application::handleShortcuts() {
         if (!m_edgeOpActive && !m_extruding && !m_pushPullActive) {
             if (m_history->canRedo()) {
                 m_history->redo(*m_document);
-                m_selection->clear();
-                m_hoveredBodyId = -1;
+                if (!m_inSketchMode) {
+                    m_selection->clear();
+                    m_hoveredBodyId = -1;
+                }
                 m_meshesDirty = true;
             }
         }
@@ -1205,38 +1220,59 @@ void Application::handleShortcuts() {
     if (ImGui::IsKeyPressed(ImGuiKey_Home)) {
         m_viewport->getCamera().reset();
     }
-    // Delete selected body (through history for undo)
-    if (ImGui::IsKeyPressed(ImGuiKey_Delete) && m_selection->hasSelection()) {
-        const auto& sel = m_selection->getSelection();
-        std::vector<int> bodiesToDelete;
-        std::vector<int> sketchesToDelete;
-        for (const auto& entry : sel) {
-            // A selected sketch (or sketch region) deletes the whole sketch; a
-            // body/face/edge selection deletes its body.
-            if (entry.type == SelectionType::Sketch || entry.type == SelectionType::SketchRegion) {
-                if (entry.sketchId >= 0) {
-                    bool already = false;
-                    for (int s : sketchesToDelete) { if (s == entry.sketchId) { already = true; break; } }
-                    if (!already) sketchesToDelete.push_back(entry.sketchId);
-                }
-            } else if (entry.bodyId >= 0) {
-                bool already = false;
-                for (int b : bodiesToDelete) { if (b == entry.bodyId) { already = true; break; } }
-                if (!already) bodiesToDelete.push_back(entry.bodyId);
+    // Delete: while in sketch mode, restrict to sketch-element deletion so the
+    // host body (which stays selected to keep its face highlighted, per the
+    // Ctrl+Z fix) doesn't get nuked under the user's nose. Outside sketch mode
+    // Delete still removes selected bodies / sketches through history.
+    if (ImGui::IsKeyPressed(ImGuiKey_Delete)) {
+        if (m_inSketchMode && m_activeSketch && m_sketchTool) {
+            // Delete the SketchTool's element selection (points + lines) if
+            // any, wrapped in recordSketchMutation so Ctrl+Z brings them back.
+            const auto pts = m_sketchTool->getSelectedPoints();
+            const auto lns = m_sketchTool->getSelectedLines();
+            if (!pts.empty() || !lns.empty()) {
+                recordSketchMutation([&]{
+                    for (int lid : lns) m_activeSketch->removeElement(lid);
+                    for (int pid : pts) m_activeSketch->removeElement(pid);
+                });
+                m_sketchTool->clearElementSelection();
+                markDirty();
             }
+            // Either way, don't touch the body. Body/face/sketch entries in
+            // m_selection are the sketch's host — deleting them mid-sketch
+            // is destructive and almost never what the user wanted.
+        } else if (m_selection->hasSelection()) {
+            const auto& sel = m_selection->getSelection();
+            std::vector<int> bodiesToDelete;
+            std::vector<int> sketchesToDelete;
+            for (const auto& entry : sel) {
+                // A selected sketch (or sketch region) deletes the whole
+                // sketch; a body/face/edge selection deletes its body.
+                if (entry.type == SelectionType::Sketch || entry.type == SelectionType::SketchRegion) {
+                    if (entry.sketchId >= 0) {
+                        bool already = false;
+                        for (int s : sketchesToDelete) { if (s == entry.sketchId) { already = true; break; } }
+                        if (!already) sketchesToDelete.push_back(entry.sketchId);
+                    }
+                } else if (entry.bodyId >= 0) {
+                    bool already = false;
+                    for (int b : bodiesToDelete) { if (b == entry.bodyId) { already = true; break; } }
+                    if (!already) bodiesToDelete.push_back(entry.bodyId);
+                }
+            }
+            for (int bodyId : bodiesToDelete) {
+                auto op = std::make_unique<DeleteOp>();
+                op->setBodyId(bodyId);
+                m_history->pushOperation(std::move(op), *m_document);
+            }
+            for (int sketchId : sketchesToDelete) {
+                m_document->removeSketch(sketchId);
+                markDirty();
+            }
+            m_selection->clear();
+            m_hoveredBodyId = -1;
+            m_meshesDirty = true;
         }
-        for (int bodyId : bodiesToDelete) {
-            auto op = std::make_unique<DeleteOp>();
-            op->setBodyId(bodyId);
-            m_history->pushOperation(std::move(op), *m_document);
-        }
-        for (int sketchId : sketchesToDelete) {
-            m_document->removeSketch(sketchId);
-            markDirty();
-        }
-        m_selection->clear();
-        m_hoveredBodyId = -1;
-        m_meshesDirty = true;
     }
     // Gizmo mode switching. WantTextInput is true while an InputText (rename
     // field, dimension input, etc.) has focus — letting W/E/R fire there both
@@ -1803,6 +1839,70 @@ void Application::enterSketchOnFace(const TopoDS_Face& face, int sourceBodyId) {
         }
         m_activeSketch->setPlane(pln);
         m_activeSketch->setSourceFace(face);
+
+        // Walk the face's vertices and edges, project them onto the sketch
+        // plane in 2D, and stash them on the Sketch as reference geometry.
+        // The inference snap reads these so the cursor can land on the host
+        // face's existing corners / edge midpoints / straight edges even
+        // before any sketch elements are drawn.
+        {
+            Sketch::FaceReference refs;
+            const gp_Ax3& ax3 = pln.Position();
+            gp_Pnt O = ax3.Location();
+            gp_Dir Xd = ax3.XDirection();
+            gp_Dir Yd = ax3.YDirection();
+            auto project = [&](const gp_Pnt& p) -> glm::vec2 {
+                double dx = p.X() - O.X();
+                double dy = p.Y() - O.Y();
+                double dz = p.Z() - O.Z();
+                double u = dx * Xd.X() + dy * Xd.Y() + dz * Xd.Z();
+                double v = dx * Yd.X() + dy * Yd.Y() + dz * Yd.Z();
+                return glm::vec2(static_cast<float>(u), static_cast<float>(v));
+            };
+            auto dedup = [](std::vector<glm::vec2>& v, glm::vec2 p) {
+                for (const auto& q : v) {
+                    if (glm::length(q - p) < 1e-4f) return;
+                }
+                v.push_back(p);
+            };
+
+            // Vertices — the face's corner points.
+            for (TopExp_Explorer ex(face, TopAbs_VERTEX); ex.More(); ex.Next()) {
+                gp_Pnt p = BRep_Tool::Pnt(TopoDS::Vertex(ex.Current()));
+                dedup(refs.points, project(p));
+            }
+            // Edges — for straight edges, also stash the endpoint pair as a
+            // reference line (so on-line / midpoint inferences can fire) and
+            // the midpoint as a reference point. Curved edges get their
+            // endpoints (already covered by vertex iteration above).
+            for (TopExp_Explorer ex(face, TopAbs_EDGE); ex.More(); ex.Next()) {
+                TopoDS_Edge edge = TopoDS::Edge(ex.Current());
+                BRepAdaptor_Curve curve(edge);
+                double f = curve.FirstParameter();
+                double l = curve.LastParameter();
+                gp_Pnt pStart, pEnd;
+                curve.D0(f, pStart);
+                curve.D0(l, pEnd);
+                glm::vec2 a = project(pStart);
+                glm::vec2 b = project(pEnd);
+                if (curve.GetType() == GeomAbs_Line) {
+                    refs.lines.emplace_back(a, b);
+                    dedup(refs.points, 0.5f * (a + b)); // midpoint
+                } else {
+                    // For arcs / circles / splines, sample a couple of points
+                    // along the edge so the user can at least snap to a few
+                    // spots on a curve (proper curve snapping is future work).
+                    const int samples = 8;
+                    for (int i = 1; i < samples; ++i) {
+                        double t = f + (l - f) * (double(i) / samples);
+                        gp_Pnt p;
+                        curve.D0(t, p);
+                        dedup(refs.points, project(p));
+                    }
+                }
+            }
+            m_activeSketch->setFaceReferences(std::move(refs));
+        }
     } else {
         // Fallback to default XY plane if face is non-planar
         m_activeSketch->setPlane(gp_Pln(gp_Pnt(0,0,0), gp_Dir(0,0,1)));
@@ -1883,8 +1983,55 @@ void Application::applySketchConstraint(ConstraintType type) {
             }
             break;
         }
+        case ConstraintType::Distance: {
+            // Pairwise from the first selected point — initial value is the
+            // geometry's current distance, so the constraint isn't immediately
+            // destructive (it just locks the present distance in place).
+            std::vector<int> v(selPts.begin(), selPts.end());
+            for (size_t i = 1; i < v.size(); ++i) {
+                const SketchPoint* p0 = m_activeSketch->getPoint(v[0]);
+                const SketchPoint* pi = m_activeSketch->getPoint(v[i]);
+                if (!p0 || !pi) continue;
+                double dist = static_cast<double>(glm::length(p0->pos - pi->pos));
+                pushConstraint(ConstraintType::Distance, v[0], v[i], dist);
+                ++added;
+            }
+            break;
+        }
+        case ConstraintType::Angle: {
+            // Each subsequent line bound to the first; initial value is the
+            // signed angle the geometry currently makes.
+            std::vector<int> v(selLns.begin(), selLns.end());
+            if (v.size() < 2) break;
+            const auto& lines = m_activeSketch->getLines();
+            auto lineDir = [&](int id) {
+                for (const auto& l : lines) {
+                    if (l.id != id) continue;
+                    const SketchPoint* s = m_activeSketch->getPoint(l.startPointId);
+                    const SketchPoint* e = m_activeSketch->getPoint(l.endPointId);
+                    if (s && e) return e->pos - s->pos;
+                    break;
+                }
+                return glm::vec2(0.0f);
+            };
+            glm::vec2 dirA = lineDir(v[0]);
+            if (glm::length(dirA) < 1e-6f) break;
+            float angA = std::atan2(dirA.y, dirA.x);
+            for (size_t i = 1; i < v.size(); ++i) {
+                glm::vec2 dirB = lineDir(v[i]);
+                if (glm::length(dirB) < 1e-6f) continue;
+                float angB = std::atan2(dirB.y, dirB.x);
+                double signedAngle = static_cast<double>(angB - angA);
+                const double TWO_PI = 2.0 * M_PI;
+                while (signedAngle >  M_PI) signedAngle -= TWO_PI;
+                while (signedAngle < -M_PI) signedAngle += TWO_PI;
+                pushConstraint(ConstraintType::Angle, v[0], v[i], signedAngle);
+                ++added;
+            }
+            break;
+        }
         default:
-            break; // Distance / Radius / Tangent / Concentric land in later sessions
+            break; // Radius / Tangent / Concentric still pending in later passes
     }
 
     if (added > 0) {
@@ -2230,6 +2377,7 @@ void Application::run() {
             m_toolbar->setCanEditDiameter(!m_resizeCylActive &&
                                           detectCylindricalResizeCandidate());
             m_toolbar->setShowTooltips(m_showToolbarTooltips);
+            m_toolbar->setSketchHelperMode(m_sketchHelperMode);
             // Pass the active sketch tool mode so the matching button gets
             // a highlight border — disambiguates which tool is currently in
             // use (Line vs Circle vs etc.) when in sketch mode.
@@ -2248,6 +2396,10 @@ void Application::run() {
             ToolAction action = m_toolbar->render();
             m_sketchGridStep = m_toolbar->getGridStep();
             m_snapToGrid = m_toolbar->getSnapToGrid();
+            if (m_sketchTool) {
+                m_sketchTool->setGridStep(m_sketchGridStep);
+                m_sketchTool->setSnapToGridEnabled(m_snapToGrid);
+            }
             if (action != ToolAction::None) {
                 handleToolAction(static_cast<int>(action));
             }

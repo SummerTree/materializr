@@ -135,7 +135,11 @@ bool ExtrudeOp::execute(Document& doc) {
         // Apply boolean mode
         switch (m_mode) {
             case ExtrudeMode::NewBody: {
-                m_createdBodyId = doc.addBody(extrudedShape, "Extrude");
+                // addOrPutBody: on redo (m_createdBodyId already set from a
+                // prior execute), reuses the same id so the body's folderId /
+                // colour / visibility / name are restored from the tombstone
+                // that undo() left behind.
+                doc.addOrPutBody(m_createdBodyId, extrudedShape, "Extrude");
                 break;
             }
             case ExtrudeMode::Union: {
@@ -200,7 +204,8 @@ bool ExtrudeOp::undo(Document& doc) {
         if (m_mode == ExtrudeMode::NewBody) {
             if (m_createdBodyId >= 0) {
                 doc.removeBody(m_createdBodyId);
-                m_createdBodyId = -1;
+                // Keep m_createdBodyId set so a future redo's addOrPutBody
+                // reuses the same id and restores tombstone metadata.
             }
         } else {
             // Restore previous target shape for boolean operations

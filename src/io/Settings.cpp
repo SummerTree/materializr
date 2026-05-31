@@ -66,6 +66,7 @@ void applyKv(const std::map<std::string, std::string>& kv, AppSettings& s) {
     readInt (kv, "meshQuality",          s.meshQuality);
     readFloat(kv, "selectionLineWidth",  s.selectionLineWidth);
     readBool(kv, "showToolbarTooltips",  s.showToolbarTooltips);
+    readInt (kv, "sketchHelperMode",     s.sketchHelperMode);
     readBool(kv, "autoOpenLastProject",  s.autoOpenLastProject);
     readString(kv, "lastProjectPath",    s.lastProjectPath);
     readBool(kv, "checkForUpdatesOnLaunch", s.checkForUpdatesOnLaunch);
@@ -215,6 +216,7 @@ bool SettingsIO::save(const std::string& path, const AppSettings& s) {
     ofs << "meshQuality = "         << s.meshQuality         << "\n";
     ofs << "selectionLineWidth = "  << s.selectionLineWidth  << "\n";
     ofs << "showToolbarTooltips = " << (s.showToolbarTooltips ? "true" : "false") << "\n";
+    ofs << "sketchHelperMode = "    << s.sketchHelperMode << "\n";
     ofs << "autoOpenLastProject = " << (s.autoOpenLastProject ? "true" : "false") << "\n";
     ofs << "lastProjectPath = "     << s.lastProjectPath     << "\n";
     ofs << "checkForUpdatesOnLaunch = " << (s.checkForUpdatesOnLaunch ? "true" : "false") << "\n";
@@ -248,6 +250,7 @@ bool SettingsIO::exportJson(const std::string& path, const AppSettings& s) {
     ofs << "  \"meshQuality\": "             << s.meshQuality           << ",\n";
     ofs << "  \"selectionLineWidth\": "      << s.selectionLineWidth    << ",\n";
     ofs << "  \"showToolbarTooltips\": "     << b(s.showToolbarTooltips)<< ",\n";
+    ofs << "  \"sketchHelperMode\": "        << s.sketchHelperMode      << ",\n";
     ofs << "  \"autoOpenLastProject\": "     << b(s.autoOpenLastProject)<< ",\n";
     ofs << "  \"checkForUpdatesOnLaunch\": " << b(s.checkForUpdatesOnLaunch) << "\n";
     ofs << "}\n";

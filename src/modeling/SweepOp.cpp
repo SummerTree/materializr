@@ -26,7 +26,7 @@ bool SweepOp::execute(Document& doc) {
         }
 
         TopoDS_Shape sweptShape = pipe.Shape();
-        m_createdBodyId = doc.addBody(sweptShape, "Sweep");
+        doc.addOrPutBody(m_createdBodyId, sweptShape, "Sweep");
 
         return true;
     } catch (...) {
@@ -38,7 +38,7 @@ bool SweepOp::undo(Document& doc) {
     try {
         if (m_createdBodyId >= 0) {
             doc.removeBody(m_createdBodyId);
-            m_createdBodyId = -1;
+            // Keep m_createdBodyId — tombstone restore on next execute().
         }
         return true;
     } catch (...) {

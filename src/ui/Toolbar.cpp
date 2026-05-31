@@ -159,10 +159,42 @@ ToolAction Toolbar::renderSketchTools() {
     if (ImGui::Button("Radial Pattern", ImVec2(-1, 28))) action = ToolAction::SketchRadialPattern;
     tip("Copy the selected sketch elements around an origin you specify.");
 
-    // Formal constraints (Horizontal/Vertical/Parallel/…) intentionally aren't
-    // surfaced here — they're a power-user feature that overwhelms the panel
-    // for newcomers. They live in the sketch-viewport right-click menu instead;
-    // most users will reach for the SketchUp-style draw-time inferences instead.
+    // Formal-constraint buttons only appear in "Constraint buttons" helper
+    // mode (Settings → Interface → Sketch helper). In default "Inferences"
+    // mode the constraints live exclusively in the sketch-viewport right-
+    // click menu so the panel stays uncluttered. Buttons are filtered by
+    // selection arity so the user only ever sees options that can apply.
+    if (m_sketchHelperMode == 1 && (m_selPoints > 0 || m_selLines > 0)) {
+        ImGui::Separator();
+        ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "Constraints");
+        ImGui::Separator();
+        if (m_selLines >= 1) {
+            if (ImGui::Button("Horizontal", ImVec2(-1, 24))) action = ToolAction::SketchConstrainHorizontal;
+            tip("Lock the selected line(s) horizontal.");
+            if (ImGui::Button("Vertical", ImVec2(-1, 24))) action = ToolAction::SketchConstrainVertical;
+            tip("Lock the selected line(s) vertical.");
+        }
+        if (m_selPoints >= 2) {
+            if (ImGui::Button("Coincident", ImVec2(-1, 24))) action = ToolAction::SketchConstrainCoincident;
+            tip("Make the selected points share the same position.");
+            if (ImGui::Button("Distance", ImVec2(-1, 24))) action = ToolAction::SketchDimDistance;
+            tip("Lock the distance between the points at its current value.");
+        }
+        if (m_selLines >= 2) {
+            if (ImGui::Button("Parallel", ImVec2(-1, 24))) action = ToolAction::SketchConstrainParallel;
+            tip("Lock the selected lines to stay parallel to the first one.");
+            if (ImGui::Button("Perpendicular", ImVec2(-1, 24))) action = ToolAction::SketchConstrainPerpendicular;
+            tip("Lock the selected lines perpendicular to the first one.");
+            if (ImGui::Button("Equal", ImVec2(-1, 24))) action = ToolAction::SketchConstrainEqual;
+            tip("Force the selected lines to share a common length.");
+            if (ImGui::Button("Angle", ImVec2(-1, 24))) action = ToolAction::SketchDimAngle;
+            tip("Lock the angle between the selected lines at its current value.");
+        }
+        if (m_selPoints >= 1) {
+            if (ImGui::Button("Fix Position", ImVec2(-1, 24))) action = ToolAction::SketchConstrainFixed;
+            tip("Pin the selected point(s) at their current position.");
+        }
+    }
 
     ImGui::Separator();
     if (ImGui::Button("Measure", ImVec2(-1, 28))) action = ToolAction::Measure;

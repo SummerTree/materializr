@@ -82,7 +82,9 @@ bool RevolveOp::execute(Document& doc) {
         // Apply boolean mode
         switch (m_mode) {
             case RevolveMode::NewBody: {
-                m_createdBodyId = doc.addBody(revolvedShape, "Revolve");
+                // Reuse prior id on redo so folder/colour/etc. survive
+                // through undo+redo via Document's tombstone restore.
+                doc.addOrPutBody(m_createdBodyId, revolvedShape, "Revolve");
                 break;
             }
             case RevolveMode::Union: {
@@ -140,7 +142,7 @@ bool RevolveOp::undo(Document& doc) {
         if (m_mode == RevolveMode::NewBody) {
             if (m_createdBodyId >= 0) {
                 doc.removeBody(m_createdBodyId);
-                m_createdBodyId = -1;
+                // Keep m_createdBodyId for tombstone-based restore on redo.
             }
         } else {
             // Restore previous target shape for boolean operations

@@ -61,8 +61,9 @@ bool MirrorOp::execute(Document& doc) {
         TopoDS_Shape mirroredShape = transform.Shape();
 
         if (m_keepOriginal) {
-            // Add the mirrored copy as a new body, keep original
-            m_mirroredBodyId = doc.addBody(mirroredShape, "Mirror");
+            // Reuse prior id on redo to preserve folder/colour/etc. via the
+            // Document tombstone restore.
+            doc.addOrPutBody(m_mirroredBodyId, mirroredShape, "Mirror");
         } else {
             // Replace the original body with the mirrored version
             doc.updateBody(m_bodyId, mirroredShape);
@@ -81,7 +82,8 @@ bool MirrorOp::undo(Document& doc) {
             // Remove the mirrored body
             if (m_mirroredBodyId >= 0) {
                 doc.removeBody(m_mirroredBodyId);
-                m_mirroredBodyId = -1;
+                // Keep m_mirroredBodyId so redo via addOrPutBody picks up the
+                // tombstone-stashed folder/colour/etc.
             }
         } else {
             // Restore the original shape

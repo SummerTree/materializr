@@ -1,4 +1,5 @@
 #pragma once
+#include <map>
 #include <string>
 #include <vector>
 #include <memory>
@@ -52,6 +53,13 @@ public:
 
     // Body management
     int addBody(const TopoDS_Shape& shape, const std::string& name = "");
+    // Create-or-reuse helper for undoable operations that recreate a body on
+    // redo (Extrude / Pattern / Mirror / etc.). First call passes `id == -1`
+    // and gets a fresh id allocated. Subsequent calls (redo after undo+remove)
+    // pass the previously-assigned `id` and the body is reinstated under that
+    // id, restoring folderId / colour / visibility / name from the tombstone
+    // that removeBody stashed. `id` is updated in place to the final body id.
+    void addOrPutBody(int& id, const TopoDS_Shape& shape, const std::string& name = "");
     void removeBody(int id);
     void updateBody(int id, const TopoDS_Shape& shape);
     // Add a body with an explicit id, or update the body that already has that
@@ -116,6 +124,13 @@ private:
     std::vector<PlaneEntry> m_planes;
     std::vector<SketchEntry> m_sketches;
     std::vector<FolderEntry> m_folders;
+    // Tombstones: when a body is removed, its non-geometry metadata (folderId,
+    // colour, visibility, name) is stashed here keyed by id. When putBody is
+    // later called with the same id (the typical redo-after-undo path through
+    // ops like Extrude / Pattern / Mirror), the metadata is restored. Without
+    // this, a body recreated after undo would silently snap back to the root
+    // folder, default colour, and visible=true.
+    std::map<int, BodyEntry> m_bodyTombstones;
     int m_nextBodyId = 1;
     int m_nextPlaneId = 1;
     int m_nextSketchId = 1;

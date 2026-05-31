@@ -36,4 +36,10 @@ private:
     // Undo state
     std::vector<std::pair<int, TopoDS_Shape>> m_previousBodies; // sourceBody mutations
     std::vector<int> m_createdBodyIds;                          // NewBody additions
+
+    // Persisted across undo so the next execute (redo) reinserts free-floating
+    // bodies under their previous ids, letting Document's tombstone restore
+    // bring folder / colour / visibility / name back.
+    std::vector<int> m_reuseBodyIds;
+    size_t m_reuseIdx = 0;
 };

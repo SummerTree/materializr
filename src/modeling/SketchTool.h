@@ -20,8 +20,11 @@ struct InferenceGuide {
         OnLine,         // cursor projected onto an existing line (not at an endpoint/midpoint)
         AxisHFromPoint, // cursor's Y aligns with an existing point's Y → red horizontal guide
         AxisVFromPoint, // cursor's X aligns with an existing point's X → green vertical guide
-        PerpToPrev,     // cursor is on the perpendicular ray from the chain's previous segment → cyan guide
-        ParallelToPrev, // cursor is on the parallel-to-previous ray → magenta guide
+        PerpToPrev,        // cursor is on the perpendicular ray from the chain's previous segment → orange guide
+        ParallelToPrev,    // cursor is on the parallel-to-previous ray → magenta guide
+        AngleSnap,         // cursor is on a 15° / 30° / 45° / etc. ray from the chain anchor → grey guide
+        OnLineExtension,   // cursor is on the infinite extension of an existing line → lavender dashed guide
+        TangentToCircle,   // cursor lies on the tangent line touching a circle/arc → orange dashed guide
     };
     Kind kind;
     glm::vec2 from;    // ghost guide line start (sketch-space)
@@ -81,6 +84,10 @@ public:
     // count before clicking.
     int getPolygonSides() const { return m_polygonSides; }
     void setPolygonSides(int n) { m_polygonSides = (n < 3) ? 3 : n; }
+    // Rectangle's typed-value placement is two-stage: first Enter sets the
+    // horizontal side, second Enter the vertical (and commits). Stage 0 =
+    // expecting H, 1 = expecting V. Read by the UI to swap the popup label.
+    int getRectDimStage() const { return m_rectDimStage; }
 
     // True while the tool has an in-progress placement (first click made,
     // second pending) — used by the host to give Escape two-step semantics:
@@ -92,6 +99,10 @@ public:
     // 0 disables grid snap entirely.
     void setGridStep(float step) { m_gridStep = step; }
     float getGridStep() const { return m_gridStep; }
+    // Mirrors the toolbar "Snap to grid" checkbox. When on (default), placed
+    // points always round to the nearest grid increment; when off, only
+    // inferences snap and the cursor lands at sub-grid precision.
+    void setSnapToGridEnabled(bool b) { m_snapToGridEnabled = b; }
 
     // Current state for rendering preview
     bool hasPreview() const;
@@ -129,6 +140,11 @@ private:
     // the loop (commit the final segment and end placement).
     int m_lastPointId = -1;
     int m_chainStartPointId = -1;
+    // Did the first click of the current line chain add a brand-new point
+    // (vs reusing an existing one)? If yes and the chain is cancelled before
+    // any segment is committed, we delete the orphan to avoid leaving a
+    // stray vertex with no lines attached.
+    bool m_chainStartPointCreated = false;
 
     // Snap to grid/points
     glm::vec2 snap(glm::vec2 pos) const;
@@ -156,7 +172,15 @@ private:
     std::vector<int> m_splinePoints; // temp storage during spline creation
     int m_polygonSides = 6; // default hexagon
 
+    // Rectangle's typed-value placement is two-stage: first Enter sets the
+    // horizontal side, second Enter sets the vertical side and commits.
+    // m_rectDimStage tracks where we are (0 = expecting H, 1 = expecting V);
+    // m_rectDimH stores the locked-in horizontal value between stages.
+    int   m_rectDimStage = 0;
+    float m_rectDimH = 0.0f;
+
     float m_gridStep = 1.0f; // default 1 mm grid
+    bool  m_snapToGridEnabled = true; // toolbar checkbox, see setSnapToGridEnabled
 
     // Updated each frame in Trim mode so the renderer can outline the segment
     // that would be deleted on click.
@@ -172,6 +196,13 @@ private:
     // Populated as a side-effect of snap(); read by the viewport overlay to
     // draw ghost guide lines. Mutable so snap() can stay const.
     mutable std::vector<InferenceGuide> m_activeInferences;
+
+    // Point ids the next snap() call should skip when looking for endpoint /
+    // axis-from-point / on-line candidates. Populated during a drag to
+    // exclude the dragged points themselves (otherwise the cursor would snap
+    // to its own starting position and the drag would feel sticky-broken).
+    // Cleared in onMouseUp.
+    std::set<int> m_snapExcludePoints;
 };
 
 } // namespace materializr

@@ -273,6 +273,16 @@ private:
     char m_sketchDimBuf[32] = "";
     bool m_sketchDimWasShown = false; // tracks placing transitions to grab keyboard focus
 
+    // Dimension-label click-to-edit. m_dimEditingId is the constraint being
+    // edited (-1 = none); the popup near the label shows the current value
+    // and Enter commits / re-solves. m_dimEditingClickedThisFrame tells the
+    // sketch click handler to swallow the click that opened the popup so a
+    // bare point isn't also placed underneath.
+    int  m_dimEditingId = -1;
+    char m_dimEditingBuf[32] = "";
+    bool m_dimEditingFocus = false;
+    bool m_dimEditingClickedThisFrame = false;
+
     // Sketch grid step in mm (drives both the visual face grid and snap-to-line)
     float m_sketchGridStep = 1.0f;
     // World-aligned anchor used as the sketch grid origin and the camera
@@ -322,6 +332,9 @@ private:
     int   m_meshQuality = 1;        // tessellation density: 0=Low..3=Ultra
     float m_selectionLineWidth = 3.0f; // px width of highlighted edges/body outlines
     bool  m_showToolbarTooltips = true; // hover description on each toolbar button
+    // 0 = Inferences (draw-time ghost guides, default), 1 = Constraint buttons
+    // (formal-constraints toolbar section). See AppSettings::sketchHelperMode.
+    int   m_sketchHelperMode = 0;
     // Apply m_light*/m_msaaSamples/m_selectionLineWidth to the renderer + viewport.
     void applyRenderingSettings();
     // Map m_meshQuality to OCCT tessellation parameters.

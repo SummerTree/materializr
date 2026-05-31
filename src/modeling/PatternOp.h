@@ -60,4 +60,9 @@ private:
     double m_totalAngle = 360.0;
 
     std::vector<int> m_createdBodyIds;
+    // Persisted across undo so a redo reinserts each pattern copy under its
+    // previous id, letting Document's tombstone restore re-supply folder /
+    // colour / visibility / name.
+    std::vector<int> m_reuseBodyIds;
+    size_t m_reuseIdx = 0;
 };

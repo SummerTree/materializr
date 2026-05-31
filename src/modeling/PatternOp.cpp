@@ -60,6 +60,7 @@ bool PatternOp::execute(Document& doc) {
         }
 
         m_createdBodyIds.clear();
+        m_reuseIdx = 0; // walks m_reuseBodyIds as each pattern copy is emitted
 
         for (int i = 1; i < m_count; ++i) {
             gp_Trsf trsf;
@@ -92,8 +93,15 @@ bool PatternOp::execute(Document& doc) {
                 return false;
             }
 
-            int newId = doc.addBody(transform.Shape(), "Pattern " + std::to_string(i));
+            // Reuse the prior id for this slot on redo so the body's folder
+            // / colour / visibility / name come back via Document's tombstone
+            // restore. On first execute m_reuseBodyIds is empty so addOrPutBody
+            // allocates a fresh id.
+            int newId = (m_reuseIdx < m_reuseBodyIds.size())
+                          ? m_reuseBodyIds[m_reuseIdx] : -1;
+            doc.addOrPutBody(newId, transform.Shape(), "Pattern " + std::to_string(i));
             m_createdBodyIds.push_back(newId);
+            ++m_reuseIdx;
         }
 
         return true;
@@ -113,7 +121,11 @@ bool PatternOp::undo(Document& doc) {
         for (int createdId : m_createdBodyIds) {
             doc.removeBody(createdId);
         }
+        // Save the ids for the next redo so addOrPutBody picks up the
+        // tombstoned folder / colour / visibility / name per copy.
+        m_reuseBodyIds = std::move(m_createdBodyIds);
         m_createdBodyIds.clear();
+        m_reuseIdx = 0;
         return true;
     } catch (...) {
         return false;

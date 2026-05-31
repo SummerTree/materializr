@@ -23,10 +23,13 @@ enum class ToolAction {
     // Gizmo modes + Mirror
     Move, Rotate, Scale, Mirror,
     // Sketch constraints (operate on the current SketchTool element selection).
-    // All seven are opt-in — none of them runs unless the user clicks the button.
+    // All opt-in — none of them runs unless the user clicks the button.
     SketchConstrainCoincident, SketchConstrainHorizontal, SketchConstrainVertical,
     SketchConstrainParallel, SketchConstrainPerpendicular, SketchConstrainEqual,
     SketchConstrainFixed,
+    // Dimension constraints — captured at current geometry value, so adding
+    // one is non-destructive. User edits the displayed value later (next pass).
+    SketchDimDistance, SketchDimAngle,
     // General
     Measure, ResetCamera
 };
@@ -72,6 +75,10 @@ public:
         m_selPoints = points;
         m_selLines = lines;
     }
+    // Settings → Interface → Sketch helper. 0 = Inferences (no formal-
+    // constraints buttons in the toolbar), 1 = Constraints (buttons appear
+    // when sketch elements are selected, like Session 1's original UI).
+    void setSketchHelperMode(int mode) { m_sketchHelperMode = mode; }
 
     // When true (the default) every toolbar button shows a hover tooltip
     // describing what it does. Off via Settings → Interface for users who
@@ -91,6 +98,7 @@ private:
     int  m_activeSketchMode = 0; // SketchToolMode (see setActiveSketchMode)
     int  m_selPoints = 0;        // sketch points currently selected (see setSketchSelectionCounts)
     int  m_selLines = 0;         // sketch lines currently selected
+    int  m_sketchHelperMode = 0; // 0=Inferences, 1=Constraint buttons (see setSketchHelperMode)
 
     ToolAction renderSketchTools();
     ToolAction renderSketchSelectedTools();

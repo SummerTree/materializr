@@ -121,14 +121,6 @@ void Application::renderSettings() {
                     }
 
                     ImGui::Spacing();
-                    ImGui::SeparatorText("Interface");
-                    if (ImGui::Checkbox("Show toolbar tooltips", &m_showToolbarTooltips)) {
-                        changed = true;
-                    }
-                    ImGui::TextWrapped("Hover any toolbar button for a short description of what it does. "
-                                       "Turn off if you already know the tools and find the pop-ups distracting.");
-
-                    ImGui::Spacing();
                     ImGui::SeparatorText("Autosave");
                     if (ImGui::Checkbox("Autosave saved projects", &m_autosaveEnabled)) changed = true;
                     ImGui::TextWrapped("Periodically re-saves the project once it has been "
@@ -162,6 +154,43 @@ void Application::renderSettings() {
                                        "startup and pops a small dialog when a newer build is "
                                        "available. Turn off for offline or portable use; you can "
                                        "still check manually via Help → Check for Updates.");
+                    ImGui::EndTabItem();
+                }
+
+                // ── Sketch helpers (constraints + tooltips) ───────────────
+                // Tucked into its own tab so the two "how much help do you
+                // want?" toggles live together rather than scattered under
+                // General. Default settings (Inferences + tooltips on) match
+                // what we ship; the toggles are for users who want to dial
+                // back the assist as they get fluent.
+                if (ImGui::BeginTabItem("Sketch")) {
+                    ImGui::SeparatorText("Drawing helper");
+                    ImGui::TextUnformatted("Sketch helper mode:");
+                    const char* helperLabels[] = { "Inferences (default)", "Constraint buttons" };
+                    if (ImGui::Combo("##sketchHelperMode", &m_sketchHelperMode,
+                                     helperLabels, IM_ARRAYSIZE(helperLabels))) {
+                        changed = true;
+                    }
+                    ImGui::TextWrapped(
+                        m_sketchHelperMode == 0
+                            ? "Inferences: as you draw, coloured ghost guides show alignment "
+                              "(perpendicular to last line, even with another point, on midpoint, "
+                              "etc.) and the cursor snaps. Nothing is locked afterward — every "
+                              "placed point is free to drag. The right-click \"Add Constraint\" "
+                              "menu is still available if you want a parametric lock."
+                            : "Constraint buttons: when sketch elements are selected, a Constraints "
+                              "section appears in the toolbar with Horizontal / Vertical / Parallel "
+                              "/ etc. buttons. Applied constraints stay enforced on subsequent "
+                              "drags. Inferences and the right-click menu still work too.");
+
+                    ImGui::Spacing();
+                    ImGui::SeparatorText("Toolbar tooltips");
+                    if (ImGui::Checkbox("Show toolbar tooltips", &m_showToolbarTooltips)) {
+                        changed = true;
+                    }
+                    ImGui::TextWrapped("Hover any toolbar button for a short description of what it does. "
+                                       "Turn off if you already know the tools and find the pop-ups distracting.");
+
                     ImGui::EndTabItem();
                 }
 

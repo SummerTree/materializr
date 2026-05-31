@@ -125,6 +125,18 @@ public:
     // 2D. Returns false if there is no source face. Computed once and cached.
     bool getSourceFaceCentroid(glm::vec2& out) const;
 
+    // Reference geometry pulled from the source face on sketch entry — the
+    // face's corner vertices, edge endpoints, edge midpoints, and straight
+    // edges (start/end pairs) projected into sketch-plane 2D. The inference
+    // snap reads these so the cursor can land on a 3D face's corners/edges
+    // even when there are no equivalent sketch elements yet.
+    struct FaceReference {
+        std::vector<glm::vec2> points;
+        std::vector<std::pair<glm::vec2, glm::vec2>> lines;
+    };
+    void setFaceReferences(FaceReference refs) { m_faceRefs = std::move(refs); }
+    const FaceReference& getFaceReferences() const { return m_faceRefs; }
+
     // Sketch state
     std::string getName() const { return m_name; }
     void setName(const std::string& name) { m_name = name; }
@@ -172,6 +184,7 @@ private:
     std::vector<SketchPolygon> m_polygons;
     std::vector<Constraint> m_constraints;
     int m_nextConstraintId = 1;
+    FaceReference m_faceRefs;
 
     mutable bool m_centroidValid = false;
     mutable glm::vec2 m_centroid{0};

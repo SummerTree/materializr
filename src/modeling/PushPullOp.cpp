@@ -33,6 +33,7 @@ void PushPullOp::setDistance(double d) {
 bool PushPullOp::execute(Document& doc) {
     m_previousBodies.clear();
     m_createdBodyIds.clear();
+    m_reuseIdx = 0; // walks m_reuseBodyIds as each free-floating output is emitted
     if (m_targets.empty() || std::abs(m_distance) < 1e-6) return false;
 
     std::unordered_set<int> savedBodies;
@@ -158,9 +159,15 @@ bool PushPullOp::execute(Document& doc) {
                 doc.updateBody(tgt.sourceBodyId, result);
             } catch (...) { continue; }
         } else {
-            // Free-floating: create a new body
-            int id = doc.addBody(prism, m_distance > 0 ? "Push" : "Pull");
+            // Free-floating: create a new body. On redo, m_reuseBodyIds holds
+            // the ids from the previous execute so addOrPutBody picks the
+            // same one back up (Document's tombstone restore then brings the
+            // folder/colour/visibility/name back).
+            int id = (m_reuseIdx < m_reuseBodyIds.size())
+                       ? m_reuseBodyIds[m_reuseIdx] : -1;
+            doc.addOrPutBody(id, prism, m_distance > 0 ? "Push" : "Pull");
             m_createdBodyIds.push_back(id);
+            ++m_reuseIdx;
         }
     }
 
@@ -173,7 +180,12 @@ bool PushPullOp::undo(Document& doc) {
         for (int id : m_createdBodyIds) {
             doc.removeBody(id);
         }
+        // Move the just-removed ids into the reuse pool so the next execute
+        // (redo) reinserts each free-floating result under the same id and
+        // recovers the tombstoned metadata.
+        m_reuseBodyIds = std::move(m_createdBodyIds);
         m_createdBodyIds.clear();
+        m_reuseIdx = 0;
         // Restore mutated bodies
         for (const auto& [id, shape] : m_previousBodies) {
             doc.updateBody(id, shape);

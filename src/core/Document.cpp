@@ -19,9 +19,24 @@ int Document::addBody(const TopoDS_Shape& shape, const std::string& name) {
     return m_bodies.back().id;
 }
 
+void Document::addOrPutBody(int& id, const TopoDS_Shape& shape, const std::string& name) {
+    if (id < 0) {
+        id = addBody(shape, name);
+    } else {
+        // Reuse the prior id. putBody picks up the tombstone-stashed metadata
+        // from removeBody, so folderId / colour / visibility / name persist
+        // across undo/redo cycles.
+        putBody(id, shape, name);
+    }
+}
+
 void Document::removeBody(int id) {
     int idx = findBodyIndex(id);
     if (idx >= 0) {
+        // Stash metadata before erasing so a later putBody with the same id
+        // (undo/redo path through Extrude / Pattern / Mirror / etc.) can
+        // restore the body's folderId, colour, visibility, and name.
+        m_bodyTombstones[id] = m_bodies[idx];
         m_bodies.erase(m_bodies.begin() + idx);
         if (m_eventBus) m_eventBus->publish(materializr::DocumentModifiedEvent{true});
     }
@@ -41,12 +56,25 @@ void Document::putBody(int id, const TopoDS_Shape& shape, const std::string& nam
         m_bodies[idx].shape = shape;
         if (!name.empty()) m_bodies[idx].name = name;
     } else {
-        BodyEntry entry;
-        entry.id = id;
-        entry.name = name.empty() ? ("Body " + std::to_string(id)) : name;
-        entry.shape = shape;
-        entry.visible = true;
-        m_bodies.push_back(std::move(entry));
+        // If this id was previously removed (typical undo/redo through an op
+        // that recreates a body), pull its metadata back from the tombstone
+        // so folderId / colour / visibility / name aren't silently lost.
+        auto tomb = m_bodyTombstones.find(id);
+        if (tomb != m_bodyTombstones.end()) {
+            BodyEntry entry = tomb->second;
+            entry.id = id;
+            entry.shape = shape;
+            if (!name.empty()) entry.name = name;
+            m_bodies.push_back(std::move(entry));
+            m_bodyTombstones.erase(tomb);
+        } else {
+            BodyEntry entry;
+            entry.id = id;
+            entry.name = name.empty() ? ("Body " + std::to_string(id)) : name;
+            entry.shape = shape;
+            entry.visible = true;
+            m_bodies.push_back(std::move(entry));
+        }
     }
     if (id >= m_nextBodyId) m_nextBodyId = id + 1;
     if (m_eventBus) m_eventBus->publish(materializr::DocumentModifiedEvent{true});
@@ -191,6 +219,7 @@ void Document::clear() {
     m_planes.clear();
     m_sketches.clear();
     m_folders.clear();
+    m_bodyTombstones.clear();
     m_nextBodyId = 1;
     m_nextPlaneId = 1;
     m_nextSketchId = 1;

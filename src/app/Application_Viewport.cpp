@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <map>
 #include <set>
+#include <string>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -422,33 +423,27 @@ void Application::renderViewport() {
                 // (light-blue host face, blue sketch lines, dark grid). Without
                 // this the mid-saturation guides are nearly invisible.
                 const ImU32 halo = IM_COL32(0, 0, 0, 220);
+                // All inferences share a single colour now — the markers'
+                // distinct shapes (square / triangle / diamond) plus the
+                // cursor's text label carry the meaning; varied colours just
+                // added visual noise without communicating anything useful.
+                const ImU32 inferenceCol = IM_COL32(140, 220, 255, 255); // bright cyan
                 for (const auto& g : m_sketchTool->getActiveInferences()) {
-                    ImU32 col;
+                    ImU32 col = inferenceCol;
                     bool dashed = false;
                     switch (g.kind) {
                         case InferenceGuide::Endpoint:
-                            col = IM_COL32(255, 220, 50, 255); // yellow
-                            break;
                         case InferenceGuide::Midpoint:
-                            col = IM_COL32(140, 220, 255, 255); // light cyan
-                            break;
                         case InferenceGuide::OnLine:
-                            col = IM_COL32(210, 150, 255, 255); // bright lavender
+                            // Markers: shape carries the meaning.
                             break;
                         case InferenceGuide::AxisHFromPoint:
-                            col = IM_COL32(255, 80, 80, 255); // red horizontal
-                            dashed = true;
-                            break;
                         case InferenceGuide::AxisVFromPoint:
-                            col = IM_COL32(80, 230, 100, 255); // green vertical
-                            dashed = true;
-                            break;
                         case InferenceGuide::PerpToPrev:
-                            col = IM_COL32(255, 165, 0, 255); // bright orange (cyan was too close to face tint)
-                            dashed = true;
-                            break;
                         case InferenceGuide::ParallelToPrev:
-                            col = IM_COL32(255, 90, 255, 255); // bright magenta
+                        case InferenceGuide::AngleSnap:
+                        case InferenceGuide::OnLineExtension:
+                        case InferenceGuide::TangentToCircle:
                             dashed = true;
                             break;
                     }
@@ -506,6 +501,199 @@ void Application::renderViewport() {
                             dl->AddCircleFilled(sa, 5.5f, halo);
                             dl->AddCircleFilled(sa, 4.0f, col);
                         }
+                    }
+                }
+
+                // Inference label near the cursor — names which snap(s) are
+                // active so the user understands WHY the cursor jumped. The
+                // killer SketchUp feature ("Endpoint" / "On midpoint" /
+                // "Perpendicular" floating next to the crosshair).
+                if (!m_sketchTool->getActiveInferences().empty()) {
+                    auto kindName = [](InferenceGuide::Kind k) -> const char* {
+                        switch (k) {
+                            case InferenceGuide::Endpoint:       return "Endpoint";
+                            case InferenceGuide::Midpoint:       return "Midpoint";
+                            case InferenceGuide::OnLine:         return "On Line";
+                            case InferenceGuide::AxisHFromPoint: return "On Horizontal Axis";
+                            case InferenceGuide::AxisVFromPoint: return "On Vertical Axis";
+                            case InferenceGuide::PerpToPrev:     return "Perpendicular";
+                            case InferenceGuide::ParallelToPrev: return "Parallel";
+                            case InferenceGuide::AngleSnap:      return "Angle Snap (15°)";
+                            case InferenceGuide::OnLineExtension: return "On Line Extension";
+                            case InferenceGuide::TangentToCircle: return "Tangent to Circle";
+                        }
+                        return "";
+                    };
+                    // Concatenate distinct names so two simultaneous inferences
+                    // (the intersection case) read as "Perpendicular + On Vertical Axis".
+                    std::string label;
+                    for (const auto& g : m_sketchTool->getActiveInferences()) {
+                        const char* n = kindName(g.kind);
+                        if (!n || !*n) continue;
+                        if (!label.empty()) label += "  +  ";
+                        // Skip duplicates within the same set.
+                        if (label.find(n) == std::string::npos) label += n;
+                    }
+                    if (!label.empty()) {
+                        ImVec2 mp = ImGui::GetMousePos();
+                        ImVec2 tp(mp.x + 16.0f, mp.y + 16.0f);
+                        ImVec2 ts = ImGui::CalcTextSize(label.c_str());
+                        // Dark background pill so the text stays legible no
+                        // matter what's underneath in the viewport.
+                        dl->AddRectFilled(
+                            ImVec2(tp.x - 5.0f, tp.y - 3.0f),
+                            ImVec2(tp.x + ts.x + 5.0f, tp.y + ts.y + 3.0f),
+                            IM_COL32(20, 20, 28, 220), 4.0f);
+                        dl->AddText(tp, IM_COL32(255, 240, 200, 255), label.c_str());
+                    }
+                }
+            }
+
+            // Dimension value labels — Distance / Radius / Angle constraints
+            // get a numeric text overlay near their geometry so the user can
+            // see (and later edit) the locked value. Free / undimensioned
+            // geometry stays label-free.
+            if (m_inSketchMode && m_activeSketch) {
+                const gp_Ax3& dax = m_activeSketch->getPlane().Position();
+                glm::vec3 dO(dax.Location().X(), dax.Location().Y(), dax.Location().Z());
+                glm::vec3 dX(dax.XDirection().X(), dax.XDirection().Y(), dax.XDirection().Z());
+                glm::vec3 dY(dax.YDirection().X(), dax.YDirection().Y(), dax.YDirection().Z());
+                auto dim2world = [&](glm::vec2 p) { return dO + p.x * dX + p.y * dY; };
+                // Reset the per-frame "click swallowed by a label" flag —
+                // re-evaluated below as labels are drawn and hit-tested.
+                m_dimEditingClickedThisFrame = false;
+                auto drawLabel = [&](glm::vec2 pos, const char* text,
+                                     const Constraint& c) {
+                    ImVec2 sp;
+                    if (!toImg(dim2world(pos), sp)) return;
+                    ImVec2 ts = ImGui::CalcTextSize(text);
+                    ImVec2 tp(sp.x - ts.x * 0.5f, sp.y - ts.y * 0.5f);
+                    ImVec2 rMin(tp.x - 4, tp.y - 2);
+                    ImVec2 rMax(tp.x + ts.x + 4, tp.y + ts.y + 2);
+                    // Hover highlights the label so users see it's clickable.
+                    bool hovered = ImGui::IsMouseHoveringRect(rMin, rMax);
+                    ImU32 bg = hovered ? IM_COL32(45, 45, 60, 235)
+                                       : IM_COL32(20, 20, 28, 220);
+                    dl->AddRectFilled(rMin, rMax, bg, 3.0f);
+                    dl->AddText(tp, IM_COL32(255, 235, 120, 255), text);
+                    // Click → open edit popup. Skipped if we're already
+                    // editing this same constraint to avoid re-triggering
+                    // the open every frame the popup is up.
+                    if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left) &&
+                        m_dimEditingId != c.id) {
+                        m_dimEditingId = c.id;
+                        if (c.type == ConstraintType::Angle) {
+                            std::snprintf(m_dimEditingBuf, sizeof(m_dimEditingBuf),
+                                          "%.2f", c.value * 180.0 / M_PI);
+                        } else {
+                            std::snprintf(m_dimEditingBuf, sizeof(m_dimEditingBuf),
+                                          "%.2f", c.value);
+                        }
+                        m_dimEditingFocus = true;
+                        m_dimEditingClickedThisFrame = true;
+                        ImGui::OpenPopup("##DimEdit");
+                    }
+                };
+                char lbl[40];
+                for (const auto& c : m_activeSketch->getConstraints()) {
+                    if (c.type == ConstraintType::Distance) {
+                        const SketchPoint* p1 = m_activeSketch->getPoint(c.entityA);
+                        const SketchPoint* p2 = m_activeSketch->getPoint(c.entityB);
+                        if (!p1 || !p2) continue;
+                        glm::vec2 mid = 0.5f * (p1->pos + p2->pos);
+                        glm::vec2 perp(-(p2->pos.y - p1->pos.y), p2->pos.x - p1->pos.x);
+                        float pl = glm::length(perp);
+                        // Push the label well off the line so it doesn't sit
+                        // under the move/rotate gizmo when both selected
+                        // points are highlighted. Scaled by the segment
+                        // length so the offset stays proportional and the
+                        // label doesn't end up miles away on tiny dimensions.
+                        if (pl > 1e-6f) {
+                            float segLen = glm::length(p2->pos - p1->pos);
+                            float off = std::max(3.0f, segLen * 0.18f);
+                            perp = perp / pl * off;
+                        }
+                        std::snprintf(lbl, sizeof(lbl), "%.2f mm", c.value);
+                        drawLabel(mid + perp, lbl, c);
+                    } else if (c.type == ConstraintType::Radius) {
+                        glm::vec2 center(0.0f);
+                        bool found = false;
+                        for (const auto& circ : m_activeSketch->getCircles()) {
+                            if (circ.id == c.entityA) {
+                                const SketchPoint* cp = m_activeSketch->getPoint(circ.centerPointId);
+                                if (cp) { center = cp->pos; found = true; }
+                                break;
+                            }
+                        }
+                        if (!found) {
+                            for (const auto& arc : m_activeSketch->getArcs()) {
+                                if (arc.id == c.entityA) {
+                                    const SketchPoint* cp = m_activeSketch->getPoint(arc.centerPointId);
+                                    if (cp) { center = cp->pos; found = true; }
+                                    break;
+                                }
+                            }
+                        }
+                        if (!found) continue;
+                        std::snprintf(lbl, sizeof(lbl), "R %.2f mm", c.value);
+                        drawLabel(center, lbl, c);
+                    } else if (c.type == ConstraintType::Angle) {
+                        // Label at the midpoint of line A (the reference) so
+                        // it's near both lines without overlapping geometry.
+                        const SketchLine* lA = nullptr;
+                        for (const auto& l : m_activeSketch->getLines()) {
+                            if (l.id == c.entityA) { lA = &l; break; }
+                        }
+                        if (!lA) continue;
+                        const SketchPoint* sp = m_activeSketch->getPoint(lA->startPointId);
+                        const SketchPoint* ep = m_activeSketch->getPoint(lA->endPointId);
+                        if (!sp || !ep) continue;
+                        glm::vec2 mid = 0.5f * (sp->pos + ep->pos);
+                        float deg = static_cast<float>(c.value * 180.0 / M_PI);
+                        std::snprintf(lbl, sizeof(lbl), "%.1f\xC2\xB0", deg);
+                        drawLabel(mid, lbl, c);
+                    }
+                }
+
+                // Edit popup for the currently-clicked dimension label.
+                // BeginPopup returning false (Esc / click-outside) closes the
+                // edit and leaves the constraint unchanged. Enter commits the
+                // typed value, re-runs the solver, and marks the project dirty.
+                if (m_dimEditingId >= 0) {
+                    if (ImGui::BeginPopup("##DimEdit")) {
+                        ImGui::TextUnformatted("Edit dimension");
+                        ImGui::Separator();
+                        if (m_dimEditingFocus) {
+                            ImGui::SetKeyboardFocusHere();
+                            m_dimEditingFocus = false;
+                        }
+                        ImGui::SetNextItemWidth(120.0f);
+                        if (ImGui::InputText("##dimval", m_dimEditingBuf,
+                                             sizeof(m_dimEditingBuf),
+                                             ImGuiInputTextFlags_EnterReturnsTrue |
+                                             ImGuiInputTextFlags_CharsDecimal |
+                                             ImGuiInputTextFlags_AutoSelectAll)) {
+                            double v = std::atof(m_dimEditingBuf);
+                            for (auto& cn : m_activeSketch->getMutableConstraints()) {
+                                if (cn.id != m_dimEditingId) continue;
+                                if (cn.type == ConstraintType::Angle) {
+                                    // Popup shows degrees; solver wants radians.
+                                    cn.value = v * M_PI / 180.0;
+                                } else if (v > 0.0) {
+                                    cn.value = v;
+                                }
+                                break;
+                            }
+                            if (m_sketchSolver) m_sketchSolver->solve(*m_activeSketch);
+                            markDirty();
+                            m_meshesDirty = true;
+                            m_dimEditingId = -1;
+                            ImGui::CloseCurrentPopup();
+                        }
+                        ImGui::EndPopup();
+                    } else {
+                        // Popup closed without committing — drop edit state.
+                        m_dimEditingId = -1;
                     }
                 }
             }
@@ -1712,7 +1900,12 @@ void Application::renderViewport() {
                     if (!wasOrbiting && m_sketchTool->hasElementSelection()) {
                         m_sketchCtxMenuPending = true;
                     }
-                } else if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+                } else if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) &&
+                           !m_dimEditingClickedThisFrame) {
+                    // m_dimEditingClickedThisFrame is set when a click landed
+                    // on a dimension-label hit-rect this frame; swallow the
+                    // click here so it doesn't ALSO place a sketch point at
+                    // that screen position underneath the popup.
                     // Pick first to decide between element-drag and box-select.
                     bool tryBoxSelect = (m_sketchTool->getMode() == SketchToolMode::Select);
                     int hitPt = -1, hitLn = -1;
@@ -1903,6 +2096,8 @@ void Application::renderViewport() {
             if (nPts >= 2) {
                 if (ImGui::MenuItem("Coincident"))
                     applySketchConstraint(ConstraintType::Coincident);
+                if (ImGui::MenuItem("Distance … (current value)"))
+                    applySketchConstraint(ConstraintType::Distance);
             }
             if (nLns >= 2) {
                 if (ImGui::MenuItem("Parallel"))
@@ -1911,6 +2106,8 @@ void Application::renderViewport() {
                     applySketchConstraint(ConstraintType::Perpendicular);
                 if (ImGui::MenuItem("Equal length"))
                     applySketchConstraint(ConstraintType::Equal);
+                if (ImGui::MenuItem("Angle … (current value)"))
+                    applySketchConstraint(ConstraintType::Angle);
             }
             if (nPts >= 1) {
                 if (ImGui::MenuItem("Fix Position"))
@@ -2129,14 +2326,24 @@ void Application::renderViewport() {
             "Type a value and press Enter. The shape extends from your first click toward the cursor.";
         switch (mode) {
             case SketchToolMode::Line:      dimLabel = "Length (mm)"; break;
-            case SketchToolMode::Circle:    dimLabel = "Radius (mm)"; break;
+            case SketchToolMode::Circle:    dimLabel = "Diameter (mm)"; break;
             case SketchToolMode::Polygon:
                 dimLabel = "Sides";
                 dimHint  = "Type sides (≥3) and Enter to preview — radius and "
                            "rotation come from cursor. Click to commit; the "
                            "first vertex lands on the (snapped) cursor.";
                 break;
-            case SketchToolMode::Rectangle: dimLabel = "Side (mm)";   break;
+            case SketchToolMode::Rectangle:
+                // Two-stage: first Enter sets horizontal side; second Enter
+                // commits with the typed vertical side. Cursor still drives
+                // whichever axis hasn't been typed yet.
+                dimLabel = (m_sketchTool->getRectDimStage() == 0)
+                             ? "Width (mm)" : "Height (mm)";
+                dimHint  = (m_sketchTool->getRectDimStage() == 0)
+                  ? "Type width and Enter to lock horizontal — cursor still "
+                    "drives height. Or click for both at once."
+                  : "Type height and Enter to commit the rectangle.";
+                break;
             default: dimLabel = nullptr;
         }
         if (dimLabel) {

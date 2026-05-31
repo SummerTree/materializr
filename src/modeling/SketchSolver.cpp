@@ -63,6 +63,9 @@ bool SketchSolver::solve(Sketch& sketch, int maxIterations, double tolerance) {
             case ConstraintType::Concentric:
                 numEquations += 2; // x and y must match (same as coincident)
                 break;
+            case ConstraintType::Angle:
+                numEquations += 1; // one angle equation between two lines
+                break;
         }
     }
 
@@ -319,6 +322,34 @@ double SketchSolver::computeError(const Constraint& c, const Sketch& sketch) con
 
             return static_cast<double>(glm::length(pa->pos - pb->pos));
         }
+
+        case ConstraintType::Angle: {
+            // entityA and entityB are line ids. c.value is the target angle in
+            // radians (signed, line B relative to line A). Error = current
+            // signed angle minus target, wrapped to [-π, π].
+            const auto& lines = sketch.getLines();
+            glm::vec2 dirA(0), dirB(0);
+            for (const auto& line : lines) {
+                if (line.id == c.entityA) {
+                    const SketchPoint* sp = sketch.getPoint(line.startPointId);
+                    const SketchPoint* ep = sketch.getPoint(line.endPointId);
+                    if (sp && ep) dirA = ep->pos - sp->pos;
+                }
+                if (line.id == c.entityB) {
+                    const SketchPoint* sp = sketch.getPoint(line.startPointId);
+                    const SketchPoint* ep = sketch.getPoint(line.endPointId);
+                    if (sp && ep) dirB = ep->pos - sp->pos;
+                }
+            }
+            if (glm::length(dirA) < 1e-10f || glm::length(dirB) < 1e-10f) return 0.0;
+            float angA = std::atan2(dirA.y, dirA.x);
+            float angB = std::atan2(dirB.y, dirB.x);
+            double diff = static_cast<double>(angB - angA) - c.value;
+            const double TWO_PI = 2.0 * M_PI;
+            while (diff >  M_PI) diff -= TWO_PI;
+            while (diff < -M_PI) diff += TWO_PI;
+            return diff;
+        }
     }
 
     return 0.0;
@@ -567,6 +598,32 @@ void SketchSolver::applyCorrection(const Constraint& c, Sketch& sketch, double e
             glm::vec2 mid = (pa->pos + pb->pos) * 0.5f;
             sketch.movePoint(centerA, mid);
             sketch.movePoint(centerB, mid);
+            break;
+        }
+
+        case ConstraintType::Angle: {
+            // Rotate line B around its start point so its direction makes the
+            // target signed angle (c.value) with line A. Line A is left alone.
+            const auto& lines = sketch.getLines();
+            const SketchLine* lineA = nullptr;
+            const SketchLine* lineB = nullptr;
+            for (const auto& line : lines) {
+                if (line.id == c.entityA) lineA = &line;
+                if (line.id == c.entityB) lineB = &line;
+            }
+            if (!lineA || !lineB) return;
+            const SketchPoint* spA = sketch.getPoint(lineA->startPointId);
+            const SketchPoint* epA = sketch.getPoint(lineA->endPointId);
+            const SketchPoint* spB = sketch.getPoint(lineB->startPointId);
+            const SketchPoint* epB = sketch.getPoint(lineB->endPointId);
+            if (!spA || !epA || !spB || !epB) return;
+            glm::vec2 dirA = epA->pos - spA->pos;
+            if (glm::length(dirA) < 1e-10f) return;
+            float angA = std::atan2(dirA.y, dirA.x);
+            float targetAng = angA + static_cast<float>(c.value);
+            float lenB = glm::length(epB->pos - spB->pos);
+            glm::vec2 newDir(std::cos(targetAng), std::sin(targetAng));
+            sketch.movePoint(lineB->endPointId, spB->pos + newDir * lenB);
             break;
         }
     }

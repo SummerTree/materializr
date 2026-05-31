@@ -24,6 +24,14 @@ struct AppSettings {
     float selectionLineWidth = 3.0f; // px width of highlighted edges/body outlines (1..10)
     bool  showToolbarTooltips = true; // hover-tip describing each toolbar button
 
+    // Sketch helper mode: 0 = Inferences (SketchUp-style draw-time ghost guides,
+    // no persistent constraints planted, default). 1 = Constraints (formal-
+    // constraint toolbar buttons surface when sketch elements are selected, so
+    // power users can lock geometry parametrically). Both modes coexist with the
+    // sketch-viewport right-click "Add Constraint ▸" menu, which is always
+    // available regardless of this setting.
+    int   sketchHelperMode = 0;
+
     // --- Session ---
     bool  autoOpenLastProject = false;     // re-open the most recent project on launch
     // Path of the project currently open. Updated on save / load; cleared on
