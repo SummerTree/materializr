@@ -105,6 +105,11 @@ public:
     bool isSketchVisible(int id) const;
     std::vector<int> getAllSketchIds() const;
     int sketchCount() const;
+    // Reverse lookup: returns the document id of the given Sketch* (compared
+    // by raw pointer against the held shared_ptrs), or -1 if not found.
+    // SketchEditOp::serializeWithDocument uses this to stamp the live id
+    // into the serialized snapshot.
+    int findSketchId(const materializr::Sketch* sk) const;
 
     // Construction planes
     int addPlane(const gp_Pln& plane, const std::string& name = "");

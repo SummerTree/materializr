@@ -31,6 +31,23 @@ public:
     void renderProperties() override;
     std::string typeId() const override { return "sketchedit"; }
 
+    // Cross-session serialization: writes both snapshots in the project's
+    // SKETCH_START/SKETCH_END text format so a reloaded op can rehydrate
+    // into a real SketchEditOp (not a parameterless ReplayOp) and the
+    // History → Properties editor still works. The Document& lets us look
+    // up the live sketch's id from the held shared_ptr at write time;
+    // deserialize is a free function in ProjectIO since it needs to
+    // bind m_target to the loaded sketch by id.
+    std::string serializeWithDocument(const Document& doc) const;
+
+    // Accessors for the ProjectIO factory.
+    std::shared_ptr<Sketch> getBeforeSnapshot() const { return m_before; }
+    std::shared_ptr<Sketch> getAfterSnapshot() const  { return m_after;  }
+    void setTarget(std::shared_ptr<Sketch> t) { m_target = std::move(t); }
+    void setSnapshots(std::shared_ptr<Sketch> before, std::shared_ptr<Sketch> after) {
+        m_before = std::move(before); m_after = std::move(after);
+    }
+
 private:
     std::shared_ptr<Sketch> m_target;
     std::shared_ptr<Sketch> m_before;

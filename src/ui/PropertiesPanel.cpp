@@ -3,9 +3,15 @@
 #include "../core/Document.h"
 #include "../core/SelectionManager.h"
 #include "../core/Operation.h"
+#include "../modeling/Sketch.h"
+#include "../modeling/SketchSolver.h"
+#include "../modeling/SketchEditOp.h"
+#include "../modeling/SketchConstraints.h"
 #include <imgui.h>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <memory>
 #include <Bnd_Box.hxx>
 #include <BRepBndLib.hxx>
 
@@ -182,6 +188,10 @@ bool PropertiesPanel::render() {
         const char* typeName = "Object";
         int count = static_cast<int>(m_selection->getSelection().size());
 
+        // A SketchRegion entry is the user pointing at its parent sketch, so
+        // we treat the two interchangeably for the constraint editor below.
+        bool sketchLike = false;
+        int  parentSketchId = -1;
         switch (m_selection->primaryType()) {
             case SelectionType::Face:
                 typeName = "Face";
@@ -195,7 +205,19 @@ bool PropertiesPanel::render() {
                 typeName = "Vertex";
                 break;
             case SelectionType::Sketch:
-                typeName = "Sketch";
+            case SelectionType::SketchRegion:
+                typeName = (m_selection->primaryType() == SelectionType::SketchRegion)
+                            ? "Region" : "Sketch";
+                count = (m_selection->primaryType() == SelectionType::SketchRegion)
+                            ? m_selection->selectedSketchRegionCount()
+                            : m_selection->selectedSketchCount();
+                sketchLike = true;
+                for (const auto& e : m_selection->getSelection()) {
+                    if ((e.type == SelectionType::Sketch ||
+                         e.type == SelectionType::SketchRegion) && e.sketchId >= 0) {
+                        parentSketchId = e.sketchId; break;
+                    }
+                }
                 break;
             case SelectionType::Plane:
                 typeName = "Plane";
@@ -208,8 +230,13 @@ bool PropertiesPanel::render() {
         std::snprintf(selText, sizeof(selText), "%d %s(s) selected", count, typeName);
         ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "%s", selText);
         ImGui::Separator();
-        ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f),
-                           "Sub-shape properties not yet available.");
+
+        if (sketchLike && m_document && m_history && parentSketchId >= 0) {
+            renderSketchConstraintsPanel(parentSketchId, modified);
+        } else {
+            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f),
+                               "Sub-shape properties not yet available.");
+        }
     }
     // Case 4: Nothing selected
     else {
@@ -219,6 +246,157 @@ bool PropertiesPanel::render() {
 
     ImGui::End();
     return modified;
+}
+
+// Edits the live sketch's constraints in place. Differs from
+// SketchEditOp::renderProperties (which works on the m_after snapshot of
+// the step you clicked in History): that path doesn't survive a project
+// save/load because reloaded steps become parameterless ReplayOps. This
+// panel reads/writes the current sketch directly, so the workflow works
+// across sessions.
+//
+// Commit policy: text edits commit on Enter or focus-out (the
+// IsItemDeactivatedAfterEdit signal). On commit we snapshot the pre-edit
+// sketch, apply the value, run the solver, and push a SketchEditOp
+// covering both states — so the change is undoable AND shows up as a
+// proper step in history.
+void PropertiesPanel::renderSketchConstraintsPanel(int sketchId, bool& modified) {
+    auto sk = m_document->getSketch(sketchId);
+    if (!sk) return;
+
+    // Switching to a different sketch: throw away buffered edits from the
+    // previous one so we don't show stale text in the inputs.
+    if (m_constraintPanelSketchId != sketchId) {
+        m_constraintEdits.clear();
+        m_constraintPanelSketchId = sketchId;
+    }
+
+    auto& cs = sk->getMutableConstraints();
+    if (cs.empty()) {
+        ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f),
+                           "No constraints on this sketch.");
+        ImGui::TextWrapped("Add one by right-clicking a sketch element in "
+                           "sketch-edit mode and picking \"Add Constraint\".");
+        return;
+    }
+
+    ImGui::TextColored(ImVec4(0.6f, 0.85f, 1.0f, 1.0f), "Constraints");
+    ImGui::Separator();
+
+    // Friendly type names for the non-editable bullet rows.
+    auto typeName = [](ConstraintType t) -> const char* {
+        switch (t) {
+            case ConstraintType::Coincident:    return "Coincident";
+            case ConstraintType::Horizontal:    return "Horizontal";
+            case ConstraintType::Vertical:      return "Vertical";
+            case ConstraintType::Parallel:      return "Parallel";
+            case ConstraintType::Perpendicular: return "Perpendicular";
+            case ConstraintType::Fixed:         return "Fix Position";
+            case ConstraintType::Tangent:       return "Tangent";
+            case ConstraintType::Equal:         return "Equal length";
+            case ConstraintType::Concentric:    return "Concentric";
+            default:                            return "Constraint";
+        }
+    };
+
+    // Helper: commit a value change.
+    //  - mutate the live constraint
+    //  - re-solve so dependent geometry follows
+    //  - push a SketchEditOp(before, after) covering the change
+    auto commitEdit = [&](Constraint& c, double newValue, ConstraintEdit& edit) {
+        if (!edit.beforeSnap) edit.beforeSnap = std::make_shared<Sketch>(*sk);
+        c.value = newValue;
+        SketchSolver solver;
+        solver.solve(*sk);
+        auto after = std::make_shared<Sketch>(*sk);
+        auto op = std::make_unique<SketchEditOp>(sk, edit.beforeSnap, after);
+        m_history->pushExecuted(std::move(op));
+        edit.beforeSnap.reset();
+        edit.focused = false;
+        modified = true;
+    };
+
+    int anyDim = 0;
+    for (size_t i = 0; i < cs.size(); ++i) {
+        Constraint& c = cs[i];
+        ImGui::PushID(static_cast<int>(c.id));
+
+        // Render dimensional ones (Distance, Radius/Diameter, Angle) inline.
+        // Non-dimensional ones get a single muted bullet — there's nothing to
+        // tune, but listing them confirms what's actually applied.
+        bool isDim = (c.type == ConstraintType::Distance ||
+                      c.type == ConstraintType::Radius   ||
+                      c.type == ConstraintType::Angle);
+        if (isDim) {
+            ++anyDim;
+            auto& edit = m_constraintEdits[c.id];
+
+            // Display value: Radius shown as diameter (matches sketch popup).
+            double shown = (c.type == ConstraintType::Radius) ? (c.value * 2.0)
+                          : (c.type == ConstraintType::Angle)
+                                ? (c.value * 180.0 / M_PI)
+                                : c.value;
+
+            // Refill the buffer when the user is NOT actively editing this
+            // field, so external changes (solver runs, undo/redo) propagate
+            // into the visible text. While focused we leave the buffer alone
+            // so we don't trample the user's keystrokes.
+            const char* unit = (c.type == ConstraintType::Angle) ? "\xC2\xB0" : "mm";
+            const char* label =
+                c.type == ConstraintType::Distance ? "Distance"
+              : c.type == ConstraintType::Radius   ? "\xC3\x98 (diameter)"
+                                                   : "Angle";
+            if (!edit.focused) {
+                std::snprintf(edit.buf, sizeof(edit.buf), "%.3f", shown);
+            }
+
+            ImGui::TextUnformatted(label);
+            ImGui::SameLine(120);
+            ImGui::SetNextItemWidth(110);
+            ImGui::InputText("##val", edit.buf, sizeof(edit.buf),
+                             ImGuiInputTextFlags_CharsDecimal |
+                             ImGuiInputTextFlags_AutoSelectAll |
+                             ImGuiInputTextFlags_EnterReturnsTrue);
+            bool justActivated   = ImGui::IsItemActivated();
+            bool justDeactivated = ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::SameLine(); ImGui::Text("%s", unit);
+
+            // Snapshot the pre-edit sketch the moment the user starts typing
+            // so we can use it as the "before" of the eventual SketchEditOp.
+            if (justActivated) {
+                edit.focused = true;
+                edit.beforeSnap = std::make_shared<Sketch>(*sk);
+            }
+            // Commit on Enter / focus-out (whichever fires first).
+            if (justDeactivated) {
+                double typed = std::atof(edit.buf);
+                double newRaw = (c.type == ConstraintType::Radius)
+                                    ? typed * 0.5
+                              : (c.type == ConstraintType::Angle)
+                                    ? typed * M_PI / 180.0
+                                    : typed;
+                if (std::abs(newRaw - c.value) > 1e-6) {
+                    commitEdit(c, newRaw, edit);
+                } else {
+                    edit.focused = false;
+                    edit.beforeSnap.reset();
+                }
+            }
+        } else {
+            ImGui::TextDisabled("\xE2\x80\xA2 %s", typeName(c.type));
+        }
+        ImGui::PopID();
+    }
+
+    if (!anyDim) {
+        ImGui::Spacing();
+        ImGui::TextWrapped("This sketch has no dimensional constraints — only "
+                           "Horizontal / Parallel / etc., which have nothing "
+                           "to tune.");
+    } else {
+        ImGui::Spacing();
+        ImGui::TextDisabled("Press Enter or click elsewhere to commit a value.");
+    }
 }
 
 } // namespace materializr

@@ -24,6 +24,15 @@ Window::Window(int width, int height, const std::string& title)
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
+    // Tell the window manager who we are. Without these, GLFW reports
+    // WM_CLASS = "glfw" on X11 and app-id = "glfw" on Wayland, so taskbar
+    // extensions (Dash-to-Panel, the GNOME shell, etc.) can't match the
+    // running window to materializr.desktop and fall back to a generic icon.
+    // StartupWMClass=Materializr in the desktop file pairs with this.
+    glfwWindowHintString(GLFW_X11_CLASS_NAME,    "Materializr");
+    glfwWindowHintString(GLFW_X11_INSTANCE_NAME, "Materializr");
+    glfwWindowHintString(GLFW_WAYLAND_APP_ID,    "Materializr");
+
     m_window = glfwCreateWindow(m_width, m_height, title.c_str(), nullptr, nullptr);
     if (!m_window) {
         glfwTerminate();

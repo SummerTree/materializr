@@ -198,6 +198,14 @@ int Document::sketchCount() const {
     return static_cast<int>(m_sketches.size());
 }
 
+int Document::findSketchId(const materializr::Sketch* sk) const {
+    if (!sk) return -1;
+    for (const auto& e : m_sketches) {
+        if (e.sketch.get() == sk) return e.id;
+    }
+    return -1;
+}
+
 int Document::findSketchIndex(int id) const {
     for (int i = 0; i < static_cast<int>(m_sketches.size()); ++i) {
         if (m_sketches[i].id == id) return i;

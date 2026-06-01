@@ -14,6 +14,7 @@ RUN apt-get update && apt-get install -y \
     libxcursor-dev libxi-dev libxkbcommon-dev \
     libwayland-dev pkg-config \
     libcurl4-openssl-dev \
+    zlib1g-dev \
     file patchelf wget fuse libfuse2 \
     imagemagick \
     && rm -rf /var/lib/apt/lists/*
@@ -48,8 +49,10 @@ RUN find /usr/lib -name "libTK*.so*" -o -name "libtbb*.so*" -o -name "libfreetyp
 # Set RPATH
 RUN patchelf --set-rpath '$ORIGIN/../lib' /AppDir/usr/bin/materializr || true
 
-# Create .desktop file
-RUN printf '[Desktop Entry]\nName=Materializr\nExec=materializr\nIcon=materializr\nType=Application\nCategories=Graphics;3DGraphics;Engineering;\nComment=Open-source parametric 3D CAD\n' \
+# Create .desktop file. StartupWMClass must match the WM_CLASS / Wayland
+# app-id the running window reports (set in Window.cpp via the GLFW hints)
+# so taskbar extensions like Dash-to-Panel can tie the window to its icon.
+RUN printf '[Desktop Entry]\nName=Materializr\nExec=materializr\nIcon=materializr\nType=Application\nCategories=Graphics;3DGraphics;Engineering;\nComment=Open-source parametric 3D CAD\nStartupWMClass=Materializr\n' \
     > /AppDir/materializr.desktop
 
 # Use the project's icon.png if present at the repo root, resized to the

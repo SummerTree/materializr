@@ -1,4 +1,5 @@
 #pragma once
+#include <memory>
 #include <string>
 #include <vector>
 #include <utility>
@@ -6,6 +7,10 @@
 
 class Document;
 class History;
+
+namespace materializr {
+class SketchEditOp;
+}
 
 namespace materializr {
 
@@ -54,6 +59,15 @@ public:
     // section (left empty/.present=false if the file has none).
     static ProjectLoadResult load(const std::string& filePath, Document& doc,
                                   ProjectHistory* historyOut = nullptr);
+
+    // Reconstructs a SketchEditOp from the params blob that
+    // SketchEditOp::serializeWithDocument produced. The blob carries the
+    // before+after sketch snapshots plus the live sketch's id; we use that
+    // id to bind m_target via doc.getSketch(). Returns nullptr if the blob
+    // is malformed or its sketch id isn't in the document (in which case
+    // the caller falls back to a ReplayOp for that step).
+    static std::unique_ptr<SketchEditOp> rehydrateSketchEditOp(
+        const std::string& paramsBlob, Document& doc);
 };
 
 } // namespace materializr

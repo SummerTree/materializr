@@ -1,8 +1,11 @@
 #include "ProjectIO.h"
 #include "../core/Document.h"
 #include "../modeling/Sketch.h"
+#include "../modeling/SketchEditOp.h"
 
 #include <BRepTools.hxx>
+#include <BinTools.hxx>
+#include <BinTools_FormatVersion.hxx>
 #include <BRep_Builder.hxx>
 #include <TopTools_FormatVersion.hxx>
 #include <TopoDS_Shape.hxx>
@@ -11,6 +14,9 @@
 #include <gp_Pnt.hxx>
 #include <gp_Dir.hxx>
 
+#include <zlib.h>
+
+#include <cstddef>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -29,20 +35,18 @@ namespace materializr {
 
 namespace {
 
-// Write/read a single body block: "SB <id>" then BREP, terminated by "SB_END".
-void writeBodyBlock(std::ofstream& ofs, int id, const TopoDS_Shape& shape) {
+// ─── v2 body block (ASCII BREP, scan-to-SB_END) ─────────────────────────────
+// Format: "SB <id>" newline, then BRepTools::Write text, terminated by a
+// "SB_END" line. Kept verbatim so old .materializr files still load.
+void writeBodyBlockV2(std::ostream& ofs, int id, const TopoDS_Shape& shape) {
     ofs << "SB " << id << "\n";
     std::ostringstream brep;
-    // Don't serialize the display triangulation — it bloats the file (megabytes
-    // per step) and is regenerated on load. Geometry only.
     BRepTools::Write(shape, brep, Standard_False, Standard_False,
                      TopTools_FormatVersion_CURRENT);
     ofs << brep.str() << "\nSB_END\n";
 }
-
-// Reads a body block given its already-read "SB <id>" line. Returns false on EOF.
-bool readBodyBlock(std::ifstream& ifs, const std::string& sbLine,
-                   int& idOut, TopoDS_Shape& shapeOut) {
+bool readBodyBlockV2(std::istream& ifs, const std::string& sbLine,
+                     int& idOut, TopoDS_Shape& shapeOut) {
     std::istringstream iss(sbLine);
     std::string tok; iss >> tok >> idOut;
     std::ostringstream brep;
@@ -59,21 +63,118 @@ bool readBodyBlock(std::ifstream& ifs, const std::string& sbLine,
     return !shapeOut.IsNull();
 }
 
+// ─── v3 body block (binary BREP via BinTools, length-prefixed) ──────────────
+// Format: "SB <id> <byteCount>" newline, then exactly byteCount raw bytes,
+// newline, then "SB_END" newline. Binary BREP is ~4-5x smaller than ASCII;
+// length-prefix lets us read it without scanning for a sentinel inside the
+// binary payload.
+void writeBodyBlockV3(std::ostream& ofs, int id, const TopoDS_Shape& shape) {
+    std::ostringstream bin;
+    // No display triangulation / normals — those are megabytes per body
+    // and are regenerated on load. (Default 2-arg Write has them ON.)
+    BinTools::Write(shape, bin, Standard_False, Standard_False,
+                    BinTools_FormatVersion_CURRENT);
+    const std::string data = bin.str();
+    ofs << "SB " << id << " " << data.size() << "\n";
+    ofs.write(data.data(), static_cast<std::streamsize>(data.size()));
+    ofs << "\nSB_END\n";
+}
+bool readBodyBlockV3(std::istream& ifs, const std::string& sbLine,
+                     int& idOut, TopoDS_Shape& shapeOut) {
+    std::istringstream iss(sbLine);
+    std::string tok; std::size_t byteCount = 0;
+    iss >> tok >> idOut >> byteCount;
+    if (iss.fail()) return false;
+    std::string data(byteCount, '\0');
+    ifs.read(&data[0], static_cast<std::streamsize>(byteCount));
+    if (static_cast<std::size_t>(ifs.gcount()) != byteCount) return false;
+    // Consume the trailing "\nSB_END\n".
+    std::string trailing;
+    std::getline(ifs, trailing); // newline after binary payload
+    std::getline(ifs, trailing); // "SB_END"
+    if (trailing != "SB_END") return false;
+    BRep_Builder b;
+    std::istringstream bs(data, std::ios::binary);
+    BinTools::Read(shapeOut, bs);
+    return !shapeOut.IsNull();
+}
+
+// Switch helpers — saver always writes v3; loader picks based on header.
+void writeBodyBlock(std::ostream& ofs, int id, const TopoDS_Shape& shape) {
+    writeBodyBlockV3(ofs, id, shape);
+}
+bool readBodyBlock(std::istream& ifs, const std::string& sbLine,
+                   int& idOut, TopoDS_Shape& shapeOut, int fileVersion) {
+    if (fileVersion >= 3) return readBodyBlockV3(ifs, sbLine, idOut, shapeOut);
+    return readBodyBlockV2(ifs, sbLine, idOut, shapeOut);
+}
+
+// ─── zlib gzip helpers ──────────────────────────────────────────────────────
+// We build the entire save in an in-memory buffer, then gzip-compress the
+// result to file in one shot. Project files are small enough that the peak
+// memory cost is irrelevant — and keeping the parser working on a
+// std::stringstream lets the rest of save/load stay byte-identical.
+bool looksLikeGzip(const std::string& bytes) {
+    return bytes.size() >= 2 &&
+           static_cast<unsigned char>(bytes[0]) == 0x1f &&
+           static_cast<unsigned char>(bytes[1]) == 0x8b;
+}
+std::string gzipDeflate(const std::string& src) {
+    z_stream zs{};
+    // 15 + 16 = window 15 (32 KB) with the gzip wrapper enabled. Project
+    // files save once and load many times, so the extra CPU of level 9 is
+    // a fair trade for the smaller file (~10 % over default for our mix
+    // of binary BREP + ASCII metadata).
+    if (deflateInit2(&zs, Z_BEST_COMPRESSION, Z_DEFLATED,
+                     15 + 16, 8, Z_DEFAULT_STRATEGY) != Z_OK) return {};
+    zs.next_in  = reinterpret_cast<Bytef*>(const_cast<char*>(src.data()));
+    zs.avail_in = static_cast<uInt>(src.size());
+    std::string out;
+    char buf[1 << 15];
+    int ret;
+    do {
+        zs.next_out  = reinterpret_cast<Bytef*>(buf);
+        zs.avail_out = sizeof(buf);
+        ret = deflate(&zs, Z_FINISH);
+        out.append(buf, sizeof(buf) - zs.avail_out);
+    } while (ret == Z_OK);
+    deflateEnd(&zs);
+    return (ret == Z_STREAM_END) ? out : std::string{};
+}
+std::string gunzipInflate(const std::string& src) {
+    z_stream zs{};
+    if (inflateInit2(&zs, 15 + 32) != Z_OK) return {};   // 32 = auto-detect gzip
+    zs.next_in  = reinterpret_cast<Bytef*>(const_cast<char*>(src.data()));
+    zs.avail_in = static_cast<uInt>(src.size());
+    std::string out;
+    char buf[1 << 15];
+    int ret;
+    do {
+        zs.next_out  = reinterpret_cast<Bytef*>(buf);
+        zs.avail_out = sizeof(buf);
+        ret = inflate(&zs, Z_NO_FLUSH);
+        out.append(buf, sizeof(buf) - zs.avail_out);
+    } while (ret == Z_OK);
+    inflateEnd(&zs);
+    return (ret == Z_STREAM_END) ? out : std::string{};
+}
+
 } // namespace
 
 ProjectSaveResult ProjectIO::save(const std::string& filePath, const Document& doc,
                                   const ProjectHistory* history) {
     ProjectSaveResult result;
 
-    std::ofstream ofs(filePath, std::ios::out | std::ios::trunc);
-    if (!ofs.is_open()) {
-        result.errorMessage = "Failed to open file for writing: " + filePath;
-        return result;
-    }
+    // Build the entire file content in memory first (binary-safe stringstream
+    // so writeBodyBlockV3's raw bytes pass through unmodified), then gzip-
+    // deflate the result and write it to disk as one binary blob. Lets the
+    // rest of save/load stay byte-identical to the v2 codepath while shrinking
+    // typical files ~5-8x.
+    std::ostringstream ofs(std::ios::binary);
 
     std::vector<int> bodyIds = doc.getAllBodyIds();
 
-    ofs << "MATERIALIZR_PROJECT v2\n";
+    ofs << "MATERIALIZR_PROJECT v3\n";
     ofs << "BODY_COUNT " << static_cast<int>(bodyIds.size()) << "\n";
 
     for (int id : bodyIds) {
@@ -81,16 +182,20 @@ ProjectSaveResult ProjectIO::save(const std::string& filePath, const Document& d
         bool visible = doc.isBodyVisible(id);
         glm::vec3 c = doc.getBodyColor(id);
 
-        ofs << "BODY_START " << id << " \"" << name << "\" " << (visible ? 1 : 0)
-            << " " << c.r << " " << c.g << " " << c.b << "\n";
-
+        // v3 top-level body block: byte-count on the BODY_START line, then
+        // the binary BREP payload (vs v2's trailing ASCII BREP scanned for
+        // BODY_END). Loader picks the format from the file version.
         try {
             const TopoDS_Shape& shape = doc.getBody(id);
-            std::ostringstream brepStream;
-            // Geometry only (no display triangulation) — see writeBodyBlock.
-            BRepTools::Write(shape, brepStream, Standard_False, Standard_False,
-                             TopTools_FormatVersion_CURRENT);
-            ofs << brepStream.str();
+            std::ostringstream brepStream(std::ios::binary);
+            BinTools::Write(shape, brepStream, Standard_False, Standard_False,
+                            BinTools_FormatVersion_CURRENT);
+            const std::string data = brepStream.str();
+            ofs << "BODY_START " << id << " \"" << name << "\" "
+                << (visible ? 1 : 0) << " "
+                << c.r << " " << c.g << " " << c.b << " "
+                << data.size() << "\n";
+            ofs.write(data.data(), static_cast<std::streamsize>(data.size()));
         } catch (const std::exception& e) {
             result.errorMessage = "Failed to write BREP data for body " +
                                   std::to_string(id) + ": " + e.what();
@@ -231,12 +336,16 @@ ProjectSaveResult ProjectIO::save(const std::string& filePath, const Document& d
             ofs << "NAME \"" << st.name << "\"\n";
             ofs << "DESC \"" << st.description << "\"\n";
             ofs << "ENABLED " << (st.enabled ? 1 : 0) << "\n";
-            // Optional per-op parameter blob (since 0.3.x). Omitted entirely
-            // when empty so older parsers see a familiar STEP block. Quoted
-            // single-line; embedded quotes are deliberately not supported —
-            // ops keep their key=value blobs to ASCII / decimal text.
+            // Per-op parameter blob. v3 uses a length-prefixed binary-safe
+            // form (PARAMS_LEN + raw bytes) so the blob can carry multi-line
+            // content like the SketchEditOp before/after sketch snapshots.
+            // v2 readers see no PARAMS line at all from a v3 save — that's
+            // fine because v3 files round-trip through v3 readers.
             if (!st.params.empty()) {
-                ofs << "PARAMS \"" << st.params << "\"\n";
+                ofs << "PARAMS_LEN " << st.params.size() << "\n";
+                ofs.write(st.params.data(),
+                          static_cast<std::streamsize>(st.params.size()));
+                ofs << "\n";
             }
             // Wall-clock timestamp (Unix epoch seconds) when the op was made.
             // Read back so the HistoryPanel can group steps by date.
@@ -256,20 +365,135 @@ ProjectSaveResult ProjectIO::save(const std::string& filePath, const Document& d
     ofs << "END\n";
 
     if (!ofs.good()) {
-        result.errorMessage = "I/O error while writing file: " + filePath;
+        result.errorMessage = "I/O error while building file content: " + filePath;
         return result;
     }
 
-    ofs.close();
+    // Gzip-deflate the in-memory file and dump to disk as binary.
+    const std::string raw = ofs.str();
+    const std::string gz  = gzipDeflate(raw);
+    if (gz.empty()) {
+        result.errorMessage = "zlib deflate failed";
+        return result;
+    }
+    std::ofstream out(filePath, std::ios::out | std::ios::trunc | std::ios::binary);
+    if (!out.is_open()) {
+        result.errorMessage = "Failed to open file for writing: " + filePath;
+        return result;
+    }
+    out.write(gz.data(), static_cast<std::streamsize>(gz.size()));
+    if (!out.good()) {
+        result.errorMessage = "I/O error while writing file: " + filePath;
+        return result;
+    }
+    out.close();
     result.success = true;
     return result;
 }
 
 namespace {
 
+// Parse the element / constraint bodies of one sketch from the stream into
+// `sk`, stopping when we hit `endTok` (typically "SKETCH_END"). This is the
+// loop that used to be inlined inside readSketch — extracted so SketchEditOp
+// can re-use it to embed full before/after sketch snapshots in the params
+// blob of each sketch-edit step.
+void parseSketchBody(std::istream& ifs, materializr::Sketch& sk,
+                     const char* endTok = "SKETCH_END") {
+    int maxId = 0;
+    int maxConstraintId = 0;
+    auto bump = [&](int id) { maxId = std::max(maxId, id); };
+
+    std::string line;
+    while (std::getline(ifs, line)) {
+        std::istringstream iss(line);
+        std::string tok; iss >> tok;
+        if (tok == endTok || tok.empty()) break;
+
+        if (tok == "PLANE") {
+            double ox, oy, oz, zx, zy, zz, xx, xy, xz;
+            iss >> ox >> oy >> oz >> zx >> zy >> zz >> xx >> xy >> xz;
+            double yx = 0, yy = 0, yz = 0;
+            bool haveY = static_cast<bool>(iss >> yx >> yy >> yz);
+            try {
+                gp_Ax3 ax(gp_Pnt(ox, oy, oz), gp_Dir(zx, zy, zz), gp_Dir(xx, xy, xz));
+                if (haveY) {
+                    gp_Dir loadedY = ax.YDirection();
+                    gp_Dir savedY(yx, yy, yz);
+                    if (loadedY.Dot(savedY) < 0) ax.YReverse();
+                }
+                sk.setPlane(gp_Pln(ax));
+            } catch (...) {}
+        } else if (tok == "POINT_COUNT") {
+            int n = 0; iss >> n;
+            for (int i = 0; i < n && std::getline(ifs, line); ++i) {
+                std::istringstream s(line); std::string t; SketchPoint p; int c = 0;
+                s >> t >> p.id >> p.pos.x >> p.pos.y >> c; p.isConstruction = (c != 0);
+                bump(p.id); sk.addRawPoint(p);
+            }
+        } else if (tok == "LINE_COUNT") {
+            int n = 0; iss >> n;
+            for (int i = 0; i < n && std::getline(ifs, line); ++i) {
+                std::istringstream s(line); std::string t; SketchLine l; int c = 0;
+                s >> t >> l.id >> l.startPointId >> l.endPointId >> c; l.isConstruction = (c != 0);
+                bump(l.id); sk.addRawLine(l);
+            }
+        } else if (tok == "CIRCLE_COUNT") {
+            int n = 0; iss >> n;
+            for (int i = 0; i < n && std::getline(ifs, line); ++i) {
+                std::istringstream s(line); std::string t; SketchCircle c; int cf = 0;
+                s >> t >> c.id >> c.centerPointId >> c.radius >> cf; c.isConstruction = (cf != 0);
+                bump(c.id); sk.addRawCircle(c);
+            }
+        } else if (tok == "ARC_COUNT") {
+            int n = 0; iss >> n;
+            for (int i = 0; i < n && std::getline(ifs, line); ++i) {
+                std::istringstream s(line); std::string t; SketchArc a; int c = 0;
+                s >> t >> a.id >> a.centerPointId >> a.startPointId >> a.endPointId >> a.radius >> c;
+                a.isConstruction = (c != 0);
+                bump(a.id); sk.addRawArc(a);
+            }
+        } else if (tok == "SPLINE_COUNT") {
+            int n = 0; iss >> n;
+            for (int i = 0; i < n && std::getline(ifs, line); ++i) {
+                std::istringstream s(line); std::string t; SketchSpline sp; int c = 0, cnt = 0;
+                s >> t >> sp.id >> c >> cnt; sp.isConstruction = (c != 0);
+                for (int k = 0; k < cnt; ++k) { int id = 0; s >> id; sp.controlPointIds.push_back(id); }
+                bump(sp.id); sk.addRawSpline(sp);
+            }
+        } else if (tok == "POLYGON_COUNT") {
+            int n = 0; iss >> n;
+            for (int i = 0; i < n && std::getline(ifs, line); ++i) {
+                std::istringstream s(line); std::string t; SketchPolygon g; int c = 0, nv = 0, nl = 0;
+                s >> t >> g.id >> g.centerPointId >> g.radius >> g.sides >> c >> nv;
+                g.isConstruction = (c != 0);
+                for (int k = 0; k < nv; ++k) { int id = 0; s >> id; g.vertexPointIds.push_back(id); }
+                s >> nl;
+                for (int k = 0; k < nl; ++k) { int id = 0; s >> id; g.lineIds.push_back(id); }
+                bump(g.id); sk.addRawPolygon(g);
+            }
+        } else if (tok == "CONSTRAINT_COUNT") {
+            int n = 0; iss >> n;
+            for (int i = 0; i < n && std::getline(ifs, line); ++i) {
+                std::istringstream s(line); std::string t; Constraint c{};
+                int tval = 0;
+                s >> t >> c.id >> tval >> c.entityA >> c.entityB >> c.value >> c.valueY;
+                c.type = static_cast<ConstraintType>(tval);
+                c.isSatisfied = false;
+                maxConstraintId = std::max(maxConstraintId, c.id);
+                sk.addRawConstraint(c);
+            }
+        }
+        // Unknown tokens inside a sketch are ignored for forward compatibility.
+    }
+
+    sk.setNextId(maxId + 1);
+    sk.setNextConstraintId(maxConstraintId + 1);
+}
+
 // Read one sketch (everything between SKETCH_START and SKETCH_END) and add it to
 // the document. `startLine` is the already-read SKETCH_START line.
-void readSketch(std::ifstream& ifs, const std::string& startLine, Document& doc) {
+void readSketch(std::istream& ifs, const std::string& startLine, Document& doc) {
     int sid = 0, visible = 1, source = -1;
     std::string name;
     {
@@ -287,105 +511,11 @@ void readSketch(std::ifstream& ifs, const std::string& startLine, Document& doc)
     }
 
     auto sk = std::make_shared<Sketch>();
-    int maxId = 0;
-    int maxConstraintId = 0;
-    auto bump = [&](int id) { maxId = std::max(maxId, id); };
-
-    std::string line;
-    while (std::getline(ifs, line)) {
-        std::istringstream iss(line);
-        std::string tok;
-        iss >> tok;
-        if (tok == "SKETCH_END" || tok.empty()) break;
-
-        if (tok == "PLANE") {
-            double ox, oy, oz, zx, zy, zz, xx, xy, xz;
-            iss >> ox >> oy >> oz >> zx >> zy >> zz >> xx >> xy >> xz;
-            // Optional Y direction (present in 0.4.x+ saves). Used to detect
-            // left-handed coordinate systems that the 3-arg gp_Ax3
-            // constructor would otherwise silently force to right-handed —
-            // which mirrors the sketch 180° around the plane normal.
-            double yx = 0, yy = 0, yz = 0;
-            bool haveY = static_cast<bool>(iss >> yx >> yy >> yz);
-            try {
-                gp_Ax3 ax(gp_Pnt(ox, oy, oz), gp_Dir(zx, zy, zz), gp_Dir(xx, xy, xz));
-                if (haveY) {
-                    // If the loaded Y disagrees with the saved Y, the
-                    // original system was indirect; flip Y to restore it.
-                    gp_Dir loadedY = ax.YDirection();
-                    gp_Dir savedY(yx, yy, yz);
-                    if (loadedY.Dot(savedY) < 0) ax.YReverse();
-                }
-                sk->setPlane(gp_Pln(ax));
-            } catch (...) { /* keep default plane */ }
-        } else if (tok == "POINT_COUNT") {
-            int n = 0; iss >> n;
-            for (int i = 0; i < n && std::getline(ifs, line); ++i) {
-                std::istringstream s(line); std::string t; SketchPoint p; int c = 0;
-                s >> t >> p.id >> p.pos.x >> p.pos.y >> c; p.isConstruction = (c != 0);
-                bump(p.id); sk->addRawPoint(p);
-            }
-        } else if (tok == "LINE_COUNT") {
-            int n = 0; iss >> n;
-            for (int i = 0; i < n && std::getline(ifs, line); ++i) {
-                std::istringstream s(line); std::string t; SketchLine l; int c = 0;
-                s >> t >> l.id >> l.startPointId >> l.endPointId >> c; l.isConstruction = (c != 0);
-                bump(l.id); sk->addRawLine(l);
-            }
-        } else if (tok == "CIRCLE_COUNT") {
-            int n = 0; iss >> n;
-            for (int i = 0; i < n && std::getline(ifs, line); ++i) {
-                std::istringstream s(line); std::string t; SketchCircle c; int cf = 0;
-                s >> t >> c.id >> c.centerPointId >> c.radius >> cf; c.isConstruction = (cf != 0);
-                bump(c.id); sk->addRawCircle(c);
-            }
-        } else if (tok == "ARC_COUNT") {
-            int n = 0; iss >> n;
-            for (int i = 0; i < n && std::getline(ifs, line); ++i) {
-                std::istringstream s(line); std::string t; SketchArc a; int c = 0;
-                s >> t >> a.id >> a.centerPointId >> a.startPointId >> a.endPointId >> a.radius >> c;
-                a.isConstruction = (c != 0);
-                bump(a.id); sk->addRawArc(a);
-            }
-        } else if (tok == "SPLINE_COUNT") {
-            int n = 0; iss >> n;
-            for (int i = 0; i < n && std::getline(ifs, line); ++i) {
-                std::istringstream s(line); std::string t; SketchSpline sp; int c = 0, cnt = 0;
-                s >> t >> sp.id >> c >> cnt; sp.isConstruction = (c != 0);
-                for (int k = 0; k < cnt; ++k) { int id = 0; s >> id; sp.controlPointIds.push_back(id); }
-                bump(sp.id); sk->addRawSpline(sp);
-            }
-        } else if (tok == "POLYGON_COUNT") {
-            int n = 0; iss >> n;
-            for (int i = 0; i < n && std::getline(ifs, line); ++i) {
-                std::istringstream s(line); std::string t; SketchPolygon g; int c = 0, nv = 0, nl = 0;
-                s >> t >> g.id >> g.centerPointId >> g.radius >> g.sides >> c >> nv;
-                g.isConstruction = (c != 0);
-                for (int k = 0; k < nv; ++k) { int id = 0; s >> id; g.vertexPointIds.push_back(id); }
-                s >> nl;
-                for (int k = 0; k < nl; ++k) { int id = 0; s >> id; g.lineIds.push_back(id); }
-                bump(g.id); sk->addRawPolygon(g);
-            }
-        } else if (tok == "CONSTRAINT_COUNT") {
-            int n = 0; iss >> n;
-            for (int i = 0; i < n && std::getline(ifs, line); ++i) {
-                std::istringstream s(line); std::string t; Constraint c{};
-                int tval = 0;
-                s >> t >> c.id >> tval >> c.entityA >> c.entityB >> c.value >> c.valueY;
-                c.type = static_cast<ConstraintType>(tval);
-                c.isSatisfied = false; // recomputed on next solve()
-                maxConstraintId = std::max(maxConstraintId, c.id);
-                sk->addRawConstraint(c);
-            }
-        }
-        // Unknown tokens inside a sketch are ignored for forward compatibility.
-    }
-
-    sk->setNextId(maxId + 1);
-    sk->setNextConstraintId(maxConstraintId + 1);
+    parseSketchBody(ifs, *sk, "SKETCH_END");
     sk->setSourceBody(source);
     int newId = doc.addSketch(sk, name);
     doc.setSketchVisible(newId, visible != 0);
+    (void)sid; // sid is the original-file id; document assigns a fresh id on add
 }
 
 } // namespace
@@ -394,17 +524,43 @@ ProjectLoadResult ProjectIO::load(const std::string& filePath, Document& doc,
                                   ProjectHistory* historyOut) {
     ProjectLoadResult result;
 
-    std::ifstream ifs(filePath, std::ios::in);
-    if (!ifs.is_open()) {
+    // Slurp the whole file (binary). v2 files are plain ASCII; v3 files start
+    // with the gzip magic and we inflate them in memory before parsing.
+    std::ifstream raw(filePath, std::ios::in | std::ios::binary);
+    if (!raw.is_open()) {
         result.errorMessage = "Failed to open file for reading: " + filePath;
         return result;
     }
+    std::ostringstream slurp;
+    slurp << raw.rdbuf();
+    std::string contents = slurp.str();
+    raw.close();
+
+    if (looksLikeGzip(contents)) {
+        contents = gunzipInflate(contents);
+        if (contents.empty()) {
+            result.errorMessage = "zlib inflate failed (corrupt project file?)";
+            return result;
+        }
+    }
+
+    std::istringstream ifs(contents, std::ios::binary);
 
     std::string headerLine;
     if (!std::getline(ifs, headerLine) ||
         headerLine.rfind("MATERIALIZR_PROJECT", 0) != 0) {
         result.errorMessage = "Invalid project file header.";
         return result;
+    }
+    // Body-block format differs between v2 (ASCII BREP) and v3 (binary,
+    // length-prefixed). Pull the integer version off the header line.
+    int fileVersion = 2;
+    {
+        // headerLine looks like "MATERIALIZR_PROJECT v3"
+        auto sp = headerLine.find("v");
+        if (sp != std::string::npos) {
+            try { fileVersion = std::stoi(headerLine.substr(sp + 1)); } catch (...) {}
+        }
     }
 
     std::string countLine;
@@ -441,6 +597,8 @@ ProjectLoadResult ProjectIO::load(const std::string& filePath, Document& doc,
         std::string bodyName;
         bool hasColor = false;
         float r = 0.8f, g = 0.8f, b = 0.82f;
+        std::size_t bodyByteCount = 0; // v3 only — 0 means "scan to BODY_END"
+        bool haveByteCount = false;
         {
             std::istringstream iss(startLine);
             std::string label;
@@ -457,27 +615,50 @@ ProjectLoadResult ProjectIO::load(const std::string& filePath, Document& doc,
                 bodyName = rest.substr(fq + 1, lq - fq - 1);
                 std::istringstream after(rest.substr(lq + 1));
                 after >> visible;
-                if (after >> r >> g >> b) hasColor = true; // v2: colour present
+                if (after >> r >> g >> b) hasColor = true;
+                // v3 appends one extra integer: the binary BREP byte count.
+                if (after >> bodyByteCount) haveByteCount = true;
             } else {
                 bodyName = "Body " + std::to_string(bodyId);
             }
         }
 
-        std::ostringstream brepData;
-        std::string line;
-        bool foundEnd = false;
-        while (std::getline(ifs, line)) {
-            if (line == "BODY_END") { foundEnd = true; break; }
-            brepData << line << "\n";
-        }
-        if (!foundEnd) {
-            result.errorMessage = "Missing BODY_END marker for body " + std::to_string(bodyId);
-            return result;
+        TopoDS_Shape shape;
+        if (fileVersion >= 3 && haveByteCount) {
+            // v3 binary: read exactly bodyByteCount bytes, then expect a
+            // newline + "BODY_END" line.
+            std::string data(bodyByteCount, '\0');
+            ifs.read(&data[0], static_cast<std::streamsize>(bodyByteCount));
+            if (static_cast<std::size_t>(ifs.gcount()) != bodyByteCount) {
+                result.errorMessage = "Short read on binary body " + std::to_string(bodyId);
+                return result;
+            }
+            std::string trailing;
+            std::getline(ifs, trailing); // newline after binary
+            std::getline(ifs, trailing); // "BODY_END"
+            if (trailing != "BODY_END") {
+                result.errorMessage = "Missing BODY_END marker for body " + std::to_string(bodyId);
+                return result;
+            }
+            std::istringstream brepStream(data, std::ios::binary);
+            BinTools::Read(shape, brepStream);
+        } else {
+            // v2 ASCII: scan body content up to BODY_END.
+            std::ostringstream brepData;
+            std::string line;
+            bool foundEnd = false;
+            while (std::getline(ifs, line)) {
+                if (line == "BODY_END") { foundEnd = true; break; }
+                brepData << line << "\n";
+            }
+            if (!foundEnd) {
+                result.errorMessage = "Missing BODY_END marker for body " + std::to_string(bodyId);
+                return result;
+            }
+            std::istringstream brepStream(brepData.str());
+            BRepTools::Read(shape, brepStream, builder);
         }
 
-        TopoDS_Shape shape;
-        std::istringstream brepStream(brepData.str());
-        BRepTools::Read(shape, brepStream, builder);
         if (shape.IsNull()) {
             result.errorMessage = "Failed to read BREP data for body " + std::to_string(bodyId);
             return result;
@@ -576,7 +757,7 @@ ProjectLoadResult ProjectIO::load(const std::string& filePath, Document& doc,
                 std::string sb;
                 if (!std::getline(ifs, sb)) break;
                 int id = 0; TopoDS_Shape sh;
-                if (readBodyBlock(ifs, sb, id, sh))
+                if (readBodyBlock(ifs, sb, id, sh, fileVersion))
                     historyOut->initialState.push_back({id, sh});
             }
         } else if (tok == "HISTORY_COUNT" && historyOut) {
@@ -601,7 +782,17 @@ ProjectLoadResult ProjectIO::load(const std::string& filePath, Document& doc,
                                             ? l.substr(fq + 1, lq - fq - 1) : "";
                         if      (t == "NAME")   st.name = v;
                         else if (t == "DESC")   st.description = v;
-                        else                    st.params = v; // PARAMS
+                        else                    st.params = v; // legacy v2 PARAMS
+                    } else if (t == "PARAMS_LEN") {
+                        // v3 length-prefixed params blob — can carry newlines
+                        // / arbitrary content, used for SketchEditOp's full
+                        // before+after sketch snapshots.
+                        std::size_t n = 0; ls >> n;
+                        std::string data(n, '\0');
+                        ifs.read(&data[0], static_cast<std::streamsize>(n));
+                        // Consume the trailing newline after the blob.
+                        std::string skip; std::getline(ifs, skip);
+                        st.params = std::move(data);
                     } else if (t == "ENABLED") { int e = 1; ls >> e; st.enabled = (e != 0); }
                     else if (t == "CHANGED_COUNT") {
                         int m = 0; ls >> m;
@@ -609,7 +800,7 @@ ProjectLoadResult ProjectIO::load(const std::string& filePath, Document& doc,
                             std::string sb;
                             if (!std::getline(ifs, sb)) break;
                             int id = 0; TopoDS_Shape sh;
-                            if (readBodyBlock(ifs, sb, id, sh)) st.changed.push_back({id, sh});
+                            if (readBodyBlock(ifs, sb, id, sh, fileVersion)) st.changed.push_back({id, sh});
                         }
                     } else if (t == "DELETED_COUNT") {
                         int p = 0; ls >> p;
@@ -624,10 +815,43 @@ ProjectLoadResult ProjectIO::load(const std::string& filePath, Document& doc,
         // Unknown sections are ignored for forward compatibility.
     }
 
-    ifs.close();
     result.success = true;
     result.bodiesLoaded = loadedCount;
     return result;
+}
+
+std::unique_ptr<SketchEditOp> ProjectIO::rehydrateSketchEditOp(
+    const std::string& paramsBlob, Document& doc) {
+    if (paramsBlob.empty()) return nullptr;
+
+    // The blob is two SKETCH_START/SKETCH_END blocks back-to-back. Read each
+    // into a fresh Sketch via parseSketchBody (the same parser the top-level
+    // sketches use). The SKETCH_START line carries the sketch's document id
+    // so we can find the live sketch to bind m_target to.
+    std::istringstream is(paramsBlob);
+    auto readOne = [&](std::shared_ptr<Sketch>& out, int& idOut) -> bool {
+        std::string startLine;
+        if (!std::getline(is, startLine)) return false;
+        std::istringstream iss(startLine);
+        std::string label; iss >> label;
+        if (label != "SKETCH_START") return false;
+        iss >> idOut; // sketch id, visible / sourceBody on this line ignored
+        auto sk = std::make_shared<Sketch>();
+        parseSketchBody(is, *sk, "SKETCH_END");
+        out = std::move(sk);
+        return true;
+    };
+
+    std::shared_ptr<Sketch> beforeSnap, afterSnap;
+    int idBefore = -1, idAfter = -1;
+    if (!readOne(beforeSnap, idBefore)) return nullptr;
+    if (!readOne(afterSnap,  idAfter))  return nullptr;
+    if (idBefore != idAfter || idBefore < 0) return nullptr;
+
+    auto live = doc.getSketch(idBefore);
+    if (!live) return nullptr; // sketch id from blob isn't in this document
+
+    return std::make_unique<SketchEditOp>(live, beforeSnap, afterSnap);
 }
 
 } // namespace materializr

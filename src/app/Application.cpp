@@ -1579,7 +1579,14 @@ ProjectHistory Application::captureProjectHistory() {
         steps[i].name = op->name();
         steps[i].description = op->description();
         steps[i].enabled = op->isEnabled();
-        steps[i].params = op->serializeParams();
+        // SketchEditOp's params blob needs the live document to look up the
+        // sketch id its m_target belongs to. Other ops use the parameterless
+        // serializeParams() — base Operation returns "" so they're a no-op.
+        if (auto* sk = dynamic_cast<const materializr::SketchEditOp*>(op)) {
+            steps[i].params = sk->serializeWithDocument(*m_document);
+        } else {
+            steps[i].params = op->serializeParams();
+        }
         steps[i].timestampUnix = static_cast<long long>(
             std::chrono::duration_cast<std::chrono::seconds>(
                 op->timestamp().time_since_epoch()).count());
@@ -1630,13 +1637,25 @@ void Application::rebuildHistoryFromProject(const ProjectHistory& hist) {
         for (int id : st.deleted) running.erase(id);
         ReplayOp::BodyState after = toVec(running);
 
-        auto op = std::make_unique<ReplayOp>(st.typeId, st.name, st.description,
-                                             std::move(before), std::move(after));
+        // First, try to reconstruct a real op type from typeId + params blob
+        // — this is how reloaded steps stay editable (live-Properties panel
+        // works on the sketch, but the History → click-step → Properties
+        // path needs an actual SketchEditOp, not a ReplayOp). Falls through
+        // to the generic ReplayOp path on any parse failure.
+        std::unique_ptr<Operation> op;
+        if (st.typeId == "sketchedit" && !st.params.empty()) {
+            op = ProjectIO::rehydrateSketchEditOp(st.params, *m_document);
+        }
+        if (!op) {
+            op = std::make_unique<ReplayOp>(
+                st.typeId, st.name, st.description,
+                std::move(before), std::move(after));
+            // Carry the saved blob into the ReplayOp so future loaders /
+            // editors can still see it.
+            if (!st.params.empty())
+                static_cast<ReplayOp*>(op.get())->setStoredParams(st.params);
+        }
         op->setEnabled(st.enabled);
-        // Carry the saved parameter blob along so a future edit-after-reload
-        // pass (when face-id stability lands) can pull the original radii /
-        // distances / etc. back out without re-prompting the user.
-        if (!st.params.empty()) op->setStoredParams(st.params);
         // Restore the original timestamp so the HistoryPanel's date grouping
         // is preserved across reload. Legacy projects (timestamp == 0) get
         // bumped to "yesterday" so they group under that header instead of

@@ -156,6 +156,12 @@ public:
     void setNextId(int n) { m_nextId = n; }
     int  getNextId() const { return m_nextId; }
 
+    // Mutators used by the constraint solver to apply Radius constraints
+    // (the radius lives in the circle / arc struct, not in a point, so the
+    // generic movePoint path can't update it).
+    void setCircleRadius(int circleId, double r);
+    void setArcRadius(int arcId, double r);
+
     // --- Constraints (entirely opt-in; only user-applied constraints land here) ---
     // The solver reads from and writes back to this vector. Constraints persist
     // with the sketch so multiple sketches don't share solver state and project

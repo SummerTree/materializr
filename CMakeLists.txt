@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(Materializr VERSION 0.5.0 LANGUAGES CXX)
+project(Materializr VERSION 0.5.1 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -267,8 +267,16 @@ else()
         TKXSBase
         TKIGES
         TKSTL
+        # TKBin: BinTools::Write / Read (binary BREP, used by the v3
+        # .materializr format — smaller + faster than BRepTools' ASCII).
+        TKBin
     )
 endif()
+
+# zlib for the v3 .materializr file format (gzipped output, transparent on
+# read). System zlib on Linux; vcpkg ships one on Windows.
+find_package(ZLIB REQUIRED)
+target_link_libraries(materializr PRIVATE ZLIB::ZLIB)
 
 # ─── Windows specifics ───────────────────────────────────────────────────────
 # Everything here is gated on Windows/MSVC, so the Linux build is unaffected.

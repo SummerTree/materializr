@@ -419,9 +419,22 @@ void SketchSolver::applyCorrection(const Constraint& c, Sketch& sketch, double e
         }
 
         case ConstraintType::Radius: {
-            // Radius constraints modify the circle's radius directly
-            // Since we store radius in the circle struct, we need direct access
-            // For MVP, radius constraints are informational / checked only
+            // entityA is the circle's (or arc's) id. The radius lives in
+            // the circle / arc struct itself, so we write it back through
+            // the dedicated setter rather than the generic point-mover.
+            // We try circles first (the common case) and fall back to arcs.
+            for (const auto& circle : sketch.getCircles()) {
+                if (circle.id == c.entityA) {
+                    sketch.setCircleRadius(c.entityA, c.value);
+                    return;
+                }
+            }
+            for (const auto& arc : sketch.getArcs()) {
+                if (arc.id == c.entityA) {
+                    sketch.setArcRadius(c.entityA, c.value);
+                    return;
+                }
+            }
             break;
         }
 

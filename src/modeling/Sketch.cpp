@@ -116,6 +116,18 @@ int Sketch::addCircle(int centerPtId, double radius) {
     return circle.id;
 }
 
+void Sketch::setCircleRadius(int circleId, double r) {
+    for (auto& c : m_circles) {
+        if (c.id == circleId) { c.radius = std::max(r, 1e-6); return; }
+    }
+}
+
+void Sketch::setArcRadius(int arcId, double r) {
+    for (auto& a : m_arcs) {
+        if (a.id == arcId) { a.radius = std::max(r, 1e-6); return; }
+    }
+}
+
 int Sketch::addArc(int centerPtId, int startPtId, int endPtId, double radius) {
     SketchArc arc;
     arc.id = nextId();

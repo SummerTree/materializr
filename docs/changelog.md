@@ -3,6 +3,71 @@
 All notable changes to Materializr are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow SemVer.
 
+## [0.5.1] — 2026-05-31
+
+### Added
+
+- **v3 project file format — `.materializr` files are ~5× smaller.** Binary
+  BREP via OCCT's `BinTools` (no display triangulation), gzip-wrapped at max
+  compression, and a length-prefixed `PARAMS_LEN` block for op-parameter
+  blobs so a single op can carry multiline / arbitrary content. The reader
+  auto-detects v2 vs v3 by the gzip magic + header version; old files load
+  unchanged, new saves write v3. A real-world 16 MB project saves at ~3 MB
+  in v3.
+- **Constraints panel on the live sketch.** Selecting a sketch (or any
+  region of one) outside sketch-edit shows every constraint in the
+  Properties panel:
+  - Distance / Radius (shown as Ø diameter) / Angle constraints get inline
+    text editors that commit on Enter or focus-out.
+  - Non-dimensional constraints (Horizontal, Parallel, Coincident, etc.)
+    appear as muted bullet rows so you can see what's applied.
+  - Edits run the solver immediately and push a `SketchEditOp` covering
+    before+after onto history (undoable).
+  - Works across sessions — operates on the live sketch, not historical
+    snapshots.
+- **History → Properties editor survives reload.** `SketchEditOp` now
+  serializes both before+after sketch snapshots into the project file's
+  per-step params blob. On load, the rehydrator reconstructs a real
+  `SketchEditOp` (binding to the live sketch by id) instead of a
+  parameterless `ReplayOp`, so clicking a sketch-edit step in History on
+  an old project still surfaces editable constraint values.
+
+### Changed
+
+- **`Sketch::setCircleRadius` / `setArcRadius`** mutators on Sketch — the
+  constraint solver now actually writes the constraint value back into the
+  circle/arc geometry when a Radius constraint applies, instead of treating
+  Radius as "informational only" (the previous comment in the solver). So a
+  Radius constraint set to 30 mm now produces a 30 mm circle, not a 30-mm-
+  labelled 130-mm circle.
+- **Taskbar icon resolves correctly under Dash-to-Panel / GNOME.** The GLFW
+  window now sets `WM_CLASS = "Materializr"` (X11) and `app-id =
+  "Materializr"` (Wayland) via `glfwWindowHintString`, and the bundled
+  `.desktop` includes `StartupWMClass=Materializr` so the running window
+  matches its launcher entry. Without these, GLFW defaulted to `glfw` and
+  Dash-to-Panel showed a generic blank.
+
+### Fixed
+
+- **Document::findSketchId(Sketch*)** helper added so callers can do a
+  reverse lookup from a held `shared_ptr<Sketch>` back to its document id —
+  used by `SketchEditOp::serializeWithDocument` to stamp the live id into
+  saved snapshots.
+- **Parser refactor**: extracted `parseSketchBody(istream, Sketch&,
+  endTok)` out of the existing `readSketch` so the same parser serves both
+  top-level sketches and embedded SketchEditOp snapshots. No behavioural
+  change for v2 files.
+
+### Known limitations
+
+- **Downstream ops don't auto-cascade yet.** Editing a sketch's constraint
+  resizes the sketch correctly, but an `ExtrudeOp` / `PushPullOp` /
+  `FilletOp` that consumed that sketch (or its resulting body) doesn't
+  automatically re-execute. The body that came from the old sketch keeps
+  its old shape until you redo the op manually. Tracked as task #98
+  "replay-on-sketch-edit"; the toponaming work needed to safely re-run
+  fillets etc. is being treated as its own future release.
+
 ## [0.5.0] — 2026-05-31
 
 ### Added
