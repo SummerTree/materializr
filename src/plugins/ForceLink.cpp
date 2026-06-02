@@ -18,6 +18,8 @@ void forceLink_Pattern();
 void forceLink_Shell();
 void forceLink_SplitBody();
 void forceLink_ConstructionPlane();
+void forceLink_ConstructionAxis();
+void forceLink_Revolve();
 
 // Phase 3 plugins
 void forceLink_Fillet();
@@ -48,6 +50,8 @@ void linkAll() {
     forceLink_Shell();
     forceLink_SplitBody();
     forceLink_ConstructionPlane();
+    forceLink_ConstructionAxis();
+    forceLink_Revolve();
     // Phase 3
     forceLink_Fillet();
     forceLink_Chamfer();

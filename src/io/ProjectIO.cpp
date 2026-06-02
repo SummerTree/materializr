@@ -323,6 +323,43 @@ ProjectSaveResult ProjectIO::save(const std::string& filePath, const Document& d
         ofs << "BODY_FOLDER " << bid << " " << fid << "\n";
     }
 
+    // --- Construction primitives (planes + axes) ---
+    // Saved as document records (not history-derived) so they survive
+    // reload even when their creating op isn't re-executed. Format is the
+    // minimal "free-floating thing in the doc" line shape; ids are NOT
+    // preserved on reload (new monotonic ids are allocated) since no
+    // cross-references exist yet — Revolve persistence will need a fixup
+    // pass when it gets here (TODO once axis-id references land).
+    {
+        std::vector<int> planeIds = doc.getAllPlaneIds();
+        ofs << "CPLANE_COUNT " << static_cast<int>(planeIds.size()) << "\n";
+        for (int pid : planeIds) {
+            const auto* p = doc.getPlane(pid);
+            if (!p) continue;
+            const gp_Ax3& ax = p->plane.Position();
+            gp_Pnt o = ax.Location();
+            gp_Dir x = ax.XDirection();
+            gp_Dir y = ax.YDirection();
+            ofs << "CPLANE " << p->id << " \"" << p->name << "\" "
+                << (p->visible ? 1 : 0) << " " << p->halfSize << " "
+                << o.X() << " " << o.Y() << " " << o.Z() << " "
+                << x.X() << " " << x.Y() << " " << x.Z() << " "
+                << y.X() << " " << y.Y() << " " << y.Z() << "\n";
+        }
+    }
+    {
+        std::vector<int> axisIds = doc.getAllAxisIds();
+        ofs << "CAXIS_COUNT " << static_cast<int>(axisIds.size()) << "\n";
+        for (int aid : axisIds) {
+            const auto* a = doc.getAxis(aid);
+            if (!a) continue;
+            ofs << "CAXIS " << a->id << " \"" << a->name << "\" "
+                << (a->visible ? 1 : 0) << " " << a->halfLength << " "
+                << a->origin.X() << " " << a->origin.Y() << " " << a->origin.Z() << " "
+                << a->direction.X() << " " << a->direction.Y() << " " << a->direction.Z() << "\n";
+        }
+    }
+
     // --- History (optional) ---
     if (history && history->present) {
         ofs << "HISTORY_INITIAL_COUNT " << static_cast<int>(history->initialState.size()) << "\n";
@@ -749,6 +786,78 @@ ProjectLoadResult ProjectIO::load(const std::string& filePath, Document& doc,
                 } else {
                     ifs.seekg(restore);
                 }
+            }
+        } else if (tok == "CPLANE_COUNT") {
+            // Construction plane block. We re-issue addPlane so the
+            // Document's next-id counter ticks; saved ids are NOT preserved
+            // (no cross-references yet — see save-side note).
+            int n = 0; iss >> n;
+            for (int i = 0; i < n; ++i) {
+                std::string pline;
+                if (!std::getline(ifs, pline)) break;
+                std::istringstream ps(pline);
+                std::string ptok; ps >> ptok;
+                if (ptok != "CPLANE") continue;
+                int  savedId = 0;
+                ps >> savedId;
+                std::string rest; std::getline(ps, rest);
+                auto fq = rest.find('"'), lq = rest.rfind('"');
+                std::string pname = "Plane";
+                int vis = 1;
+                double halfSize = 50.0;
+                double ox = 0, oy = 0, oz = 0;
+                double xx = 1, xy = 0, xz = 0;
+                double yx = 0, yy = 1, yz = 0;
+                if (fq != std::string::npos && lq != std::string::npos && fq != lq) {
+                    pname = rest.substr(fq + 1, lq - fq - 1);
+                    std::istringstream after(rest.substr(lq + 1));
+                    after >> vis >> halfSize
+                          >> ox >> oy >> oz
+                          >> xx >> xy >> xz
+                          >> yx >> yy >> yz;
+                }
+                try {
+                    gp_Ax3 ax(gp_Pnt(ox, oy, oz), gp_Dir(0, 0, 1));
+                    // Reconstruct from xdir+ydir to get the right handedness.
+                    ax = gp_Ax3(gp_Pnt(ox, oy, oz),
+                                gp_Dir(xx, xy, xz).Crossed(gp_Dir(yx, yy, yz)),
+                                gp_Dir(xx, xy, xz));
+                    gp_Pln pln(ax);
+                    int newId = doc.addPlane(pln, pname);
+                    doc.setPlaneVisible(newId, vis != 0);
+                    (void)savedId; // not preserved
+                } catch (...) {}
+            }
+        } else if (tok == "CAXIS_COUNT") {
+            // Construction axis block. Same id-not-preserved policy as planes.
+            int n = 0; iss >> n;
+            for (int i = 0; i < n; ++i) {
+                std::string aline;
+                if (!std::getline(ifs, aline)) break;
+                std::istringstream as(aline);
+                std::string atok; as >> atok;
+                if (atok != "CAXIS") continue;
+                int  savedId = 0;
+                as >> savedId;
+                std::string rest; std::getline(as, rest);
+                auto fq = rest.find('"'), lq = rest.rfind('"');
+                std::string aname = "Axis";
+                int vis = 1;
+                double halfLen = 50.0;
+                double ox = 0, oy = 0, oz = 0;
+                double dx = 0, dy = 0, dz = 1;
+                if (fq != std::string::npos && lq != std::string::npos && fq != lq) {
+                    aname = rest.substr(fq + 1, lq - fq - 1);
+                    std::istringstream after(rest.substr(lq + 1));
+                    after >> vis >> halfLen >> ox >> oy >> oz >> dx >> dy >> dz;
+                }
+                try {
+                    int newId = doc.addAxis(gp_Pnt(ox, oy, oz),
+                                             gp_Dir(dx, dy, dz), aname);
+                    doc.setAxisVisible(newId, vis != 0);
+                    (void)halfLen; // halfLength setter is internal; default fine
+                    (void)savedId;
+                } catch (...) {}
             }
         } else if (tok == "HISTORY_INITIAL_COUNT" && historyOut) {
             int k = 0; iss >> k;

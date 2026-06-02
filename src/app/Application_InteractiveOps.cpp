@@ -25,6 +25,7 @@
 #include "modeling/PatternOp.h"
 #include "modeling/LoftOp.h"
 #include "modeling/ConstructionPlaneOp.h"
+#include "modeling/ConstructionAxisOp.h"
 #include <Geom_Plane.hxx>
 #include <Geom_Surface.hxx>
 
@@ -1541,6 +1542,84 @@ void Application::cancelConstructionPlane() {
         m_planeOpPreviewPushed = false;
     }
     m_planeOpActive = false;
+    m_meshesDirty = true;
+}
+
+// ─── Construction Axis interactive popup ───────────────────────────────────
+//
+// Same skeleton as the plane popup: begin seeds defaults, update rebuilds
+// the ConstructionAxisOp on every radio/value change (preview-undo first),
+// commit leaves the last preview in place, cancel undoes the preview.
+// Auto-selects the just-pushed axis so the user can immediately pivot to
+// the Move gizmo / Revolve later.
+
+void Application::beginConstructionAxis() {
+    if (m_axisOpActive) return; // already open
+    m_axisOpActive = true;
+    m_axisOpKindIdx = 2;        // user Z (= world Y up) — sensible default
+    m_axisOpOrigin[0] = m_axisOpOrigin[1] = m_axisOpOrigin[2] = 0.0;
+    for (int i = 0; i < 3; ++i) {
+        std::snprintf(m_axisOpOriginBuf[i], sizeof(m_axisOpOriginBuf[i]),
+                      "%.2f", m_axisOpOrigin[i]);
+    }
+    m_axisOpPreviewPushed = false;
+    updateConstructionAxis();
+}
+
+void Application::updateConstructionAxis() {
+    if (!m_axisOpActive || !m_history || !m_document) return;
+
+    // Undo the previous preview so we don't stack axes on every radio /
+    // origin tweak (same dance the plane popup uses).
+    if (m_axisOpPreviewPushed && m_history->canUndo()) {
+        m_history->undo(*m_document);
+        m_axisOpPreviewPushed = false;
+    }
+
+    auto op = std::make_unique<ConstructionAxisOp>();
+    // User-Z-up remap (same as the plane popup): the popup's X / Y / Z
+    // labels are in the user's Z-up convention, so user-Y → world-Z
+    // (depth) and user-Z → world-Y (up). Without this, picking "Z"
+    // gives a horizontal axis instead of the floor-up axis the user expects.
+    AxisCreationType kind = AxisCreationType::WorldZ;
+    const char* nm = "Axis";
+    switch (m_axisOpKindIdx) {
+        case 0: kind = AxisCreationType::WorldX; nm = "X Axis"; break;
+        case 1: kind = AxisCreationType::WorldZ; nm = "Y Axis"; break;
+        case 2: kind = AxisCreationType::WorldY; nm = "Z Axis"; break;
+        default: break;
+    }
+    op->setType(kind);
+    op->setOrigin(gp_Pnt(m_axisOpOrigin[0], m_axisOpOrigin[1], m_axisOpOrigin[2]));
+    op->setName(nm);
+
+    if (m_history->pushOperation(std::move(op), *m_document)) {
+        m_axisOpPreviewPushed = true;
+        // Auto-select the freshly-pushed axis so click-Move workflows pick
+        // it up immediately. Mirrors the construction-plane popup.
+        auto ids = m_document->getAllAxisIds();
+        if (!ids.empty()) {
+            SelectionEntry e;
+            e.type = SelectionType::Axis;
+            e.axisId = ids.back();
+            m_selection->select(e);
+        }
+    }
+    m_meshesDirty = true;
+}
+
+void Application::commitConstructionAxis() {
+    m_axisOpActive = false;
+    m_axisOpPreviewPushed = false;
+    m_meshesDirty = true;
+}
+
+void Application::cancelConstructionAxis() {
+    if (m_axisOpPreviewPushed && m_history->canUndo()) {
+        m_history->undo(*m_document);
+        m_axisOpPreviewPushed = false;
+    }
+    m_axisOpActive = false;
     m_meshesDirty = true;
 }
 

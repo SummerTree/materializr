@@ -5,6 +5,7 @@
 #include <functional>
 #include <string>
 #include <set>
+#include <map>
 #include <glm/glm.hpp>
 #include <TopoDS_Shape.hxx>
 #include <TopoDS_Face.hxx>
@@ -436,6 +437,28 @@ private:
     bool m_planeGizmoArmed = false;
     int  m_planeGizmoArmedFor = -1;
 
+    // Construction-axis gizmo drag + arming — same shape as the plane
+    // version. Axes have no Rotate semantics (an infinite line has no
+    // meaningful "rotate the line around itself") so only Translate
+    // writes through. The drag list stores {axisId, origin-before-drag,
+    // direction-before-drag} so the live drag can rebase off a stable
+    // pose each frame.
+    struct AxisDragEntry { int id; gp_Pnt origin; gp_Dir direction; };
+    std::vector<AxisDragEntry> m_axisGizmoDrag;
+    bool m_axisGizmoArmed = false;
+    int  m_axisGizmoArmedFor = -1;
+
+    // Per-body gizmo-center cache. Without this, the body-selected branch in
+    // renderViewport calls BRepBndLib::Add(shape, bbox) every frame to place
+    // the Move/Rotate gizmo on the body centroid — and on a complex part
+    // (1.5m airplane skeleton: many trimmed B-spline surfaces per body) that
+    // bbox walk is 50–150 ms each, dropping the idle frame rate to 6 FPS the
+    // moment one or two bodies are selected. Key: the body's TShape pointer
+    // (stable through location-only transforms via gizmo drags, invalidated
+    // automatically when topology rebuilds — push/pull, fillet, transform-
+    // rotate, revolve apply — exactly when we'd want a fresh centroid).
+    std::map<int, std::pair<const void*, glm::vec3>> m_gizmoCenterCache;
+
     // Sketches do NOT show the gizmo automatically on selection — that lets
     // the Tools toolbar surface its Move / Rotate / Loft / Edit options
     // cleanly without a gizmo dropped on top. The user clicks Move or Rotate
@@ -654,6 +677,84 @@ private:
     void commitConstructionPlane();
     void cancelConstructionPlane();
     void renderConstructionPlanePanel();
+
+    // Interactive Construction Axis popup — direct parallel to the plane
+    // popup above. Plugin fires requestInteractiveOp("ConstructionAxis");
+    // we open a small popup with World-X / Y / Z radios + an origin point
+    // input. (Two-point and face-normal modes are listed but their
+    // viewport-pick UX is deferred — typing the origin coords is enough
+    // for the v0.6.x line.) Live preview via ConstructionAxisOp on
+    // history, same Apply / Cancel idiom as the plane popup.
+    bool m_axisOpActive = false;
+    int  m_axisOpKindIdx = 0;     // 0=WorldX, 1=WorldY, 2=WorldZ
+    double m_axisOpOrigin[3] = {0.0, 0.0, 0.0}; // world coords
+    char m_axisOpOriginBuf[3][24] = {"0.0", "0.0", "0.0"};
+    bool m_axisOpPreviewPushed = false;
+
+    void beginConstructionAxis();
+    void updateConstructionAxis();
+    void commitConstructionAxis();
+    void cancelConstructionAxis();
+    void renderConstructionAxisPanel();
+
+    // Revolve popup. Opens when the user clicks Revolve in the body Tools
+    // panel; takes a sketch profile + an axis (canonical world axis or a
+    // Construction Axis from the document) + angle + mode. Apply pushes a
+    // RevolveOp. Pre-fills sketch / axis / target body from the current
+    // selection so the common "select profile, select axis, click Revolve"
+    // flow lands ready-to-Apply.
+    bool m_revolveActive = false;
+    // What the revolve does. 0 = "Rotate Body": apply a TransformOp::Rotate
+    // around the picked axis to every selected body (multi-body supported,
+    // no sketch needed, no new geometry created). 1 = "Sweep Sketch": full
+    // RevolveOp that sweeps a sketch profile around the axis into a new /
+    // boolean'd body (single-body target).
+    int  m_revolveWhatIdx  = 0;
+    int  m_revolveSketchId = -1;
+    int  m_revolveAxisId   = -1;          // -1 = use canonical world axis below
+    int  m_revolveWorldAxisIdx = 2;       // 0=X, 1=Y(user)=worldZ, 2=Z(user)=worldY
+    int  m_revolveBodyId   = -1;          // primary body — first one in the selection
+    std::vector<int> m_revolveBodyIds;    // all selected bodies (>=1); Rotate Body iterates this
+    int  m_revolveModeIdx  = 0;           // 0=NewBody 1=Union 2=Cut 3=Intersect (Sweep mode)
+    float m_revolveAngle   = 360.0f;
+    char  m_revolveAngleBuf[24] = "360.0";
+    // Live-preview state for Rotate Body mode. Snapshot of the body's
+    // original shape taken at popup open; each angle change applies a fresh
+    // transform from the snapshot (not from the current state, which would
+    // accumulate). Apply restores the snapshot before pushing the real
+    // TransformOp so the history step computes its own previousShape
+    // correctly. Cancel restores and aborts.
+    bool         m_revolveLiveActive = false;
+    int          m_revolveOrigBodyId = -1;
+    TopoDS_Shape m_revolveOrigShape;
+    float        m_revolveLastAppliedAngle = 0.0f;
+
+    // Arc-drag interaction state. The yellow arced arrow in the viewport
+    // becomes clickable when the popup is open in Rotate Body mode:
+    // press over the arc to grab it, drag tangentially to spin the body
+    // around the axis. We track per-frame cursor-angle deltas (rather than
+    // a single offset) so the drag is robust to the atan2 wrap-around when
+    // the cursor crosses the ±π boundary. m_revolveArcWasHovered persists
+    // for one frame so the picker / selection code can skip clicks that
+    // landed on the arc.
+    bool  m_revolveArcDragging = false;
+    bool  m_revolveArcWasHovered = false;
+    float m_revolveArcDragAngleAccum = 0.0f;   // accumulated cursor delta (rad)
+    float m_revolveArcDragLastCursorAng = 0.0f;
+    float m_revolveArcDragStartBodyAng = 0.0f; // m_revolveAngle when drag began
+
+    // Captures the current selection (sketch + axis + bodies) and opens
+    // the Revolve popup. Called from both the Revolve plugin's toolbar
+    // button (via requestInteractiveOp dispatch) and any future Command
+    // Palette entry. Keeping it as a single helper means the "what to do
+    // when revolve is requested" logic stays in one place.
+    void beginRevolve();
+    void renderRevolvePopup();
+    void applyRevolve();
+    // Cancel / commit helpers — share the restore-original logic.
+    void revolveLiveBegin();
+    void revolveLiveApply(float angle);
+    void revolveLiveRestore();
 
     // Sketch Move type-in panel: when the Move gizmo is active on a single
     // selected standalone sketch (the sketch-as-construction-plane workflow),

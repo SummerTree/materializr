@@ -143,6 +143,8 @@ add_executable(materializr
     src/plugins/ShellPlugin.cpp
     src/plugins/SplitBodyPlugin.cpp
     src/plugins/ConstructionPlanePlugin.cpp
+    src/plugins/ConstructionAxisPlugin.cpp
+    src/plugins/RevolvePlugin.cpp
     src/plugins/FilletPlugin.cpp
     src/plugins/ChamferPlugin.cpp
     src/plugins/ExtrudePlugin.cpp
@@ -174,6 +176,7 @@ add_executable(materializr
     src/modeling/LoftOp.cpp
     src/modeling/SketchTransformOp.cpp
     src/modeling/ConstructionPlaneOp.cpp
+    src/modeling/ConstructionAxisOp.cpp
     src/modeling/AlignOp.cpp
     src/modeling/CopyOp.cpp
     src/modeling/DeleteOp.cpp
@@ -191,6 +194,7 @@ add_executable(materializr
     src/viewport/Picker.cpp
     src/viewport/EdgeRenderer.cpp
     src/viewport/PlaneRenderer.cpp
+    src/viewport/AxisRenderer.cpp
     src/viewport/BackgroundRenderer.cpp
     src/viewport/Gizmo.cpp
     src/viewport/BoxSelect.cpp

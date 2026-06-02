@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <map>
 #include <memory>
 
@@ -58,6 +59,16 @@ private:
     };
     std::map<int, ConstraintEdit> m_constraintEdits;
 
+    // Per-body bbox-extent cache for the "Size: X × Y × Z mm" readout.
+    // BRepBndLib::AddOptimal walks every face's surface densely (it's the
+    // "tight" variant — significantly more expensive than the regular Add)
+    // and on a complex NURBS body (airplane fuselage, etc.) runs 80-150ms.
+    // Calling it every frame while the panel is open dropped the idle frame
+    // rate to ~10 FPS the moment a body was selected. Key on the body's
+    // TShape pointer so the cache self-invalidates whenever the topology
+    // actually rebuilds (push/pull, fillet, revolve commit, etc.).
+    // Stored extents are already in user-Z-up convention.
+    std::map<int, std::pair<const void*, std::array<double, 3>>> m_bboxExtentCache;
 };
 
 } // namespace materializr

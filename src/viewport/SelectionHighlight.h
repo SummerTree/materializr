@@ -2,6 +2,7 @@
 #include "gl_common.h"
 #include <glm/glm.hpp>
 #include <TopoDS_Shape.hxx>
+#include <map>
 #include <vector>
 
 class SelectionManager;
@@ -56,6 +57,28 @@ private:
     // Highlighted-edge line width in pixels. Body outlines render slightly
     // thinner so a whole selected body stays distinguishable from single edges.
     float m_edgeLineWidth = 3.0f;
+
+    // Per-body outline-tessellation cache. Without this, every frame the
+    // user has a body selected we re-walk every edge of the body and
+    // re-sample it via GCPnts_TangentialDeflection — on a complex part
+    // (airplane skeleton, etc.) that's the dominant per-frame cost
+    // during orbit. Key: the TShape pointer of the selected body, which
+    // is stable for the body's lifetime and changes the moment the
+    // topology is rebuilt (push/pull, fillet, transform rotate, etc.).
+    // Multi-body: each entry caches independently so multiple selected
+    // bodies don't clobber each other's tessellation each frame.
+    std::map<const void*, std::vector<float>> m_bodyCache;
+
+    // Same caching scheme for selected faces and edges: every frame the
+    // selection-highlight pass re-tessellates the triangulation or
+    // discretizes the curve for each entry, then uploads via glBufferData.
+    // On a big NURBS face that triangle walk is 5-50ms per frame; on a
+    // complex curve the GCPnts discretization is 2-10ms. Keying on the
+    // face/edge's TShape pointer (stable for that subshape's lifetime,
+    // changes the moment the parent body's topology is rebuilt) means
+    // we walk it once and replay the cached vertex buffer thereafter.
+    std::map<const void*, std::vector<float>> m_faceCache;
+    std::map<const void*, std::vector<float>> m_edgeCache;
 };
 
 } // namespace materializr

@@ -44,6 +44,8 @@ ToolAction Toolbar::render() {
         action = renderSketchRegionTools();
     } else if (m_selection->primaryType() == SelectionType::Plane) {
         action = renderPlaneSelectedTools();
+    } else if (m_selection->primaryType() == SelectionType::Axis) {
+        action = renderAxisSelectedTools();
     } else if (m_selection->hasSelectedSketches()) {
         action = renderSketchSelectedTools();
     } else if (m_selection->hasSelectedFaces()) {
@@ -308,23 +310,16 @@ ToolAction Toolbar::renderBodyTools(bool includePluginButtons) {
     ImGui::SameLine();
     if (ImGui::Button("Scale", ImVec2(third, 30)))  action = ToolAction::Scale;
     tip("Show the scale gizmo. Drag handles to resize. (R)");
-    if (ImGui::Button("Mirror", ImVec2(-1, 30)))    action = ToolAction::Mirror;
+    // Mirror + Revolve share the row so they read as the "uses an
+    // already-created primitive" pair (mirror plane / construction axis).
+    float half = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
+    if (ImGui::Button("Mirror", ImVec2(half, 30)))    action = ToolAction::Mirror;
     tip("Mirror the selected bodies across a plane you pick next.");
-
-    // Snap on/off lives in the corner widget by the ViewCube. Step buttons
-    // remain so you can retune without leaving the body toolbar.
-    ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.8f, 1.0f), "Grid:");
-    const float gridSteps[] = { 0.1f, 0.5f, 1.0f, 10.0f };
-    const char* gridLabels[] = { "0.1", "0.5", "1", "10" };
-    for (int i = 0; i < 4; ++i) {
-        if (i > 0) ImGui::SameLine();
-        bool selected = std::abs(m_gridStep - gridSteps[i]) < 1e-6f;
-        if (selected) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.20f, 0.45f, 0.85f, 1.0f));
-        ImGui::PushID(i);
-        if (ImGui::SmallButton(gridLabels[i])) m_gridStep = gridSteps[i];
-        ImGui::PopID();
-        if (selected) ImGui::PopStyleColor();
-    }
+    ImGui::SameLine();
+    if (ImGui::Button("Revolve", ImVec2(half, 30)))   action = ToolAction::Revolve;
+    tip("Revolve the selected body / bodies around a Construction Axis. "
+        "Pick an axis next; the popup handles angle + mode. Multi-body "
+        "selection rotates as a group.");
 
     // Plugin buttons: always include HasBodies (1+ bodies), and only include
     // MultipleBodies (2+ bodies, e.g. Union / Subtract / Intersect) when at
@@ -469,6 +464,23 @@ ToolAction Toolbar::renderPlaneSelectedTools() {
     if (ImGui::Button("Rotate", ImVec2(-1, 30))) action = ToolAction::Rotate;
     tip("Show the Rotate gizmo. Drag a ring to spin the plane around its "
         "origin; snap is 5° increments when snap-to-grid is on.");
+    return action;
+}
+
+ToolAction Toolbar::renderAxisSelectedTools() {
+    ToolAction action = ToolAction::None;
+    ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "Construction Axis");
+    ImGui::Separator();
+    ImGui::TextWrapped("Axes are 1-D primitives — they'll feed Revolve and "
+                       "future Pattern-Around-Axis ops. For now you can "
+                       "move them; rotate isn't meaningful on a line.");
+
+    ImGui::Separator();
+    ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "Transform");
+    ImGui::Separator();
+    if (ImGui::Button("Move", ImVec2(-1, 30))) action = ToolAction::Move;
+    tip("Show the Move gizmo on this axis. Drag an arrow to translate "
+        "the axis origin; the direction is preserved.");
     return action;
 }
 

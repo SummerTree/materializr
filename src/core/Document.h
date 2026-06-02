@@ -6,6 +6,8 @@
 #include <glm/glm.hpp>
 #include <TopoDS_Shape.hxx>
 #include <gp_Pln.hxx>
+#include <gp_Pnt.hxx>
+#include <gp_Dir.hxx>
 
 namespace materializr { class Sketch; class EventBus; }
 
@@ -40,6 +42,19 @@ struct PlaneEntry {
     // for autoscale; 50 mm (= 100 mm square) is a reasonable default that's
     // clearly visible against a typical part without dominating the scene.
     double halfSize = 50.0;
+};
+
+// Construction axis — a stored ray (origin + unit direction). Used as the
+// rotation axis for Revolve (post-0.6) and any other "around a line"
+// operation. Same plumbing shape as PlaneEntry: id / name / visibility /
+// a render-extent (halfLength for the drawn segment in mm).
+struct AxisEntry {
+    int id;
+    std::string name;
+    gp_Pnt origin;
+    gp_Dir direction;
+    bool visible = true;
+    double halfLength = 50.0; // visible segment is ±halfLength along direction
 };
 
 struct SketchEntry {
@@ -132,6 +147,21 @@ public:
     std::vector<int> getAllPlaneIds() const;
     int planeCount() const;
 
+    // Construction axes — same shape as construction planes. Used by
+    // Revolve and any other op that needs to rotate around a line.
+    // Axis* events let the renderer + Items panel react without polling.
+    int addAxis(const gp_Pnt& origin, const gp_Dir& direction,
+                const std::string& name = "");
+    void removeAxis(int id);
+    void setAxis(int id, const gp_Pnt& origin, const gp_Dir& direction);
+    const AxisEntry* getAxis(int id) const;
+    std::string getAxisName(int id) const;
+    void setAxisName(int id, const std::string& name);
+    void setAxisVisible(int id, bool visible);
+    bool isAxisVisible(int id) const;
+    std::vector<int> getAllAxisIds() const;
+    int axisCount() const;
+
     // Clear everything
     void clear();
 
@@ -145,6 +175,7 @@ private:
 
     std::vector<BodyEntry> m_bodies;
     std::vector<PlaneEntry> m_planes;
+    std::vector<AxisEntry> m_axes;
     std::vector<SketchEntry> m_sketches;
     std::vector<FolderEntry> m_folders;
     // Tombstones: when a body is removed, its non-geometry metadata (folderId,
@@ -156,6 +187,7 @@ private:
     std::map<int, BodyEntry> m_bodyTombstones;
     int m_nextBodyId = 1;
     int m_nextPlaneId = 1;
+    int m_nextAxisId = 1;
     int m_nextSketchId = 1;
     int m_nextFolderId = 1;
     materializr::EventBus* m_eventBus = nullptr;

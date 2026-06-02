@@ -38,6 +38,7 @@
 #include "ui/MeasureTool.h"
 #include "ui/UpdateChecker.h"
 #include "modeling/Sketch.h"
+#include "modeling/CopyOp.h"
 #include "modeling/SketchSolver.h"
 #include "modeling/SketchTool.h"
 #include "modeling/ExtrudeOp.h"
@@ -1087,10 +1088,12 @@ void Application::handleToolAction(int action) {
             // selection again shows just the toolbar options.
             const bool isPlane =
                 m_selection->primaryType() == SelectionType::Plane;
+            const bool isAxis  =
+                m_selection->primaryType() == SelectionType::Axis;
             if (!m_selection->hasSelectedBodies() &&
                 !m_selection->hasSelectedSketches() &&
                 !m_selection->hasSelectedSketchRegions() &&
-                !isPlane) break;
+                !isPlane && !isAxis) break;
             m_gizmo->setMode(GizmoMode::Translate);
             m_selection->setNavigationOnly(false);
             for (const auto& e : m_selection->getSelection()) {
@@ -1105,10 +1108,17 @@ void Application::handleToolAction(int action) {
                     m_planeGizmoArmedFor = e.planeId;
                     break;
                 }
+                if (e.type == SelectionType::Axis && e.axisId >= 0) {
+                    m_axisGizmoArmed = true;
+                    m_axisGizmoArmedFor = e.axisId;
+                    break;
+                }
             }
             break;
         }
         case ToolAction::Rotate: {
+            // Axis doesn't get Rotate — an infinite line has no meaningful
+            // rotation handle. Rotate is body / sketch / plane only.
             const bool isPlane =
                 m_selection->primaryType() == SelectionType::Plane;
             if (!m_selection->hasSelectedBodies() &&
@@ -1149,6 +1159,13 @@ void Application::handleToolAction(int action) {
             }
             break;
         }
+
+        case ToolAction::Revolve:
+            // (kept in the enum for stability with older bindings; the
+            //  Toolbar entry was removed in the RevolvePlugin refactor.
+            //  Dispatch is handled by the requestInteractiveOp path now.)
+            beginRevolve();
+            break;
 
         case ToolAction::Fillet: {
             if (m_selection->selectedEdgeCount() >= 1)
@@ -1308,6 +1325,116 @@ void Application::handleShortcuts() {
     }
     if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_O)) {
         loadProject();
+    }
+    // Ctrl+D — Duplicate in place. Branches on selection type:
+    //   Body   → CopyOp (full history support, undoable via Ctrl+Z)
+    //   Axis   → Document::addAxis with the source's origin/direction
+    //   Plane  → Document::addPlane with the source's gp_Pln
+    //   Sketch → deep-clone (points + lines + circles + arcs); constraints
+    //            skipped for now (id remapping is non-trivial)
+    //   Face   → no-op; duplicating a face has no clean semantic.
+    // After the duplicate lands the SELECTION is replaced with the new
+    // entity so the user immediately operates on the fresh copy. Skipped
+    // when a text field has focus so it doesn't fire while typing.
+    if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_D) &&
+        !ImGui::IsAnyItemActive() && m_selection) {
+        const auto& sel = m_selection->getSelection();
+        if (!sel.empty()) {
+            const auto& first = sel[0];
+            if (first.type == SelectionType::Body && first.bodyId >= 0) {
+                int srcFolder = m_document->getBodyFolder(first.bodyId);
+                auto op = std::make_unique<CopyOp>();
+                op->setSourceBodyId(first.bodyId);
+                op->setOffset(0.0, 0.0, 0.0);
+                CopyOp* opPtr = op.get();
+                if (m_history->pushOperation(std::move(op), *m_document)) {
+                    int newId = opPtr->getCreatedBodyId();
+                    if (newId >= 0) {
+                        if (srcFolder >= 0)
+                            m_document->setBodyFolder(newId, srcFolder);
+                        SelectionEntry e;
+                        e.type = SelectionType::Body;
+                        e.bodyId = newId;
+                        try { e.shape = m_document->getBody(newId); } catch (...) {}
+                        m_selection->select(e);
+                    }
+                    m_meshesDirty = true;
+                }
+            } else if (first.type == SelectionType::Axis && first.axisId >= 0) {
+                if (const auto* a = m_document->getAxis(first.axisId)) {
+                    int newId = m_document->addAxis(a->origin, a->direction,
+                                                     a->name + " copy");
+                    if (newId >= 0) {
+                        SelectionEntry e;
+                        e.type = SelectionType::Axis;
+                        e.axisId = newId;
+                        m_selection->select(e);
+                    }
+                    markDirty();
+                }
+            } else if (first.type == SelectionType::Plane && first.planeId >= 0) {
+                if (const auto* p = m_document->getPlane(first.planeId)) {
+                    int newId = m_document->addPlane(p->plane,
+                                                      p->name + " copy");
+                    if (newId >= 0) {
+                        SelectionEntry e;
+                        e.type = SelectionType::Plane;
+                        e.planeId = newId;
+                        m_selection->select(e);
+                    }
+                    markDirty();
+                }
+            } else if ((first.type == SelectionType::Sketch ||
+                        first.type == SelectionType::SketchRegion) &&
+                       first.sketchId >= 0) {
+                auto src = m_document->getSketch(first.sketchId);
+                if (src) {
+                    auto dst = std::make_shared<materializr::Sketch>();
+                    dst->setPlane(src->getPlane());
+                    dst->setSourceBody(src->getSourceBody());
+                    if (!src->getSourceFace().IsNull())
+                        dst->setSourceFace(src->getSourceFace());
+                    // Re-add points first, build an id remap so derived
+                    // elements (lines / circles / arcs) can reference the
+                    // new point ids. Constraints carry point/line ids
+                    // too — skipped for now; deferred until id remapping
+                    // for constraints lands.
+                    std::map<int, int> pmap;
+                    for (const auto& p : src->getPoints())
+                        pmap[p.id] = dst->addPoint(p.pos);
+                    for (const auto& l : src->getLines()) {
+                        auto a = pmap.find(l.startPointId);
+                        auto b = pmap.find(l.endPointId);
+                        if (a != pmap.end() && b != pmap.end())
+                            dst->addLine(a->second, b->second);
+                    }
+                    for (const auto& c : src->getCircles()) {
+                        auto cp = pmap.find(c.centerPointId);
+                        if (cp != pmap.end())
+                            dst->addCircle(cp->second, c.radius);
+                    }
+                    for (const auto& arc : src->getArcs()) {
+                        auto cp = pmap.find(arc.centerPointId);
+                        auto sp = pmap.find(arc.startPointId);
+                        auto ep = pmap.find(arc.endPointId);
+                        if (cp != pmap.end() && sp != pmap.end() && ep != pmap.end())
+                            dst->addArc(cp->second, sp->second, ep->second, arc.radius);
+                    }
+                    int newId = m_document->addSketch(dst,
+                                  m_document->getSketchName(first.sketchId) + " copy");
+                    if (newId >= 0) {
+                        SelectionEntry e;
+                        e.type = SelectionType::Sketch;
+                        e.sketchId = newId;
+                        m_selection->select(e);
+                    }
+                    markDirty();
+                    m_meshesDirty = true;
+                }
+            }
+            // Face / Edge / etc.: no-op intentionally — duplicating a
+            // face / edge has no clean standalone interpretation.
+        }
     }
     if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
         if (m_sketchGizmoHandle != SketchGizmoHandle::None) {
@@ -2871,6 +2998,8 @@ void Application::run() {
                     else if (pending == "Loft")          beginLoft();
                     else if (pending == "LoftPickSecond") m_loftPickHintPending = true;
                     else if (pending == "ConstructionPlane") beginConstructionPlane();
+                    else if (pending == "ConstructionAxis")  beginConstructionAxis();
+                    else if (pending == "Revolve")           beginRevolve();
                     // Unknown ids are silently ignored — future plugins can
                     // ship their own without modifying Application by routing
                     // through whatever new dispatcher is added here.
@@ -2960,6 +3089,8 @@ void Application::run() {
             renderPatternPanel();
             renderLoftPanel();
             renderConstructionPlanePanel();
+            renderConstructionAxisPanel();
+            renderRevolvePopup();
             renderSketchMovePanel();
             renderSketchPatternPopup();
 

@@ -21,11 +21,40 @@ void SelectionManager::select(const SelectionEntry& entry) {
 }
 
 void SelectionManager::addToSelection(const SelectionEntry& entry) {
-    if (findEntry(entry) < 0) {
-        m_selection.push_back(entry);
-        m_navigationOnly = false;
-        publishChanged();
+    if (findEntry(entry) >= 0) return;
+
+    // A Body selection subsumes any Face / Edge / Vertex from the same
+    // body — otherwise the user ends up with stale face highlights stuck
+    // to the wireframe after a Ctrl+double-click promotes face to body.
+    // Conversely, picking a Face / Edge / Vertex while the whole body
+    // is already in the selection just refines the focus, so we drop
+    // the Body in favour of the sub-shape.
+    if (entry.type == SelectionType::Body && entry.bodyId >= 0) {
+        m_selection.erase(
+            std::remove_if(m_selection.begin(), m_selection.end(),
+                [&](const SelectionEntry& e) {
+                    return e.bodyId == entry.bodyId &&
+                           (e.type == SelectionType::Face ||
+                            e.type == SelectionType::Edge ||
+                            e.type == SelectionType::Vertex);
+                }),
+            m_selection.end());
+    } else if ((entry.type == SelectionType::Face ||
+                entry.type == SelectionType::Edge ||
+                entry.type == SelectionType::Vertex) &&
+               entry.bodyId >= 0) {
+        m_selection.erase(
+            std::remove_if(m_selection.begin(), m_selection.end(),
+                [&](const SelectionEntry& e) {
+                    return e.bodyId == entry.bodyId &&
+                           e.type == SelectionType::Body;
+                }),
+            m_selection.end());
     }
+
+    m_selection.push_back(entry);
+    m_navigationOnly = false;
+    publishChanged();
 }
 
 void SelectionManager::removeFromSelection(const SelectionEntry& entry) {

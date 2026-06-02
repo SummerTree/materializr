@@ -63,6 +63,20 @@ struct PlaneChangedEvent {
     int planeId = -1;
 };
 
+// Construction-axis lifecycle. Same pattern as planes — the plugin that
+// owns the axis renderer subscribes to all three and re-syncs its draw list.
+struct AxisAddedEvent {
+    int axisId = -1;
+};
+
+struct AxisRemovedEvent {
+    int axisId = -1;
+};
+
+struct AxisChangedEvent {
+    int axisId = -1;
+};
+
 struct ShutdownEvent {};
 
 } // namespace materializr

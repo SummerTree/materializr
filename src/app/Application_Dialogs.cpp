@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <map>
+#include <glm/gtc/matrix_transform.hpp>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -44,6 +45,7 @@
 #include "modeling/TransformOp.h"
 #include "modeling/SketchTransformOp.h"
 #include "modeling/MirrorOp.h"
+#include "modeling/RevolveOp.h"
 #include "modeling/FilletOp.h"
 #include "modeling/ChamferOp.h"
 #include "modeling/DeleteOp.h"
@@ -1629,6 +1631,534 @@ void Application::renderConstructionPlanePanel() {
         commitConstructionPlane();
     } else if (cancelClicked || escPressed) {
         cancelConstructionPlane();
+    }
+
+    ImGui::End();
+}
+
+void Application::beginRevolve() {
+    if (m_revolveActive) return;
+    m_revolveSketchId = -1;
+    m_revolveAxisId   = -1;
+    m_revolveBodyId   = -1;
+    m_revolveBodyIds.clear();
+    // First-of-kind capture for sketch / axis (popup operates on one of
+    // each); collect EVERY body so Rotate Body can multi-rotate them
+    // around a single axis. Sweep Sketch only uses the primary body for
+    // boolean targeting.
+    // ANY entry that names a body — Body / Face / Edge / Vertex — counts
+    // its parent body as a rotate target. The user's "ctrl-click two
+    // bodies, click Revolve" flow often lands one as Body and the other
+    // as Face (depending on where they clicked); treating both as body
+    // targets matches the visible selection.
+    for (const auto& e : m_selection->getSelection()) {
+        if ((e.type == SelectionType::Sketch ||
+             e.type == SelectionType::SketchRegion) &&
+            e.sketchId >= 0 && m_revolveSketchId < 0) {
+            m_revolveSketchId = e.sketchId;
+        } else if (e.type == SelectionType::Axis && e.axisId >= 0 &&
+                   m_revolveAxisId < 0) {
+            m_revolveAxisId = e.axisId;
+        } else if (e.bodyId >= 0 &&
+                   (e.type == SelectionType::Body ||
+                    e.type == SelectionType::Face ||
+                    e.type == SelectionType::Edge ||
+                    e.type == SelectionType::Vertex)) {
+            if (m_revolveBodyId < 0) m_revolveBodyId = e.bodyId;
+            bool dup = false;
+            for (int bid : m_revolveBodyIds)
+                if (bid == e.bodyId) { dup = true; break; }
+            if (!dup) m_revolveBodyIds.push_back(e.bodyId);
+        }
+    }
+    // Reset to a neutral start angle every time the popup opens so the
+    // user isn't surprised by the last session's value sticking around
+    // (and so live preview begins at "no rotation" and tracks the slider
+    // outwards from there).
+    m_revolveAngle = 0.0f;
+    m_revolveActive = true;
+    std::snprintf(m_revolveAngleBuf, sizeof(m_revolveAngleBuf), "%.1f",
+                  m_revolveAngle);
+    std::fprintf(stderr, "[Revolve] begin: captured %d bodies (primary=%d), "
+                         "sketch=%d, axis=%d\n",
+                 (int)m_revolveBodyIds.size(), m_revolveBodyId,
+                 m_revolveSketchId, m_revolveAxisId);
+    for (size_t i = 0; i < m_revolveBodyIds.size(); ++i)
+        std::fprintf(stderr, "[Revolve]   body[%zu] = id %d (%s)\n",
+                     i, m_revolveBodyIds[i],
+                     m_document->getBodyName(m_revolveBodyIds[i]).c_str());
+    revolveLiveBegin();
+}
+
+void Application::renderRevolvePopup() {
+    if (!m_revolveActive) return;
+
+    ImGui::SetNextWindowPos(ImVec2(ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - 320,
+                                    ImGui::GetWindowPos().y + 50),
+                            ImGuiCond_Appearing);
+    ImGui::SetNextWindowSize(ImVec2(320, 0), ImGuiCond_Appearing);
+    ImGui::Begin("Revolve", nullptr,
+        ImGuiWindowFlags_NoResize |
+        ImGuiWindowFlags_NoSavedSettings |
+        ImGuiWindowFlags_AlwaysAutoResize);
+
+    // What this revolve does. Two distinct flows:
+    //   - Rotate Body: TransformOp::Rotate of the selected body around the
+    //     axis (no sketch needed, body is repositioned).
+    //   - Sweep Sketch: RevolveOp sweeping a sketch profile around the
+    //     axis into a new (or boolean-combined) body.
+    ImGui::TextColored(ImVec4(0.6f, 0.9f, 1.0f, 1.0f), "What");
+    int prevWhat = m_revolveWhatIdx;
+    if (ImGui::RadioButton("Rotate Body around axis", m_revolveWhatIdx == 0))
+        m_revolveWhatIdx = 0;
+    if (ImGui::RadioButton("Sweep Sketch profile", m_revolveWhatIdx == 1))
+        m_revolveWhatIdx = 1;
+    // Toggling away from Rotate Body restores the body; toggling INTO it
+    // captures a fresh snapshot. This keeps the live-preview in sync with
+    // which flow the user is configuring.
+    if (prevWhat != m_revolveWhatIdx) {
+        if (prevWhat == 0) revolveLiveRestore();
+        if (m_revolveWhatIdx == 0) revolveLiveBegin();
+    }
+
+    // Selection summary so the popup reflects what the click captured.
+    // Both flows want a body shown (Rotate Body operates on it; Sweep
+    // boolean modes target it). Sketch only matters in Sweep mode.
+    ImGui::Separator();
+    ImGui::TextColored(ImVec4(0.6f, 0.9f, 1.0f, 1.0f), "Selection");
+    const int bodyCount = static_cast<int>(m_revolveBodyIds.size());
+    if (bodyCount == 1) {
+        ImGui::Text("• Body: %s (id %d)",
+                    m_document->getBodyName(m_revolveBodyId).c_str(),
+                    m_revolveBodyId);
+    } else if (bodyCount > 1) {
+        ImGui::Text("• %d bodies — rotate together around the axis", bodyCount);
+    } else {
+        ImGui::TextColored(ImVec4(1.0f, 0.65f, 0.35f, 1.0f), "• Body: none");
+    }
+    if (m_revolveWhatIdx == 1) {
+        if (m_revolveSketchId >= 0) {
+            ImGui::Text("• Sketch: %s (id %d)",
+                        m_document->getSketchName(m_revolveSketchId).c_str(),
+                        m_revolveSketchId);
+        } else {
+            ImGui::TextColored(ImVec4(1.0f, 0.65f, 0.35f, 1.0f),
+                               "• Sketch: none — select one and re-open.");
+        }
+    }
+
+    // Axis picker — combo box listing every construction axis in the
+    // document plus the canonical user-Z-up world axes at the bottom.
+    // Solves the "I can't pick the axis I just made" report.
+    ImGui::Separator();
+    ImGui::TextColored(ImVec4(0.6f, 0.9f, 1.0f, 1.0f), "Axis");
+    std::vector<int> axisIds = m_document->getAllAxisIds();
+    std::string current;
+    if (m_revolveAxisId >= 0) {
+        current = m_document->getAxisName(m_revolveAxisId) +
+                  " (id " + std::to_string(m_revolveAxisId) + ")";
+    } else {
+        const char* worldLabels[3] = {"World X", "World Y (Z-up depth)", "World Z (Z-up up)"};
+        current = worldLabels[std::clamp(m_revolveWorldAxisIdx, 0, 2)];
+    }
+    if (ImGui::BeginCombo("##revAxisCombo", current.c_str())) {
+        for (int aid : axisIds) {
+            const auto* a = m_document->getAxis(aid);
+            if (!a) continue;
+            std::string label = a->name + "  (id " + std::to_string(aid) + ")";
+            bool sel = (m_revolveAxisId == aid);
+            if (ImGui::Selectable(label.c_str(), sel)) m_revolveAxisId = aid;
+        }
+        if (!axisIds.empty()) ImGui::Separator();
+        // Z-up: the popup's "X / Y / Z" maps to world X / Z / Y so the
+        // labels line up with the sketch / move-gizmo conventions
+        // elsewhere in the app.
+        const char* userLabels[3] = {"X (user)", "Y (user)", "Z (user, floor-up)"};
+        for (int i = 0; i < 3; ++i) {
+            bool sel = (m_revolveAxisId < 0 && m_revolveWorldAxisIdx == i);
+            if (ImGui::Selectable(userLabels[i], sel)) {
+                m_revolveAxisId = -1;
+                m_revolveWorldAxisIdx = i;
+            }
+        }
+        ImGui::EndCombo();
+    }
+
+    ImGui::Separator();
+    ImGui::TextColored(ImVec4(0.6f, 0.9f, 1.0f, 1.0f), "Angle");
+    ImGui::SetNextItemWidth(100);
+    bool angleChanged = false;
+    if (ImGui::InputText("##revAng", m_revolveAngleBuf, sizeof(m_revolveAngleBuf),
+                         ImGuiInputTextFlags_CharsDecimal)) {
+        m_revolveAngle = static_cast<float>(std::atof(m_revolveAngleBuf));
+        angleChanged = true;
+    }
+    ImGui::SameLine(); ImGui::Text("°");
+    if (ImGui::SliderFloat("##revAngSld", &m_revolveAngle,
+                            (m_revolveWhatIdx == 0 ? -360.0f : 0.1f),
+                            360.0f, "%.1f°")) {
+        std::snprintf(m_revolveAngleBuf, sizeof(m_revolveAngleBuf),
+                      "%.1f", m_revolveAngle);
+        angleChanged = true;
+    }
+    // Live preview: every angle change in Rotate Body mode applies a
+    // fresh-from-snapshot rotation so the user sees the result without
+    // having to Apply. Threshold guards against float jitter triggering a
+    // pointless rebuild every frame the slider's parked.
+    if (angleChanged && m_revolveWhatIdx == 0) {
+        std::fprintf(stderr, "[Revolve] angle changed to %.2f  liveActive=%d "
+                             "lastApplied=%.2f  bodies=%zu\n",
+                     m_revolveAngle,
+                     int(m_revolveLiveActive),
+                     m_revolveLastAppliedAngle,
+                     m_revolveBodyIds.size());
+    }
+    if (m_revolveWhatIdx == 0 && m_revolveLiveActive &&
+        std::abs(m_revolveAngle - m_revolveLastAppliedAngle) > 0.05f) {
+        revolveLiveApply(m_revolveAngle);
+    }
+
+    // Boolean mode applies only to Sweep Sketch — Rotate Body is always
+    // an in-place transform, no mode choice.
+    if (m_revolveWhatIdx == 1) {
+        ImGui::Separator();
+        ImGui::TextColored(ImVec4(0.6f, 0.9f, 1.0f, 1.0f), "Mode");
+        const char* modes[] = {"New Body", "Union", "Cut", "Intersect"};
+        for (int i = 0; i < 4; ++i) {
+            if (i > 0) ImGui::SameLine();
+            if (ImGui::RadioButton(modes[i], m_revolveModeIdx == i))
+                m_revolveModeIdx = i;
+        }
+        if (m_revolveModeIdx != 0 && m_revolveBodyId < 0) {
+            ImGui::TextColored(ImVec4(1.0f, 0.65f, 0.35f, 1.0f),
+                               "Boolean modes need a target body in the selection.");
+        }
+    }
+
+    // Apply-enabled validation depends on the chosen What.
+    const bool canApply = (m_revolveWhatIdx == 0)
+                              ? !m_revolveBodyIds.empty()
+                              : (m_revolveSketchId >= 0);
+
+    ImGui::Separator();
+    ImGui::BeginDisabled(!canApply);
+    bool applyClicked  = ImGui::Button("Apply", ImVec2(130, 0));
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    bool cancelClicked = ImGui::Button("Cancel", ImVec2(130, 0));
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) cancelClicked = true;
+
+    if (applyClicked && canApply) {
+        // Restore original first so TransformOp::execute can capture the
+        // pre-rotation state as its previousShape. Without this the real
+        // op would compute "previous = already-rotated", and undo would
+        // bring us back to the live-preview state instead of true origin.
+        revolveLiveRestore();
+        applyRevolve();
+        m_revolveActive = false;
+    } else if (cancelClicked) {
+        revolveLiveRestore();
+        m_revolveActive = false;
+    }
+
+    ImGui::End();
+}
+
+// ─── Revolve live-preview helpers (Rotate Body mode) ───────────────────────
+
+void Application::revolveLiveBegin() {
+    if (m_revolveLiveActive) {
+        std::fprintf(stderr, "[Revolve] revolveLiveBegin: ALREADY ACTIVE — "
+                             "stale state from a previous popup? Force-restore "
+                             "and rebegin to clear it.\n");
+        revolveLiveRestore();
+    }
+    if (m_revolveWhatIdx != 0) {
+        std::fprintf(stderr, "[Revolve] revolveLiveBegin: skipped — what=%d\n",
+                     m_revolveWhatIdx);
+        return;
+    }
+    if (m_revolveBodyIds.empty()) {
+        std::fprintf(stderr, "[Revolve] revolveLiveBegin: skipped — no bodies\n");
+        return;
+    }
+    m_revolveOrigBodyId = m_revolveBodyId;
+    m_revolveLastAppliedAngle = m_revolveAngle;
+    m_revolveLiveActive = true;
+    std::fprintf(stderr, "[Revolve] revolveLiveBegin: ACTIVATED  bodies=%zu  "
+                         "seed lastAppliedAngle=%.2f\n",
+                 m_revolveBodyIds.size(), m_revolveLastAppliedAngle);
+}
+
+void Application::revolveLiveApply(float angle) {
+    // GPU-matrix preview path: we no longer need m_revolveOrigBodyId or
+    // m_revolveOrigShape — those were guards from the old single-body
+    // geometric-rebuild preview that updateBody'd into the document. The
+    // current path just sets a model-matrix uniform per slot, so the only
+    // precondition is "we have bodies to preview and we've called Begin".
+    if (!m_revolveLiveActive) return;
+    if (m_revolveBodyIds.empty()) return;
+    // Resolve the axis once per call — the user might have switched
+    // between Construction Axis and a canonical world axis mid-preview.
+    gp_Pnt axisOrigin(0, 0, 0);
+    gp_Dir axisDir(0, 0, 1);
+    if (m_revolveAxisId >= 0) {
+        const auto* a = m_document->getAxis(m_revolveAxisId);
+        if (a) { axisOrigin = a->origin; axisDir = a->direction; }
+    } else {
+        switch (m_revolveWorldAxisIdx) {
+            case 0: axisDir = gp_Dir(1, 0, 0); break;
+            case 1: axisDir = gp_Dir(0, 0, 1); break;
+            case 2: axisDir = gp_Dir(0, 1, 0); break;
+        }
+    }
+
+    // GPU-only preview: build a model matrix for the rotation and push it
+    // to the renderer's slot for this body. No geometry rebuild, no
+    // re-tessellation, no edge re-sampling — orders of magnitude cheaper
+    // than the previous BRepBuilderAPI_Transform + updateBody path on
+    // complex bodies (the live-edit lag the user reported). Apply() will
+    // do the real geometric transform once through TransformOp.
+    glm::vec3 pivot((float)axisOrigin.X(), (float)axisOrigin.Y(),
+                    (float)axisOrigin.Z());
+    glm::vec3 axis((float)axisDir.X(), (float)axisDir.Y(), (float)axisDir.Z());
+    glm::mat4 m(1.0f);
+    m = glm::translate(m, pivot);
+    m = glm::rotate(m, glm::radians(angle), axis);
+    m = glm::translate(m, -pivot);
+    // Apply to every body in the multi-selection. Each body's mesh slot
+    // gets the same model matrix so they all rotate as a rigid group
+    // around the chosen axis — the natural reading of "revolve these
+    // around the axis together".
+    int hits = 0, misses = 0;
+    for (int bid : m_revolveBodyIds) {
+        bool found = false;
+        if (m_shapeRenderer) {
+            int slot = m_shapeRenderer->findSlotByBody(bid);
+            if (slot >= 0) { m_shapeRenderer->setModelMatrix(slot, m); found = true; }
+        }
+        if (m_edgeRenderer) {
+            int slot = m_edgeRenderer->findSlotByBody(bid);
+            if (slot >= 0) m_edgeRenderer->setModelMatrix(slot, m);
+        }
+        if (found) ++hits; else ++misses;
+    }
+    std::fprintf(stderr, "[Revolve] live-apply: angle=%.2f hits=%d misses=%d  "
+                         "axis dir=(%.3f,%.3f,%.3f) origin=(%.2f,%.2f,%.2f)\n",
+                 angle, hits, misses,
+                 axisDir.X(), axisDir.Y(), axisDir.Z(),
+                 axisOrigin.X(), axisOrigin.Y(), axisOrigin.Z());
+    m_revolveLastAppliedAngle = angle;
+}
+
+void Application::revolveLiveRestore() {
+    if (!m_revolveLiveActive) return;
+    // Reset every previewed body's model matrix to identity. Geometry
+    // never changed, so this is the only step needed — slots stay,
+    // meshes stay, just the transform uniform goes back to identity.
+    glm::mat4 id(1.0f);
+    for (int bid : m_revolveBodyIds) {
+        if (m_shapeRenderer) {
+            int slot = m_shapeRenderer->findSlotByBody(bid);
+            if (slot >= 0) m_shapeRenderer->setModelMatrix(slot, id);
+        }
+        if (m_edgeRenderer) {
+            int slot = m_edgeRenderer->findSlotByBody(bid);
+            if (slot >= 0) m_edgeRenderer->setModelMatrix(slot, id);
+        }
+    }
+    m_revolveOrigShape.Nullify();
+    m_revolveOrigBodyId = -1;
+    m_revolveLastAppliedAngle = 0.0f;
+    m_revolveLiveActive = false;
+}
+
+void Application::applyRevolve() {
+    if (!m_history || !m_document) return;
+
+    // Resolve the axis once — both flows use the same picker.
+    gp_Pnt axisOrigin(0, 0, 0);
+    gp_Dir axisDir(0, 0, 1);
+    if (m_revolveAxisId >= 0) {
+        const auto* a = m_document->getAxis(m_revolveAxisId);
+        if (a) {
+            axisOrigin = a->origin;
+            axisDir = a->direction;
+        }
+    } else {
+        switch (m_revolveWorldAxisIdx) {
+            case 0: axisDir = gp_Dir(1, 0, 0); break;
+            case 1: axisDir = gp_Dir(0, 0, 1); break; // user Y = world Z
+            case 2: axisDir = gp_Dir(0, 1, 0); break; // user Z = world Y up
+        }
+    }
+
+    if (m_revolveWhatIdx == 0) {
+        if (m_revolveBodyIds.empty()) {
+            std::fprintf(stderr, "[Revolve] apply skipped: no bodies captured\n");
+            return;
+        }
+        // Bundle all bodies' rotations into one ReplayOp so the user undoes
+        // the entire revolve in a single Ctrl+Z. Snapshot each body before
+        // applying the transform, run the transform directly via OCCT
+        // (skipping per-body TransformOp ops), snapshot the new shape, then
+        // wrap before/after into a single ReplayOp the history pushes
+        // executed. The single op is enough — multi-body undo replays all
+        // bodies' before-states at once.
+        gp_Trsf trsf;
+        trsf.SetRotation(gp_Ax1(axisOrigin, axisDir),
+                         static_cast<double>(m_revolveAngle) * M_PI / 180.0);
+
+        ReplayOp::BodyState before;
+        ReplayOp::BodyState after;
+        int rotated = 0;
+        for (int bid : m_revolveBodyIds) {
+            TopoDS_Shape src;
+            try { src = m_document->getBody(bid); } catch (...) { continue; }
+            if (src.IsNull()) continue;
+            before.push_back({bid, src});
+            try {
+                BRepBuilderAPI_Transform xf(src, trsf, /*copy=*/true);
+                xf.Build();
+                if (!xf.IsDone() || xf.Shape().IsNull()) {
+                    // Roll the before-entry off — couldn't transform this
+                    // body, don't pretend we did.
+                    before.pop_back();
+                    std::fprintf(stderr, "[Revolve]   body %d: transform FAILED\n",
+                                 bid);
+                    continue;
+                }
+                m_document->updateBody(bid, xf.Shape());
+                after.push_back({bid, xf.Shape()});
+                ++rotated;
+            } catch (...) {
+                before.pop_back();
+                std::fprintf(stderr, "[Revolve]   body %d: THREW\n", bid);
+            }
+        }
+
+        if (rotated > 0) {
+            char buf[96];
+            std::snprintf(buf, sizeof(buf),
+                          "Revolve %d bodies by %.1f\xC2\xB0", rotated,
+                          m_revolveAngle);
+            auto op = std::make_unique<ReplayOp>("revolve_rotate",
+                                                  "Revolve",
+                                                  buf,
+                                                  std::move(before),
+                                                  std::move(after),
+                                                  /*fromReload=*/false);
+            // pushExecuted: state's already been applied directly to the
+            // document above; we just want history to know it happened so
+            // Ctrl+Z can roll it back via the captured before-state.
+            m_history->pushExecuted(std::move(op));
+            m_meshesDirty = true;
+            std::fprintf(stderr, "[Revolve] applied: %.1f° dir(%.3f,%.3f,%.3f) "
+                                 "origin(%.2f,%.2f,%.2f) over %d bodies "
+                                 "(single ReplayOp)\n",
+                         m_revolveAngle, axisDir.X(), axisDir.Y(), axisDir.Z(),
+                         axisOrigin.X(), axisOrigin.Y(), axisOrigin.Z(),
+                         rotated);
+        }
+        return;
+    }
+
+    // Sweep Sketch path — original RevolveOp flow.
+    if (m_revolveSketchId < 0) return;
+    auto sk = m_document->getSketch(m_revolveSketchId);
+    if (!sk) return;
+    auto regions = sk->buildRegions();
+    if (regions.empty() || regions[0].face.IsNull()) {
+        std::fprintf(stderr, "[Revolve] sketch has no closed region to revolve\n");
+        return;
+    }
+
+    auto op = std::make_unique<RevolveOp>();
+    op->setProfile(regions[0].face);
+    op->setAxis(gp_Ax1(axisOrigin, axisDir));
+    op->setAngle(static_cast<double>(m_revolveAngle));
+    RevolveMode mode = RevolveMode::NewBody;
+    switch (m_revolveModeIdx) {
+        case 0: mode = RevolveMode::NewBody;   break;
+        case 1: mode = RevolveMode::Union;     break;
+        case 2: mode = RevolveMode::Subtract;  break;
+        case 3: mode = RevolveMode::Intersect; break;
+    }
+    op->setMode(mode);
+    if (mode != RevolveMode::NewBody) op->setTargetBody(m_revolveBodyId);
+
+    if (m_history->pushOperation(std::move(op), *m_document)) {
+        m_meshesDirty = true;
+        std::fprintf(stdout, "[Revolve] sweep-sketch applied: angle=%.1f° mode=%d\n",
+                     m_revolveAngle, m_revolveModeIdx);
+    } else {
+        std::fprintf(stderr, "[Revolve] op execute failed\n");
+    }
+}
+
+void Application::renderConstructionAxisPanel() {
+    if (!m_axisOpActive) return;
+
+    ImGui::SetNextWindowPos(ImVec2(ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - 280,
+                                    ImGui::GetWindowPos().y + 50),
+                            ImGuiCond_Appearing);
+    ImGui::SetNextWindowSize(ImVec2(280, 0), ImGuiCond_Appearing);
+    ImGui::Begin("Construction Axis", nullptr,
+        ImGuiWindowFlags_NoResize |
+        ImGuiWindowFlags_NoSavedSettings |
+        ImGuiWindowFlags_AlwaysAutoResize);
+
+    ImGui::TextColored(ImVec4(0.6f, 0.9f, 1.0f, 1.0f), "Direction");
+    bool kindChanged = false;
+    auto kindRadio = [&](const char* label, int idx) {
+        if (idx > 0) ImGui::SameLine();
+        if (ImGui::RadioButton(label, m_axisOpKindIdx == idx)) {
+            m_axisOpKindIdx = idx;
+            kindChanged = true;
+        }
+    };
+    // User-Z-up labels: "X" world-X, "Y" world-Z (depth in user terms),
+    // "Z" world-Y (up). Matches the plane popup's user-axis convention so
+    // an "X axis" through (0,0,0) reads as the red world arrow.
+    kindRadio("X", 0);
+    kindRadio("Y", 1);
+    kindRadio("Z", 2);
+    ImGui::TextDisabled("Labels are user-Z-up: Z is the floor-up axis.");
+
+    ImGui::Separator();
+    ImGui::TextColored(ImVec4(0.6f, 0.9f, 1.0f, 1.0f), "Origin (mm)");
+    bool originChanged = false;
+    const char* axisLetters[3] = {"X", "Y", "Z"};
+    for (int i = 0; i < 3; ++i) {
+        ImGui::PushID(i);
+        ImGui::Text("%s", axisLetters[i]); ImGui::SameLine();
+        ImGui::SetNextItemWidth(80);
+        if (ImGui::InputText("##axisOrig", m_axisOpOriginBuf[i],
+                             sizeof(m_axisOpOriginBuf[i]),
+                             ImGuiInputTextFlags_CharsDecimal)) {
+            double parsed = std::atof(m_axisOpOriginBuf[i]);
+            if (std::abs(parsed - m_axisOpOrigin[i]) > 1e-4) {
+                m_axisOpOrigin[i] = parsed;
+                originChanged = true;
+            }
+        }
+        ImGui::PopID();
+        if (i < 2) ImGui::SameLine();
+    }
+    ImGui::TextDisabled("Point the axis passes through. Drag the gizmo "
+                        "later (after Apply) to fine-tune.");
+
+    ImGui::Separator();
+    bool applyClicked  = ImGui::Button("Apply", ImVec2(120, 0));
+    ImGui::SameLine();
+    bool cancelClicked = ImGui::Button("Cancel", ImVec2(120, 0));
+    bool escPressed    = ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+
+    if (kindChanged || originChanged) updateConstructionAxis();
+    if (applyClicked) {
+        commitConstructionAxis();
+    } else if (cancelClicked || escPressed) {
+        cancelConstructionAxis();
     }
 
     ImGui::End();

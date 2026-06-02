@@ -36,12 +36,24 @@ public:
     /// Remove all edge meshes.
     void clear();
 
+    /// Slot index of `bodyId`'s edge mesh, or -1 if not present. Lets
+    /// callers pair the edges' per-body model matrix with the shape
+    /// renderer's during interactive previews.
+    int findSlotByBody(int bodyId) const;
+
+    /// Per-body model matrix — applied during render() so a live preview
+    /// can transform the edges visually without re-extracting them. Cheap
+    /// because the cached vertex data is unchanged; only the MVP uniform
+    /// shifts per draw.
+    void setModelMatrix(int slot, const glm::mat4& model);
+
 private:
     struct EdgeMesh {
         unsigned int vao = 0;
         unsigned int vbo = 0;
         int vertexCount = 0;
         int bodyId = -1;
+        glm::mat4 modelMatrix = glm::mat4(1.0f);
     };
 
     bool compileShader(unsigned int& shader, unsigned int type, const char* source);

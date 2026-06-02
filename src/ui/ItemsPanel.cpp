@@ -51,7 +51,7 @@ bool ItemsPanel::render() {
         m_showSketches = !m_showSketches;
     }
     ImGui::SameLine();
-    if (ImGui::Button(m_showPlanes ? "[Planes]" : " Planes ")) {
+    if (ImGui::Button(m_showPlanes ? "[Construction]" : " Construction ")) {
         m_showPlanes = !m_showPlanes;
     }
 
@@ -310,14 +310,174 @@ bool ItemsPanel::render() {
         }
     }
 
-    // Planes section (placeholder/future-ready)
+    // Construction (planes + axes) section
     if (m_showPlanes) {
         ImGui::Separator();
-        ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "Planes");
+        ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "Construction Planes");
 
-        if (ImGui::TreeNode("Planes##tree")) {
-            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "(default planes)");
-            ImGui::TreePop();
+        std::vector<int> planeIds = m_document->getAllPlaneIds();
+        if (planeIds.empty()) {
+            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "(none)");
+        }
+        for (int id : planeIds) {
+            ImGui::PushID(2000000 + id); // namespace away from body/sketch ids
+
+            bool visible = m_document->isPlaneVisible(id);
+            if (ImGui::Checkbox("##pvis", &visible)) {
+                m_document->setPlaneVisible(id, visible);
+                if (m_markDirty) m_markDirty();
+            }
+            ImGui::SameLine();
+
+            bool isSelected = false;
+            if (m_selection) {
+                for (const auto& e : m_selection->getSelection()) {
+                    if (e.type == SelectionType::Plane && e.planeId == id) {
+                        isSelected = true; break;
+                    }
+                }
+            }
+
+            // Rename ids namespaced (4000000 + id) so they don't collide with
+            // body / sketch / axis rename ids in the shared m_renamingId.
+            const int renameKey = 4000000 + id;
+            auto beginRename = [&]() {
+                m_renamingId = renameKey;
+                std::string n = m_document->getPlaneName(id);
+                std::strncpy(m_renameBuffer, n.c_str(), sizeof(m_renameBuffer) - 1);
+                m_renameBuffer[sizeof(m_renameBuffer) - 1] = '\0';
+            };
+
+            if (m_renamingId == renameKey) {
+                ImGui::SetKeyboardFocusHere();
+                bool committed = ImGui::InputText("##prename", m_renameBuffer,
+                                                  sizeof(m_renameBuffer),
+                                                  ImGuiInputTextFlags_EnterReturnsTrue |
+                                                  ImGuiInputTextFlags_AutoSelectAll);
+                bool clickedOff = !ImGui::IsItemActive() && ImGui::IsMouseClicked(0);
+                if (committed || clickedOff) {
+                    m_document->setPlaneName(id, m_renameBuffer);
+                    if (m_markDirty) m_markDirty();
+                    m_renamingId = -1;
+                } else if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+                    m_renamingId = -1;
+                }
+            } else {
+                const auto* p = m_document->getPlane(id);
+                std::string label = p ? p->name : std::string("Plane ") + std::to_string(id);
+                if (ImGui::Selectable(label.c_str(), isSelected)) {
+                    if (m_selection) {
+                        SelectionEntry entry;
+                        entry.type = SelectionType::Plane;
+                        entry.planeId = id;
+                        m_selection->select(entry);
+                    }
+                }
+
+                if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
+                    beginRename();
+                }
+
+                if (ImGui::BeginPopupContextItem("PlaneCtx")) {
+                    if (ImGui::MenuItem("Rename")) {
+                        beginRename();
+                    }
+                    if (ImGui::MenuItem("Delete")) {
+                        m_document->removePlane(id);
+                        if (m_selection) m_selection->clear();
+                        m_renamingId = -1;
+                        ImGui::EndPopup();
+                        ImGui::PopID();
+                        break; // planeIds is stale
+                    }
+                    ImGui::EndPopup();
+                }
+            }
+            ImGui::PopID();
+        }
+
+        ImGui::Spacing();
+        ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "Construction Axes");
+
+        std::vector<int> axisIds = m_document->getAllAxisIds();
+        if (axisIds.empty()) {
+            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "(none)");
+        }
+        for (int id : axisIds) {
+            ImGui::PushID(3000000 + id);
+
+            bool visible = m_document->isAxisVisible(id);
+            if (ImGui::Checkbox("##avis", &visible)) {
+                m_document->setAxisVisible(id, visible);
+                if (m_markDirty) m_markDirty();
+            }
+            ImGui::SameLine();
+
+            bool isSelected = false;
+            if (m_selection) {
+                for (const auto& e : m_selection->getSelection()) {
+                    if (e.type == SelectionType::Axis && e.axisId == id) {
+                        isSelected = true; break;
+                    }
+                }
+            }
+
+            // Rename ids namespaced (5000000 + id) so they don't collide with
+            // body / sketch / plane rename ids in the shared m_renamingId.
+            const int renameKey = 5000000 + id;
+            auto beginRename = [&]() {
+                m_renamingId = renameKey;
+                std::string n = m_document->getAxisName(id);
+                std::strncpy(m_renameBuffer, n.c_str(), sizeof(m_renameBuffer) - 1);
+                m_renameBuffer[sizeof(m_renameBuffer) - 1] = '\0';
+            };
+
+            if (m_renamingId == renameKey) {
+                ImGui::SetKeyboardFocusHere();
+                bool committed = ImGui::InputText("##arename", m_renameBuffer,
+                                                  sizeof(m_renameBuffer),
+                                                  ImGuiInputTextFlags_EnterReturnsTrue |
+                                                  ImGuiInputTextFlags_AutoSelectAll);
+                bool clickedOff = !ImGui::IsItemActive() && ImGui::IsMouseClicked(0);
+                if (committed || clickedOff) {
+                    m_document->setAxisName(id, m_renameBuffer);
+                    if (m_markDirty) m_markDirty();
+                    m_renamingId = -1;
+                } else if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+                    m_renamingId = -1;
+                }
+            } else {
+                const auto* a = m_document->getAxis(id);
+                std::string label = a ? a->name : std::string("Axis ") + std::to_string(id);
+                if (ImGui::Selectable(label.c_str(), isSelected)) {
+                    if (m_selection) {
+                        SelectionEntry entry;
+                        entry.type = SelectionType::Axis;
+                        entry.axisId = id;
+                        m_selection->select(entry);
+                    }
+                }
+
+                if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
+                    beginRename();
+                }
+
+                if (ImGui::BeginPopupContextItem("AxisCtx")) {
+                    if (ImGui::MenuItem("Rename")) {
+                        beginRename();
+                    }
+                    if (ImGui::MenuItem("Delete")) {
+                        m_document->removeAxis(id);
+                        if (m_selection) m_selection->clear();
+                        m_renamingId = -1;
+                        ImGui::EndPopup();
+                        ImGui::PopID();
+                        break;
+                    }
+                    ImGui::EndPopup();
+                }
+            }
+            ImGui::PopID();
         }
     }
 

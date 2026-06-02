@@ -158,18 +158,30 @@ void SelectionHighlight::render(const SelectionManager& sel, const Document& doc
     glm::vec3 bodyOutlineColor(0.3f, 0.6f, 1.0f);
 
     for (const auto& entry : sel.getSelection()) {
-        if (entry.shape.IsNull()) continue;
-
+        // Body outlines use the LIVE document shape (not entry.shape).
+        // entry.shape is captured at selection time; after a rotate /
+        // transform, it's stale and the outline would draw in the
+        // pre-transform position while the body itself is elsewhere
+        // ("bodies disappear, wireframe stays" report). Looking up
+        // doc.getBody(id) gives us the current pose, and the per-body
+        // TShape cache below still avoids re-tessellating unless the
+        // topology actually changed.
         switch (entry.type) {
             case SelectionType::Face:
-                renderFace(entry.shape, vp, faceColor);
+                if (!entry.shape.IsNull())
+                    renderFace(entry.shape, vp, faceColor);
                 break;
             case SelectionType::Edge:
-                renderEdge(entry.shape, vp, edgeColor);
+                if (!entry.shape.IsNull())
+                    renderEdge(entry.shape, vp, edgeColor);
                 break;
-            case SelectionType::Body:
-                renderBody(entry.shape, vp, bodyOutlineColor);
+            case SelectionType::Body: {
+                if (entry.bodyId < 0) break;
+                TopoDS_Shape current;
+                try { current = doc.getBody(entry.bodyId); } catch (...) {}
+                if (!current.IsNull()) renderBody(current, vp, bodyOutlineColor);
                 break;
+            }
             default:
                 break;
         }
@@ -180,28 +192,44 @@ void SelectionHighlight::renderFace(const TopoDS_Shape& faceShape, const glm::ma
                                      const glm::vec3& color) {
     // Just a blue tint over the face — no outline, no solid
     TopoDS_Face face = TopoDS::Face(faceShape);
-    TopLoc_Location location;
-    Handle(Poly_Triangulation) tri = BRep_Tool::Triangulation(face, location);
-    if (tri.IsNull()) {
-        BRepMesh_IncrementalMesh mesh(faceShape, 0.1);
-        mesh.Perform();
-        tri = BRep_Tool::Triangulation(face, location);
-        if (tri.IsNull()) return;
-    }
 
-    const gp_Trsf& trsf = location.Transformation();
-    bool hasXform = !location.IsIdentity();
+    // Cache the triangulated vertex buffer per face. Without this we walk
+    // every triangle and build the float vector on every frame the face is
+    // selected — 5-50ms per frame on a big NURBS face. Key on the face's
+    // TShape pointer, which is invalidated when the parent body's topology
+    // is rebuilt (any modeling op that changes faces), so the cache stays
+    // valid through translates and rotates (location-only changes) but
+    // refreshes the moment the surface itself changes.
+    const void* key = faceShape.TShape().get();
+    auto it = m_faceCache.find(key);
+    if (it == m_faceCache.end()) {
+        TopLoc_Location location;
+        Handle(Poly_Triangulation) tri = BRep_Tool::Triangulation(face, location);
+        if (tri.IsNull()) {
+            BRepMesh_IncrementalMesh mesh(faceShape, 0.1);
+            mesh.Perform();
+            tri = BRep_Tool::Triangulation(face, location);
+            if (tri.IsNull()) return;
+        }
 
-    std::vector<float> verts;
-    for (int i = 1; i <= tri->NbTriangles(); i++) {
-        int n1, n2, n3;
-        tri->Triangle(i).Get(n1, n2, n3);
-        gp_Pnt p1 = tri->Node(n1), p2 = tri->Node(n2), p3 = tri->Node(n3);
-        if (hasXform) { p1.Transform(trsf); p2.Transform(trsf); p3.Transform(trsf); }
-        verts.insert(verts.end(), {(float)p1.X(),(float)p1.Y(),(float)p1.Z()});
-        verts.insert(verts.end(), {(float)p2.X(),(float)p2.Y(),(float)p2.Z()});
-        verts.insert(verts.end(), {(float)p3.X(),(float)p3.Y(),(float)p3.Z()});
+        const gp_Trsf& trsf = location.Transformation();
+        bool hasXform = !location.IsIdentity();
+
+        std::vector<float>& verts = m_faceCache[key];
+        verts.reserve(tri->NbTriangles() * 9);
+        for (int i = 1; i <= tri->NbTriangles(); i++) {
+            int n1, n2, n3;
+            tri->Triangle(i).Get(n1, n2, n3);
+            gp_Pnt p1 = tri->Node(n1), p2 = tri->Node(n2), p3 = tri->Node(n3);
+            if (hasXform) { p1.Transform(trsf); p2.Transform(trsf); p3.Transform(trsf); }
+            verts.insert(verts.end(), {(float)p1.X(),(float)p1.Y(),(float)p1.Z()});
+            verts.insert(verts.end(), {(float)p2.X(),(float)p2.Y(),(float)p2.Z()});
+            verts.insert(verts.end(), {(float)p3.X(),(float)p3.Y(),(float)p3.Z()});
+        }
+        it = m_faceCache.find(key);
     }
+    if (it == m_faceCache.end()) return;
+    const std::vector<float>& verts = it->second;
     if (verts.empty()) return;
 
     glUseProgram(m_program);
@@ -231,48 +259,70 @@ void SelectionHighlight::renderFace(const TopoDS_Shape& faceShape, const glm::ma
 void SelectionHighlight::renderEdge(const TopoDS_Shape& edgeShape, const glm::mat4& vp,
                                      const glm::vec3& color) {
     try {
-        TopoDS_Edge edge = TopoDS::Edge(edgeShape);
-        BRepAdaptor_Curve curve(edge);
-        GCPnts_TangentialDeflection discretizer(curve, 0.05, 0.05);
-        int nPts = discretizer.NbPoints();
-        if (nPts < 2) return;
-
-        std::vector<float> verts;
-        for (int i = 1; i < nPts; i++) {
-            gp_Pnt p1 = discretizer.Value(i);
-            gp_Pnt p2 = discretizer.Value(i + 1);
-            verts.insert(verts.end(), {(float)p1.X(),(float)p1.Y(),(float)p1.Z()});
-            verts.insert(verts.end(), {(float)p2.X(),(float)p2.Y(),(float)p2.Z()});
-        }
-
-        drawThickLines(verts, vp, color, m_edgeLineWidth * 0.5f);
-    } catch (...) {}
-}
-
-void SelectionHighlight::renderBody(const TopoDS_Shape& bodyShape, const glm::mat4& vp,
-                                     const glm::vec3& color) {
-    // Render all edges of the body in highlight color
-    std::vector<float> verts;
-    for (TopExp_Explorer exp(bodyShape, TopAbs_EDGE); exp.More(); exp.Next()) {
-        try {
-            TopoDS_Edge edge = TopoDS::Edge(exp.Current());
+        // Same caching scheme as renderBody/renderFace: the GCPnts curve
+        // discretization is the per-frame cost we want to skip, so cache
+        // the resulting line-segment vertex buffer by edge TShape pointer.
+        const void* key = edgeShape.TShape().get();
+        auto it = m_edgeCache.find(key);
+        if (it == m_edgeCache.end()) {
+            TopoDS_Edge edge = TopoDS::Edge(edgeShape);
             BRepAdaptor_Curve curve(edge);
-            GCPnts_TangentialDeflection discretizer(curve, 0.1, 0.1);
+            GCPnts_TangentialDeflection discretizer(curve, 0.05, 0.05);
             int nPts = discretizer.NbPoints();
+            if (nPts < 2) return;
+
+            std::vector<float>& verts = m_edgeCache[key];
+            verts.reserve((nPts - 1) * 6);
             for (int i = 1; i < nPts; i++) {
                 gp_Pnt p1 = discretizer.Value(i);
                 gp_Pnt p2 = discretizer.Value(i + 1);
                 verts.insert(verts.end(), {(float)p1.X(),(float)p1.Y(),(float)p1.Z()});
                 verts.insert(verts.end(), {(float)p2.X(),(float)p2.Y(),(float)p2.Z()});
             }
-        } catch (...) { continue; }
+            it = m_edgeCache.find(key);
+        }
+        if (it == m_edgeCache.end() || it->second.empty()) return;
+
+        drawThickLines(it->second, vp, color, m_edgeLineWidth * 0.5f);
+    } catch (...) {}
+}
+
+void SelectionHighlight::renderBody(const TopoDS_Shape& bodyShape, const glm::mat4& vp,
+                                     const glm::vec3& color) {
+    // Cache key = the body's TShape pointer. Stable across location-only
+    // transforms (the kind gizmo drags use) but invalidated whenever the
+    // underlying topology is rebuilt (push/pull, fillet, transform-rotate
+    // since it uses copy=true, etc.) — which is exactly when we want a
+    // fresh tessellation. Stored per-body so multiple selected bodies
+    // each keep their own cached verts without clobbering each other.
+    const void* key = bodyShape.TShape().get();
+    auto it = m_bodyCache.find(key);
+    if (it == m_bodyCache.end()) {
+        std::vector<float>& verts = m_bodyCache[key];
+        for (TopExp_Explorer exp(bodyShape, TopAbs_EDGE); exp.More(); exp.Next()) {
+            try {
+                TopoDS_Edge edge = TopoDS::Edge(exp.Current());
+                BRepAdaptor_Curve curve(edge);
+                GCPnts_TangentialDeflection discretizer(curve, 0.1, 0.1);
+                int nPts = discretizer.NbPoints();
+                for (int i = 1; i < nPts; i++) {
+                    gp_Pnt p1 = discretizer.Value(i);
+                    gp_Pnt p2 = discretizer.Value(i + 1);
+                    verts.insert(verts.end(),
+                        {(float)p1.X(),(float)p1.Y(),(float)p1.Z()});
+                    verts.insert(verts.end(),
+                        {(float)p2.X(),(float)p2.Y(),(float)p2.Z()});
+                }
+            } catch (...) { continue; }
+        }
+        it = m_bodyCache.find(key);
     }
-    if (verts.empty()) return;
+    if (it == m_bodyCache.end() || it->second.empty()) return;
 
     // Body outlines track the configured edge width but stay a touch thinner
     // (the original 2.5:3.0 ratio) so a whole body reads differently from a
     // single picked edge.
-    drawThickLines(verts, vp, color, m_edgeLineWidth * 0.5f * (2.5f / 3.0f));
+    drawThickLines(it->second, vp, color, m_edgeLineWidth * 0.5f * (2.5f / 3.0f));
 }
 
 void SelectionHighlight::drawThickLines(const std::vector<float>& verts, const glm::mat4& vp,

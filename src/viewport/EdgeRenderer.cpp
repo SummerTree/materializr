@@ -188,8 +188,12 @@ void EdgeRenderer::render(const glm::mat4& view, const glm::mat4& projection) {
 
     for (const auto& mesh : m_meshes) {
         if (mesh.vertexCount == 0) continue;
-
-        glUniformMatrix4fv(m_locMVP, 1, GL_FALSE, glm::value_ptr(vp));
+        // Per-mesh MVP folds the body's own model matrix in. Identity
+        // for nearly all bodies; non-identity only during a live preview
+        // (revolve, future move-preview, etc.) where the geometry stays
+        // put but the rendering shifts via the GPU.
+        glm::mat4 mvp = vp * mesh.modelMatrix;
+        glUniformMatrix4fv(m_locMVP, 1, GL_FALSE, glm::value_ptr(mvp));
 
         glBindVertexArray(mesh.vao);
         glDrawArrays(GL_LINES, 0, mesh.vertexCount);
@@ -207,6 +211,16 @@ void EdgeRenderer::clear() {
     }
     m_meshes.clear();
     m_bodyToSlot.clear();
+}
+
+int EdgeRenderer::findSlotByBody(int bodyId) const {
+    auto it = m_bodyToSlot.find(bodyId);
+    return (it == m_bodyToSlot.end()) ? -1 : it->second;
+}
+
+void EdgeRenderer::setModelMatrix(int slot, const glm::mat4& model) {
+    if (slot < 0 || slot >= static_cast<int>(m_meshes.size())) return;
+    m_meshes[slot].modelMatrix = model;
 }
 
 bool EdgeRenderer::compileShader(unsigned int& shader, unsigned int type, const char* source) {

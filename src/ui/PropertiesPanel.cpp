@@ -142,19 +142,40 @@ bool PropertiesPanel::render() {
         ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "Dimensions");
         const TopoDS_Shape& shape = m_document->getBody(bodyId);
         if (!shape.IsNull()) {
-            Bnd_Box bbox;
-            BRepBndLib::AddOptimal(shape, bbox, Standard_False, Standard_False);
-            if (!bbox.IsVoid()) {
-                Standard_Real xmin, ymin, zmin, xmax, ymax, zmax;
-                bbox.Get(xmin, ymin, zmin, xmax, ymax, zmax);
-                // user-Z-up remap: user X = world X, user Y = world Z, user Z = world Y.
-                const double userExtents[3] = {
-                    xmax - xmin,
-                    zmax - zmin,
-                    ymax - ymin,
-                };
+            // BRepBndLib::AddOptimal here used to run every frame, costing
+            // 80-150ms on a complex NURBS body and pinning idle FPS to ~10
+            // any time a body was selected. Cache by TShape pointer so the
+            // recompute only happens when the topology actually rebuilds.
+            const void* tsh = shape.TShape().get();
+            auto it = m_bboxExtentCache.find(bodyId);
+            std::array<double, 3> extents{};
+            bool haveExtents = false;
+            if (it != m_bboxExtentCache.end() && it->second.first == tsh) {
+                extents = it->second.second;
+                haveExtents = true;
+            } else {
+                Bnd_Box bbox;
+                // Plain Add instead of AddOptimal: AddOptimal densely samples
+                // every NURBS surface for a perfectly-tight box, costing
+                // ~10x the time vs Add which reuses each face's already-
+                // computed surface bbox. For a dimensions readout the few-
+                // percent looseness is invisible to the user, and during
+                // modification (TShape changes per frame → cache misses)
+                // the cheaper recompute keeps interactive FPS reasonable.
+                BRepBndLib::Add(shape, bbox);
+                if (!bbox.IsVoid()) {
+                    Standard_Real xmin, ymin, zmin, xmax, ymax, zmax;
+                    bbox.Get(xmin, ymin, zmin, xmax, ymax, zmax);
+                    // user-Z-up remap: user X = world X,
+                    // user Y = world Z, user Z = world Y.
+                    extents = { xmax - xmin, zmax - zmin, ymax - ymin };
+                    m_bboxExtentCache[bodyId] = {tsh, extents};
+                    haveExtents = true;
+                }
+            }
+            if (haveExtents) {
                 ImGui::Text("Size: %.2f x %.2f x %.2f mm",
-                            userExtents[0], userExtents[1], userExtents[2]);
+                            extents[0], extents[1], extents[2]);
                 ImGui::TextDisabled("Edit dimensions via the Scale gizmo (R).");
             } else {
                 ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "Empty shape");

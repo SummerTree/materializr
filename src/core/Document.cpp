@@ -315,14 +315,109 @@ int Document::planeCount() const {
     return static_cast<int>(m_planes.size());
 }
 
+// ───── Construction axes ─────────────────────────────────────────────────
+// Same event-driven shape as planes: add/remove fire Added/Removed,
+// set* fire Changed. The render pass + Items panel listen and resync.
+
+int Document::addAxis(const gp_Pnt& origin, const gp_Dir& direction,
+                      const std::string& name) {
+    AxisEntry entry;
+    entry.id = m_nextAxisId++;
+    entry.name = name.empty() ? ("Axis " + std::to_string(entry.id)) : name;
+    entry.origin = origin;
+    entry.direction = direction;
+    m_axes.push_back(std::move(entry));
+    int id = m_axes.back().id;
+    if (m_eventBus) {
+        m_eventBus->publish(materializr::AxisAddedEvent{id});
+        m_eventBus->publish(materializr::DocumentModifiedEvent{true});
+    }
+    return id;
+}
+
+void Document::removeAxis(int id) {
+    for (auto it = m_axes.begin(); it != m_axes.end(); ++it) {
+        if (it->id == id) {
+            m_axes.erase(it);
+            if (m_eventBus) {
+                m_eventBus->publish(materializr::AxisRemovedEvent{id});
+                m_eventBus->publish(materializr::DocumentModifiedEvent{true});
+            }
+            return;
+        }
+    }
+}
+
+void Document::setAxis(int id, const gp_Pnt& origin, const gp_Dir& direction) {
+    for (auto& a : m_axes) {
+        if (a.id == id) {
+            a.origin = origin;
+            a.direction = direction;
+            if (m_eventBus) m_eventBus->publish(materializr::AxisChangedEvent{id});
+            return;
+        }
+    }
+}
+
+const AxisEntry* Document::getAxis(int id) const {
+    for (const auto& a : m_axes) if (a.id == id) return &a;
+    return nullptr;
+}
+
+std::string Document::getAxisName(int id) const {
+    const AxisEntry* a = getAxis(id);
+    return a ? a->name : std::string();
+}
+
+void Document::setAxisName(int id, const std::string& name) {
+    for (auto& a : m_axes) {
+        if (a.id == id) {
+            a.name = name;
+            if (m_eventBus) m_eventBus->publish(materializr::AxisChangedEvent{id});
+            return;
+        }
+    }
+}
+
+void Document::setAxisVisible(int id, bool visible) {
+    for (auto& a : m_axes) {
+        if (a.id == id) {
+            a.visible = visible;
+            if (m_eventBus) {
+                m_eventBus->publish(materializr::AxisChangedEvent{id});
+                m_eventBus->publish(materializr::DocumentModifiedEvent{true});
+            }
+            return;
+        }
+    }
+}
+
+bool Document::isAxisVisible(int id) const {
+    const AxisEntry* a = getAxis(id);
+    return a ? a->visible : false;
+}
+
+std::vector<int> Document::getAllAxisIds() const {
+    std::vector<int> ids;
+    ids.reserve(m_axes.size());
+    for (const auto& a : m_axes) ids.push_back(a.id);
+    return ids;
+}
+
+int Document::axisCount() const {
+    return static_cast<int>(m_axes.size());
+}
+
 void Document::clear() {
     m_bodies.clear();
     m_planes.clear();
+    m_axes.clear();
     m_sketches.clear();
     m_folders.clear();
     m_bodyTombstones.clear();
     m_nextBodyId = 1;
     m_nextPlaneId = 1;
+    m_nextAxisId = 1;
     m_nextSketchId = 1;
     m_nextFolderId = 1;
 }

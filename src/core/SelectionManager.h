@@ -12,7 +12,8 @@ enum class SelectionType {
     Vertex,
     Sketch,
     SketchRegion,
-    Plane
+    Plane,
+    Axis
 };
 
 struct SelectionEntry {
@@ -21,6 +22,7 @@ struct SelectionEntry {
     int subShapeIndex = -1; // for face/edge/vertex within a body; region index for SketchRegion
     int sketchId = -1;      // when type == Sketch or SketchRegion
     int planeId = -1;       // when type == Plane (Document::PlaneEntry id)
+    int axisId = -1;        // when type == Axis  (Document::AxisEntry id)
     TopoDS_Shape shape;     // the actual selected sub-shape
 };
 

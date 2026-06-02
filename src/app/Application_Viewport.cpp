@@ -168,21 +168,36 @@ void Application::renderViewport() {
                                m_edgeOpActive;
             float minorAlpha = 1.0f;
             if (!interactive) {
-                try {
-                    Bnd_Box bb;
-                    bool any = false;
-                    for (int id : m_document->getAllBodyIds()) {
-                        if (!m_document->isBodyVisible(id)) continue;
-                        BRepBndLib::Add(m_document->getBody(id), bb);
-                        any = true;
-                    }
-                    if (any && !bb.IsVoid()) {
-                        double xmn,ymn,zmn,xmx,ymx,zmx;
-                        bb.Get(xmn,ymn,zmn,xmx,ymx,zmx);
-                        double ext = std::max({xmx-xmn, ymx-ymn, zmx-zmn});
-                        if (ext > 100.0) minorAlpha = 0.0f; // hide 1× tier
-                    }
-                } catch (...) {}
+                // This used to walk every visible body's bbox on every frame
+                // to decide whether the project is "big enough" to suppress
+                // the 1× minor grid. On a 65-body airplane that's ~65 OCCT
+                // bbox calls per frame; even cheap each, the cumulative
+                // baseline cost is real. We only need this threshold check
+                // to feel responsive — not to update every frame — so cache
+                // the verdict and refresh every ~0.25s. A topology change
+                // can wait that long to flip the grid tier.
+                static double s_nextCheckTime = 0.0;
+                static bool   s_hideMinor    = false;
+                double now = ImGui::GetTime();
+                if (now >= s_nextCheckTime) {
+                    try {
+                        Bnd_Box bb;
+                        bool any = false;
+                        for (int id : m_document->getAllBodyIds()) {
+                            if (!m_document->isBodyVisible(id)) continue;
+                            BRepBndLib::Add(m_document->getBody(id), bb);
+                            any = true;
+                        }
+                        if (any && !bb.IsVoid()) {
+                            double xmn,ymn,zmn,xmx,ymx,zmx;
+                            bb.Get(xmn,ymn,zmn,xmx,ymx,zmx);
+                            double ext = std::max({xmx-xmn, ymx-ymn, zmx-zmn});
+                            s_hideMinor = (ext > 100.0);
+                        }
+                    } catch (...) {}
+                    s_nextCheckTime = now + 0.25;
+                }
+                if (s_hideMinor) minorAlpha = 0.0f;
             }
             m_grid->render(view, proj, cam.getTarget(), std::max(fadeDist, 10.0f),
                            gp, std::max(m_sketchGridStep, 0.01f),
@@ -202,7 +217,14 @@ void Application::renderViewport() {
         m_edgeRenderer->render(view, proj);
 
         // Render selection highlight (face/edge/body)
-        m_selectionHighlight->render(*m_selection, *m_document, view, proj);
+        // Selection highlight is cached in world coords — it wouldn't follow
+        // the GPU-model-matrix Revolve preview, so we hide it while a live
+        // preview is animating. The body itself remains highlighted by the
+        // body-renderer's outline; the selection chrome reappears the
+        // moment the preview ends.
+        if (!m_revolveLiveActive) {
+            m_selectionHighlight->render(*m_selection, *m_document, view, proj);
+        }
 
         // Update gizmo visibility and position based on selection.
         // Suppressed by navigationOnly so a panel pick highlights the body
@@ -218,7 +240,7 @@ void Application::renderViewport() {
             m_inSketchMode || m_extruding || m_edgeOpActive ||
             m_pushPullActive || m_resizeCylActive || m_shellActive ||
             m_patternActive || m_loftActive || m_planeOpActive ||
-            m_sketchPatternActive;
+            m_sketchPatternActive || m_revolveActive;
         bool gizmoShown = false;
         if (m_selection->hasSelectedBodies() && !m_selection->navigationOnly() &&
             !anyInteractiveOpActive) {
@@ -226,11 +248,29 @@ void Application::renderViewport() {
             int bodyId = sel[0].bodyId;
             try {
                 const TopoDS_Shape& shape = m_document->getBody(bodyId);
-                Bnd_Box bbox;
-                BRepBndLib::Add(shape, bbox);
-                double xmin, ymin, zmin, xmax, ymax, zmax;
-                bbox.Get(xmin, ymin, zmin, xmax, ymax, zmax);
-                glm::vec3 center((xmin+xmax)*0.5f, (ymin+ymax)*0.5f, (zmin+zmax)*0.5f);
+                // Cache the body's bbox-centre keyed on its TShape pointer.
+                // BRepBndLib::Add walks every face's surface and on a complex
+                // body (trimmed NURBS heavy) is 50-150ms — running it every
+                // frame while a body is selected pinned idle FPS to ~6 with
+                // the cooling fan ramping. The TShape pointer is invalidated
+                // exactly when topology rebuilds (push/pull, fillet, rotate
+                // copy=true, revolve apply) so the cache self-recomputes the
+                // moment the geometry changes shape.
+                const void* tsh = shape.TShape().get();
+                auto cit = m_gizmoCenterCache.find(bodyId);
+                glm::vec3 center;
+                if (cit != m_gizmoCenterCache.end() && cit->second.first == tsh) {
+                    center = cit->second.second;
+                } else {
+                    Bnd_Box bbox;
+                    BRepBndLib::Add(shape, bbox);
+                    double xmin, ymin, zmin, xmax, ymax, zmax;
+                    bbox.Get(xmin, ymin, zmin, xmax, ymax, zmax);
+                    center = glm::vec3((xmin+xmax)*0.5f,
+                                       (ymin+ymax)*0.5f,
+                                       (zmin+zmax)*0.5f);
+                    m_gizmoCenterCache[bodyId] = {tsh, center};
+                }
                 m_gizmo->setPosition(center);
                 m_gizmo->setVisible(true);
                 gizmoShown = true;
@@ -322,6 +362,43 @@ void Application::renderViewport() {
             m_inSketchMode || m_extruding || m_edgeOpActive ||
             m_pushPullActive || m_resizeCylActive || m_shellActive ||
             m_patternActive || m_loftActive || m_sketchPatternActive;
+        // Construction-axis gizmo — Move only. Same arming pattern as
+        // planes: implicit during the Construction Axis popup
+        // (m_axisOpActive), opt-in via W/E after commit.
+        int firstAxisInSel = -1;
+        for (const auto& e : m_selection->getSelection()) {
+            if (e.type == SelectionType::Axis && e.axisId >= 0) {
+                firstAxisInSel = e.axisId; break;
+            }
+        }
+        if (m_axisGizmoArmed && m_axisGizmoArmedFor != firstAxisInSel) {
+            m_axisGizmoArmed = false;
+            m_axisGizmoArmedFor = -1;
+        }
+        const bool axisImplicitArm = m_axisOpActive;
+        if (!gizmoShown && !m_selection->hasSelectedBodies() &&
+            !m_selection->navigationOnly() &&
+            !cam.isOrthographic() &&
+            (m_axisGizmoArmed || axisImplicitArm)) {
+            int aid = firstAxisInSel;
+            if (aid >= 0) {
+                const auto* entry = m_document->getAxis(aid);
+                if (entry) {
+                    // Axes are 1D — Rotate / Scale aren't meaningful, so
+                    // snap to Translate if the user's in either of those.
+                    if (m_gizmo->getMode() != GizmoMode::Translate) {
+                        m_gizmo->setMode(GizmoMode::Translate);
+                    }
+                    const gp_Pnt& o = entry->origin;
+                    m_gizmo->setPosition(glm::vec3((float)o.X(),
+                                                   (float)o.Y(),
+                                                   (float)o.Z()));
+                    m_gizmo->setVisible(true);
+                    gizmoShown = true;
+                }
+            }
+        }
+
         // Clear the plane-arm flag if the selection moved off the plane it
         // was armed for. Keeps "click plane → highlight only; click Move →
         // arm" UX consistent: switching planes hides the previous gizmo and
@@ -521,6 +598,233 @@ void Application::renderViewport() {
                     dl->AddText(tp, col, label);
                 }
             };
+
+            // Revolve indicator — yellow arced arrow showing the rotation
+            // axis + current angle while the Revolve popup is up. Now
+            // CLICKABLE: press on the arc to grab it, drag tangentially to
+            // spin the body around the axis live. The cursor's projected
+            // angle around the axis drives a per-frame delta which feeds
+            // back into m_revolveAngle + the existing live-preview machinery.
+            m_revolveArcWasHovered = false;
+            if (m_revolveActive && m_revolveWhatIdx == 0) {
+                gp_Pnt axisOrigin(0, 0, 0);
+                gp_Dir axisDir(0, 0, 1);
+                if (m_revolveAxisId >= 0) {
+                    const auto* a = m_document->getAxis(m_revolveAxisId);
+                    if (a) { axisOrigin = a->origin; axisDir = a->direction; }
+                } else {
+                    switch (m_revolveWorldAxisIdx) {
+                        case 0: axisDir = gp_Dir(1, 0, 0); break;
+                        case 1: axisDir = gp_Dir(0, 0, 1); break;
+                        case 2: axisDir = gp_Dir(0, 1, 0); break;
+                    }
+                }
+                glm::vec3 O((float)axisOrigin.X(), (float)axisOrigin.Y(),
+                            (float)axisOrigin.Z());
+                glm::vec3 D = glm::normalize(glm::vec3((float)axisDir.X(),
+                                                       (float)axisDir.Y(),
+                                                       (float)axisDir.Z()));
+                // Orthonormal basis in the plane of rotation. Pick a
+                // world-aligned helper not collinear with D so the cross
+                // product never collapses; both quarter-rolls (T, B) form
+                // the arc plane.
+                glm::vec3 helper = (std::abs(D.y) < 0.9f) ? glm::vec3(0, 1, 0)
+                                                          : glm::vec3(1, 0, 0);
+                glm::vec3 T = glm::normalize(glm::cross(D, helper));
+                glm::vec3 B = glm::normalize(glm::cross(D, T));
+
+                // Radius scales with the picked axis's half-length so the
+                // arc reads at similar visual size whatever the document
+                // is up to. Clamped to a useful range.
+                float radius = 12.0f;
+                if (m_revolveAxisId >= 0) {
+                    const auto* a = m_document->getAxis(m_revolveAxisId);
+                    if (a) radius = std::clamp((float)a->halfLength * 0.4f,
+                                                8.0f, 60.0f);
+                }
+                // Sweep visualises the current angle but caps at ±270° so
+                // a 360° revolve doesn't render as a closed circle that
+                // hides its own arrowhead. Below 5° we draw a default
+                // 45°-ish stub so the gizmo stays grabbable when the
+                // user just opened the popup (angle reset to 0) — the
+                // stub fades into a real sweep the moment they drag.
+                float ang = m_revolveAngle * (float)M_PI / 180.0f;
+                float sign = (ang >= 0.0f) ? 1.0f : -1.0f;
+                float sweep = std::min(std::abs(ang), (float)(M_PI * 1.5));
+                sweep *= sign;
+                if (std::abs(sweep) < (float)(M_PI / 36.0)) { // <5°
+                    sweep = (float)(M_PI / 4.0);              // 45° hint stub
+                }
+
+                constexpr int N = 40;
+                ImVec2 pts[N + 1];
+                int nPts = 0;
+                for (int i = 0; i <= N; ++i) {
+                    float t = float(i) / float(N);
+                    float a = sweep * t;
+                    glm::vec3 p = O + radius * (std::cos(a) * T + std::sin(a) * B);
+                    ImVec2 sp;
+                    if (toImg(p, sp)) pts[nPts++] = sp;
+                }
+                if (nPts > 1) {
+                    // Cursor → arc hit-test (closest point on any segment;
+                    // 10 px pickability band — generous because the arc is
+                    // thin and the user is moving deliberately when they
+                    // grab it).
+                    ImVec2 mp = ImGui::GetMousePos();
+                    float bestD = FLT_MAX;
+                    for (int i = 0; i + 1 < nPts; ++i) {
+                        float dx = pts[i + 1].x - pts[i].x;
+                        float dy = pts[i + 1].y - pts[i].y;
+                        float L2 = dx * dx + dy * dy;
+                        if (L2 < 1e-6f) continue;
+                        float t = ((mp.x - pts[i].x) * dx +
+                                   (mp.y - pts[i].y) * dy) / L2;
+                        t = std::clamp(t, 0.0f, 1.0f);
+                        float cx = pts[i].x + dx * t;
+                        float cy = pts[i].y + dy * t;
+                        float d = std::hypot(mp.x - cx, mp.y - cy);
+                        if (d < bestD) bestD = d;
+                    }
+                    bool arcHovered = (bestD < 10.0f) &&
+                                       ImGui::IsWindowHovered(
+                                           ImGuiHoveredFlags_AllowWhenBlockedByPopup |
+                                           ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
+                    m_revolveArcWasHovered = arcHovered || m_revolveArcDragging;
+
+                    // Hovered or dragging → brighter + thicker so the user
+                    // sees the affordance.
+                    const bool hot = arcHovered || m_revolveArcDragging;
+                    const ImU32 col     = hot ? IM_COL32(255, 230,  80, 255)
+                                              : IM_COL32(255, 200,  60, 255);
+                    const ImU32 outline = IM_COL32( 20,  20,  28, 220);
+                    const float thick   = hot ? 5.5f : 3.5f;
+                    const float haloThk = thick + 2.5f;
+                    dl->AddPolyline(pts, nPts, outline, 0, haloThk);
+                    dl->AddPolyline(pts, nPts, col,     0, thick);
+
+                    // Project cursor onto the rotation plane to read its
+                    // angular position. Returns false if the cursor's ray
+                    // is parallel to the plane (~edge-on view).
+                    auto cursorAngle = [&](float* outAng) -> bool {
+                        ImVec2 wp = ImGui::GetItemRectMin();
+                        // contentSize / view / proj are in scope from the
+                        // surrounding renderViewport block.
+                        float lx = mp.x - wp.x;
+                        float ly = mp.y - wp.y;
+                        float ndcX = (2.0f * lx) / contentSize.x - 1.0f;
+                        float ndcY = 1.0f - (2.0f * ly) / contentSize.y;
+                        glm::mat4 invVP = glm::inverse(proj * view);
+                        glm::vec4 nearH = invVP * glm::vec4(ndcX, ndcY, -1.0f, 1.0f);
+                        glm::vec4 farH  = invVP * glm::vec4(ndcX, ndcY,  1.0f, 1.0f);
+                        glm::vec3 rayO = glm::vec3(nearH) / nearH.w;
+                        glm::vec3 rayD = glm::normalize(
+                            glm::vec3(farH) / farH.w - rayO);
+                        float denom = glm::dot(rayD, D);
+                        if (std::abs(denom) < 1e-5f) return false;
+                        float t = glm::dot(O - rayO, D) / denom;
+                        if (t <= 0.0f) return false;
+                        glm::vec3 hit = rayO + rayD * t;
+                        glm::vec3 v = hit - O;
+                        *outAng = std::atan2(glm::dot(v, B), glm::dot(v, T));
+                        return true;
+                    };
+
+                    // Press → grab the arc, capture initial cursor angle
+                    // and body angle. Subsequent frames track the delta.
+                    if (arcHovered && !m_revolveArcDragging &&
+                        ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+                        float ca = 0.0f;
+                        if (cursorAngle(&ca)) {
+                            m_revolveArcDragging = true;
+                            m_revolveArcDragLastCursorAng = ca;
+                            m_revolveArcDragAngleAccum = 0.0f;
+                            m_revolveArcDragStartBodyAng = m_revolveAngle;
+                        }
+                    }
+                    // Drag → integrate the per-frame angular delta into the
+                    // body angle. atan2 wrap-around handled by clamping the
+                    // delta to [-π, π] before accumulating.
+                    if (m_revolveArcDragging &&
+                        ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+                        float ca = 0.0f;
+                        if (cursorAngle(&ca)) {
+                            float d = ca - m_revolveArcDragLastCursorAng;
+                            while (d >  (float)M_PI) d -= 2.0f * (float)M_PI;
+                            while (d < -(float)M_PI) d += 2.0f * (float)M_PI;
+                            m_revolveArcDragAngleAccum += d;
+                            m_revolveArcDragLastCursorAng = ca;
+                            float deg = m_revolveArcDragStartBodyAng +
+                                        m_revolveArcDragAngleAccum *
+                                        180.0f / (float)M_PI;
+                            // Snap to 5° increments — the arc drag is the
+                            // coarse positioning tool; fine adjustments
+                            // happen through the popup's typed-angle
+                            // InputText, which doesn't snap.
+                            deg = std::round(deg / 5.0f) * 5.0f;
+                            // Cap to two full turns so a wild drag doesn't
+                            // run away off-screen forever.
+                            deg = std::clamp(deg, -720.0f, 720.0f);
+                            if (std::abs(deg - m_revolveAngle) > 0.05f) {
+                                m_revolveAngle = deg;
+                                std::snprintf(m_revolveAngleBuf,
+                                              sizeof(m_revolveAngleBuf),
+                                              "%.1f", m_revolveAngle);
+                                revolveLiveApply(m_revolveAngle);
+                            }
+                        }
+                    }
+                    if (m_revolveArcDragging &&
+                        !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+                        m_revolveArcDragging = false;
+                    }
+
+                    // Arrowhead at the arc's end. Direction = tangent to
+                    // the arc at the last sample (perpendicular to the
+                    // radius vector there, in the sweep direction).
+                    float endA = sweep;
+                    glm::vec3 endP = O + radius * (std::cos(endA) * T + std::sin(endA) * B);
+                    glm::vec3 tangent = glm::normalize(
+                        -std::sin(endA) * T + std::cos(endA) * B);
+                    if (sweep < 0) tangent = -tangent;
+                    glm::vec3 outward = glm::normalize(
+                        std::cos(endA) * T + std::sin(endA) * B);
+                    float ah = 11.0f;
+                    // Build a small triangle in world space (using the
+                    // arc-plane basis), project to screen, fill.
+                    glm::vec3 wTip  = endP + tangent * (ah * 0.18f); // arc-units
+                    glm::vec3 wBase = endP - tangent * (ah * 0.18f);
+                    glm::vec3 wW1   = wBase + outward * (ah * 0.10f);
+                    glm::vec3 wW2   = wBase - outward * (ah * 0.10f);
+                    ImVec2 sTip, sW1, sW2;
+                    if (toImg(wTip, sTip) && toImg(wW1, sW1) && toImg(wW2, sW2)) {
+                        dl->AddTriangleFilled(sTip, sW1, sW2, col);
+                        dl->AddTriangle(sTip, sW1, sW2, outline, 1.2f);
+                    }
+
+                    // Angle label near the arc midpoint.
+                    float midA = sweep * 0.5f;
+                    glm::vec3 midW = O + (radius + 4.0f) *
+                        (std::cos(midA) * T + std::sin(midA) * B);
+                    ImVec2 sMid;
+                    if (toImg(midW, sMid)) {
+                        char lbl[24];
+                        std::snprintf(lbl, sizeof(lbl), "%.1f\xC2\xB0",
+                                      m_revolveAngle);
+                        ImVec2 ts = ImGui::CalcTextSize(lbl);
+                        ImVec2 tp(sMid.x - ts.x * 0.5f, sMid.y - ts.y * 0.5f);
+                        dl->AddRectFilled(
+                            ImVec2(tp.x - 5, tp.y - 3),
+                            ImVec2(tp.x + ts.x + 5, tp.y + ts.y + 3),
+                            IM_COL32(20, 20, 28, 235), 3.0f);
+                        dl->AddRect(
+                            ImVec2(tp.x - 5, tp.y - 3),
+                            ImVec2(tp.x + ts.x + 5, tp.y + ts.y + 3),
+                            col, 3.0f, 0, 1.5f);
+                        dl->AddText(tp, col, lbl);
+                    }
+                }
+            }
 
             char dbuf[40];
             if (m_extruding) {
@@ -1568,6 +1872,7 @@ void Application::renderViewport() {
                         m_gizmoDragOriginals.clear();
                         m_sketchGizmoDragSketches.clear();
                         m_planeGizmoDrag.clear();
+                        m_axisGizmoDrag.clear();
                         auto addedSketch = [&](int sid) {
                             for (auto& [eid, _] : m_sketchGizmoDragSketches)
                                 if (eid == sid) return true;
@@ -1604,11 +1909,23 @@ void Application::renderViewport() {
                                     m_planeGizmoDrag.push_back(
                                         {sel.planeId, entry->plane});
                                 }
+                            } else if (sel.type == SelectionType::Axis &&
+                                       sel.axisId >= 0) {
+                                bool dup = false;
+                                for (auto& e : m_axisGizmoDrag)
+                                    if (e.id == sel.axisId) { dup = true; break; }
+                                if (dup) continue;
+                                const auto* entry = m_document->getAxis(sel.axisId);
+                                if (entry) {
+                                    m_axisGizmoDrag.push_back(
+                                        {sel.axisId, entry->origin, entry->direction});
+                                }
                             }
                         }
                         if (!m_gizmoDragOriginals.empty() ||
                             !m_sketchGizmoDragSketches.empty() ||
-                            !m_planeGizmoDrag.empty()) {
+                            !m_planeGizmoDrag.empty() ||
+                            !m_axisGizmoDrag.empty()) {
                             if (!m_gizmoDragOriginals.empty()) {
                                 m_gizmoDragBodyId = m_gizmoDragOriginals.front().first;
                                 m_gizmoDragOriginalShape = m_gizmoDragOriginals.front().second;
@@ -1675,6 +1992,12 @@ void Application::renderViewport() {
                             for (auto& [pid, plnBefore] : m_planeGizmoDrag) {
                                 const gp_Pnt& o = plnBefore.Position().Location();
                                 m_gizmoSharedPivot += glm::vec3(o.X(), o.Y(), o.Z());
+                                ++np;
+                            }
+                            for (auto& a : m_axisGizmoDrag) {
+                                m_gizmoSharedPivot += glm::vec3(a.origin.X(),
+                                                                 a.origin.Y(),
+                                                                 a.origin.Z());
                                 ++np;
                             }
                             if (np > 0) m_gizmoSharedPivot /= static_cast<float>(np);
@@ -1757,7 +2080,26 @@ void Application::renderViewport() {
                                     pln.Transform(trsf);
                                     m_document->setPlane(pid, pln);
                                 }
-                                m_meshesDirty = true;
+                                // Construction axes: translate the origin
+                                // point only (direction is invariant under
+                                // translation). Same direct-write pattern.
+                                for (auto& a : m_axisGizmoDrag) {
+                                    gp_Pnt newO(a.origin.X() + d.x,
+                                                a.origin.Y() + d.y,
+                                                a.origin.Z() + d.z);
+                                    m_document->setAxis(a.id, newO, a.direction);
+                                }
+                                // Partial mesh refresh: just the bodies in the
+                                // drag, not every body in the scene. m_meshesDirty
+                                // triggers a full clear+re-tessellate of every
+                                // visible body — on a 65-body airplane that's
+                                // tens of bodies' worth of NURBS meshing per
+                                // drag frame, which is the "painful Move/Rotate"
+                                // the user reported. Sketch plane writes don't
+                                // affect body meshes, so they're not in here.
+                                for (auto& [id, orig] : m_gizmoDragOriginals) {
+                                    m_dirtyBodyIds.insert(id);
+                                }
                                 applied = false; // already handled per-body above
                             } else if (gResult.mode == GizmoMode::Rotate) {
                                 glm::vec3 ad = axisDirOf(gResult.activeAxis);
@@ -1791,7 +2133,11 @@ void Application::renderViewport() {
                                     pln.Transform(trsf);
                                     m_document->setPlane(pid, pln);
                                 }
-                                m_meshesDirty = true;
+                                // See translate branch — partial refresh only
+                                // for the dragged bodies, not full scene.
+                                for (auto& [id, orig] : m_gizmoDragOriginals) {
+                                    m_dirtyBodyIds.insert(id);
+                                }
                                 applied = false; // per-body above
                             } else { // Scale — per-axis, non-uniform about the centre
                                 float os = static_cast<float>(glm::length(
@@ -1823,13 +2169,21 @@ void Application::renderViewport() {
                                     BRepBuilderAPI_GTransform xf(orig, gt, true);
                                     if (xf.IsDone()) m_document->updateBody(id, xf.Shape());
                                 }
-                                m_meshesDirty = true;
+                                // Partial refresh — only the scaled bodies need
+                                // re-tessellation, not every body in the scene.
+                                for (auto& [id, orig] : m_gizmoDragOriginals) {
+                                    m_dirtyBodyIds.insert(id);
+                                }
                                 applied = false; // per-body above
                             }
 
                             if (applied) {
                                 m_document->updateBody(m_gizmoDragBodyId, result);
-                                m_meshesDirty = true;
+                                // Single-body fallback path (when none of the
+                                // per-mode branches handled the body update).
+                                // Same reasoning as the per-mode branches: only
+                                // mark the touched body dirty, not the whole scene.
+                                m_dirtyBodyIds.insert(m_gizmoDragBodyId);
                             }
                         } catch (...) {}
                         gizmoConsumedInput = true;
@@ -1900,11 +2254,23 @@ void Application::renderViewport() {
                             const bool planeOnly = (nBodies == 0) &&
                                                    m_sketchGizmoDragSketches.empty() &&
                                                    !m_planeGizmoDrag.empty();
+                            // Axis-only drags also write through Document
+                            // directly during the live drag; skip the body /
+                            // sketch commit branches the same way (avoids
+                            // pushing a phantom TransformOp with bodyId=-1
+                            // that crashed v0.6.0 for plane-only drags).
+                            const bool axisOnly  = (nBodies == 0) &&
+                                                   m_sketchGizmoDragSketches.empty() &&
+                                                   m_planeGizmoDrag.empty() &&
+                                                   !m_axisGizmoDrag.empty();
                             if (!anyValid) {
                                 /* below-threshold drag: leave history alone */
                             } else if (planeOnly) {
                                 /* plane gizmo: already written to Document via
                                    setPlane during the drag; nothing to commit */
+                            } else if (axisOnly) {
+                                /* axis gizmo: same as plane — direct setAxis
+                                   write during the drag covered it. */
                             } else if (isMulti) {
                                 // Batched commit: one ReplayOp covering all bodies.
                                 ReplayOp::BodyState beforeState;
@@ -2002,9 +2368,20 @@ void Application::renderViewport() {
                         m_gizmoDragging = false;
                         m_gizmoDragOriginalShape.Nullify();
                         m_gizmoDragBodyId = -1;
+                        // Plane and axis drags don't push a history op
+                        // (no parametric undo for these direct
+                        // setPlane/setAxis writes), so isDirty() won't
+                        // catch them via the history-step delta. Mark the
+                        // project dirty explicitly so the new position
+                        // survives the next close + reopen.
+                        if (!m_planeGizmoDrag.empty() ||
+                            !m_axisGizmoDrag.empty()) {
+                            markDirty();
+                        }
                         m_gizmoDragOriginals.clear();
                         m_sketchGizmoDragSketches.clear();
                         m_planeGizmoDrag.clear();
+                        m_axisGizmoDrag.clear();
                     }
 
                     if (gResult.activeAxis != GizmoAxis::None) {
@@ -2012,8 +2389,16 @@ void Application::renderViewport() {
                     }
                 }
 
+                // Skip hover-pick during active camera drag. Picker iterates
+                // every visible body and ray-tests their faces — on a
+                // complex project (50+ bodies, dense meshes) that's the
+                // dominant per-frame cost. During orbit/pan/zoom the user
+                // isn't going to pick anything anyway, so we keep the last
+                // hover state and re-enable picking the moment they
+                // release the drag.
                 if (!gizmoConsumedInput && !m_viewCube->wasHovered() &&
-                    !m_snapWidgetHovered) {
+                    !m_snapWidgetHovered && !m_revolveArcWasHovered &&
+                    !camDragging) {
                     auto result = m_picker->pick(localX, localY,
                         contentSize.x, contentSize.y, cam, *m_document);
 
@@ -2153,22 +2538,32 @@ void Application::renderViewport() {
                     }
                     (void)measureConsumedClick;
 
-                    // Double-click to select body, single-click to select face
-                    if (!regionConsumedClick && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
-                        if (result.hit) {
-                            SelectionEntry entry;
-                            entry.type = SelectionType::Body;
-                            entry.bodyId = result.bodyId;
-                            try { entry.shape = m_document->getBody(result.bodyId); } catch (...) {}
-                            if (io.KeyCtrl) {
-                                m_selection->addToSelection(entry);
-                            } else {
-                                m_selection->select(entry);
-                            }
+                    // Double-click to select body, single-click to select face.
+                    // Axis / plane hits don't have a body to escalate to, so
+                    // the double-click falls through to the single-click
+                    // handler below (which builds the right Selection entry).
+                    if (!regionConsumedClick && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) &&
+                        result.hit && result.bodyId >= 0) {
+                        SelectionEntry entry;
+                        entry.type = SelectionType::Body;
+                        entry.bodyId = result.bodyId;
+                        try { entry.shape = m_document->getBody(result.bodyId); } catch (...) {}
+                        if (io.KeyCtrl) {
+                            m_selection->addToSelection(entry);
+                        } else {
+                            m_selection->select(entry);
                         }
                     } else if (!regionConsumedClick && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
                         int ownerStep = -1; // fillet/chamfer step to open in the editor
-                        if (result.hit && result.planeId >= 0) {
+                        if (result.hit && result.axisId >= 0) {
+                            // Construction-axis hit — own selection path,
+                            // skip body/face/edge branching.
+                            SelectionEntry entry;
+                            entry.type = SelectionType::Axis;
+                            entry.axisId = result.axisId;
+                            if (io.KeyCtrl) m_selection->toggleSelection(entry);
+                            else            m_selection->select(entry);
+                        } else if (result.hit && result.planeId >= 0) {
                             // Construction-plane hit takes its own selection path —
                             // no edge / face / fillet-edit branching applies.
                             SelectionEntry entry;
@@ -2387,7 +2782,8 @@ void Application::renderViewport() {
             // Suppress while the ViewCube widget is being hovered/dragged so its
             // click doesn't pass through and start a line draw underneath.
             if (m_inSketchMode && m_activeSketch && !camDragging &&
-                !m_viewCube->wasHovered() && !m_snapWidgetHovered) {
+                !m_viewCube->wasHovered() && !m_snapWidgetHovered &&
+                !m_revolveArcWasHovered) {
                 ImVec2 mousePos = ImGui::GetMousePos();
                 ImVec2 winPos = ImGui::GetItemRectMin();
                 float localX = mousePos.x - winPos.x;
@@ -2970,6 +3366,26 @@ void Application::renderViewport() {
     // current grid step. Click to open settings (snap toggle + step radios);
     // changes save immediately.
     renderSnapWidget();
+
+    // Tiny FPS readout in the bottom-left of the viewport — temporary
+    // diagnostic for the navigation-lag issue. Real users won't see a
+    // number for the framerate; us debugging will.
+    {
+        ImVec2 vpMin = ImGui::GetWindowPos();
+        ImVec2 vpSize = ImGui::GetWindowSize();
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        char fpsBuf[32];
+        float fps = ImGui::GetIO().Framerate;
+        std::snprintf(fpsBuf, sizeof(fpsBuf), "%.0f fps", fps);
+        ImVec2 ts = ImGui::CalcTextSize(fpsBuf);
+        ImVec2 tp(vpMin.x + 8.0f, vpMin.y + vpSize.y - ts.y - 6.0f);
+        dl->AddRectFilled(ImVec2(tp.x - 4, tp.y - 2),
+                          ImVec2(tp.x + ts.x + 4, tp.y + ts.y + 2),
+                          IM_COL32(20, 20, 28, 180), 3.0f);
+        ImU32 col = fps < 25.0f ? IM_COL32(255, 120, 120, 255)
+                                : IM_COL32(180, 220, 180, 255);
+        dl->AddText(tp, col, fpsBuf);
+    }
 
     // Right-click face context menu
     if (m_contextMenuPending) {

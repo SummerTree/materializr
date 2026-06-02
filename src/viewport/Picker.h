@@ -18,6 +18,9 @@ struct PickResult {
     // Set when the hit was on a construction plane (bodyId == -1). The
     // viewport input handler builds a SelectionType::Plane entry from this.
     int planeId = -1;
+    // Construction-axis hit (bodyId == -1, planeId == -1). Builds a
+    // SelectionType::Axis entry.
+    int axisId = -1;
     TopoDS_Shape pickedShape;    // the picked face
     TopoDS_Shape nearestEdge;    // closest edge to hit point (if any)
     float edgeScreenDist = 1e6f; // screen distance to nearest edge in pixels

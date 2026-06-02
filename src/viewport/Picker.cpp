@@ -404,6 +404,71 @@ PickResult Picker::pick(float screenX, float screenY,
         }
     }
 
+    // ─── Construction-axis hit-test ──────────────────────────────────────
+    // Axes are 1D so a strict ray-line intersection almost never hits —
+    // instead we measure the minimum distance from the cursor ray to the
+    // axis line and accept any axis whose closest approach is within ~6 px
+    // on screen at the hit depth. The closest-approach formula uses the
+    // standard cross-product magnitude over the parallelogram base.
+    {
+        std::vector<int> axisIds = doc.getAllAxisIds();
+        if (!axisIds.empty()) {
+            const float hitPxRadius = 6.0f;
+            // Approximate world units per pixel at any depth: convert one
+            // pixel of horizontal extent at depth d to world units via the
+            // perspective frustum's half-width. Cheap and good enough for a
+            // pickability band.
+            float fovRad = camera.getFov() * (float)M_PI / 180.0f;
+            float pxPerWorldRef = viewportHeight / (2.0f * std::tan(fovRad * 0.5f));
+            for (int aid : axisIds) {
+                if (!doc.isAxisVisible(aid)) continue;
+                const auto* entry = doc.getAxis(aid);
+                if (!entry) continue;
+                glm::vec3 ao((float)entry->origin.X(), (float)entry->origin.Y(),
+                              (float)entry->origin.Z());
+                glm::vec3 ad((float)entry->direction.X(), (float)entry->direction.Y(),
+                              (float)entry->direction.Z());
+                // Closest-approach between ray (rayOrigin, rayDir) and the
+                // axis line (ao, ad). Solve the 2-parameter min-distance
+                // system; if the rays are parallel skip.
+                glm::vec3 w0 = rayOrigin - ao;
+                float a = glm::dot(rayDir, rayDir);          // 1
+                float b = glm::dot(rayDir, ad);
+                float c = glm::dot(ad, ad);                  // 1
+                float d_ = glm::dot(rayDir, w0);
+                float e  = glm::dot(ad, w0);
+                float denom = a * c - b * b;
+                if (denom < 1e-6f) continue;                  // parallel
+                float sRay  = (b * e - c * d_) / denom;       // along rayDir
+                float tAxis = (a * e - b * d_) / denom;       // along axis (signed)
+                if (sRay <= 0.0f || sRay >= nearestDist) continue;
+                // Clip to the visible axis segment so a click far from the
+                // drawn line doesn't latch onto the infinite ray.
+                float halfLen = static_cast<float>(entry->halfLength);
+                if (std::abs(tAxis) > halfLen) continue;
+                glm::vec3 pRay  = rayOrigin + rayDir * sRay;
+                glm::vec3 pAxis = ao + ad * tAxis;
+                float worldDist = glm::length(pRay - pAxis);
+                // Convert that world separation to screen pixels at sRay's
+                // depth. Hit if it's within the radius.
+                float pxDist = worldDist * pxPerWorldRef / std::max(sRay, 1e-3f);
+                if (pxDist > hitPxRadius) continue;
+                nearestDist = sRay;
+                result.hit = true;
+                result.bodyId = -1;
+                result.faceIndex = -1;
+                result.planeId = -1;
+                result.axisId = aid;
+                result.pickedShape = TopoDS_Shape();
+                result.hitPoint = pAxis;
+                result.distance = sRay;
+                result.nearestEdge = TopoDS_Shape();
+                result.edgeScreenDist = 1e6f;
+                result.faceScreenSize = 1e6f;
+            }
+        }
+    }
+
     return result;
 }
 

@@ -52,6 +52,11 @@ public:
     /// Get the current target point.
     glm::vec3 getTarget() const { return m_target; }
 
+    /// Vertical field of view in degrees. Picker uses this to convert a
+    /// pixel-pickability radius into a depth-scaled world distance for
+    /// thin geometry (construction axes).
+    float getFov() const { return m_fov; }
+
     /// Get the current up vector.
     glm::vec3 getUp() const { return m_up; }
 

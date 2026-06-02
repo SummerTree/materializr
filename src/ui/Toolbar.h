@@ -21,7 +21,7 @@ enum class ToolAction {
     // from sketch-extrude and the viewport context menu, not via a ToolAction.)
     Fillet, Chamfer, EditFilletChamfer, EditDiameter, Shell,
     // Gizmo modes + Mirror
-    Move, Rotate, Scale, Mirror,
+    Move, Rotate, Scale, Mirror, Revolve,
     // Sketch constraints (operate on the current SketchTool element selection).
     // All opt-in — none of them runs unless the user clicks the button.
     SketchConstrainCoincident, SketchConstrainHorizontal, SketchConstrainVertical,
@@ -118,6 +118,7 @@ private:
     ToolAction renderSketchTools();
     ToolAction renderSketchSelectedTools();
     ToolAction renderPlaneSelectedTools();
+    ToolAction renderAxisSelectedTools();
     ToolAction renderSketchRegionTools();
     ToolAction renderNoSelectionTools();
     // includePluginButtons=false suppresses HasBodies plugin contributions
