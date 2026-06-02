@@ -20,6 +20,7 @@ struct SelectionEntry {
     int bodyId = -1;
     int subShapeIndex = -1; // for face/edge/vertex within a body; region index for SketchRegion
     int sketchId = -1;      // when type == Sketch or SketchRegion
+    int planeId = -1;       // when type == Plane (Document::PlaneEntry id)
     TopoDS_Shape shape;     // the actual selected sub-shape
 };
 

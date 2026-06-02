@@ -89,13 +89,14 @@ bool PlaneRenderer::initialize() {
 }
 
 void PlaneRenderer::addPlane(const gp_Pln& plane, const std::string& name,
-                              glm::vec4 color, float size) {
+                              glm::vec4 color, float size, bool selected) {
     PlaneData data;
     data.plane = plane;
     data.name = name;
     data.color = color;
     data.size = size;
     data.visible = true;
+    data.selected = selected;
     m_planes.push_back(std::move(data));
 }
 
@@ -161,13 +162,29 @@ void PlaneRenderer::render(const glm::mat4& view, const glm::mat4& projection) {
         glBindBuffer(GL_ARRAY_BUFFER, m_vbo);
         glBufferData(GL_ARRAY_BUFFER, sizeof(quadVerts), quadVerts, GL_DYNAMIC_DRAW);
 
+        // Selected planes get a brighter fill + amber border at full
+        // opacity so the user knows the click landed without us having to
+        // pop the gizmo on top.
+        glm::vec4 fillColor   = pd.color;
+        glm::vec4 borderColor;
+        float     borderWidth;
+        if (pd.selected) {
+            fillColor   = glm::vec4(0.95f, 0.75f, 0.20f, 0.30f); // warm amber tint
+            borderColor = glm::vec4(1.00f, 0.78f, 0.20f, 1.00f);
+            borderWidth = 3.0f;
+        } else {
+            borderColor = glm::vec4(pd.color.r, pd.color.g, pd.color.b,
+                                    glm::min(pd.color.a * 4.0f, 0.8f));
+            borderWidth = 1.5f;
+        }
+
         // Draw the filled quad
         glUniformMatrix4fv(m_locMVP, 1, GL_FALSE, glm::value_ptr(vp));
-        glUniform4fv(m_locColor, 1, glm::value_ptr(pd.color));
+        glUniform4fv(m_locColor, 1, glm::value_ptr(fillColor));
 
         glDrawArrays(GL_TRIANGLES, 0, 6);
 
-        // Draw the border as a line loop with more opaque color
+        // Draw the border as a line loop
         float borderVerts[] = {
             c0.x, c0.y, c0.z,
             c1.x, c1.y, c1.z,
@@ -176,13 +193,9 @@ void PlaneRenderer::render(const glm::mat4& view, const glm::mat4& projection) {
         };
 
         glBufferData(GL_ARRAY_BUFFER, sizeof(borderVerts), borderVerts, GL_DYNAMIC_DRAW);
-
-        // Border color: same hue but more opaque
-        glm::vec4 borderColor(pd.color.r, pd.color.g, pd.color.b,
-                               glm::min(pd.color.a * 4.0f, 0.8f));
         glUniform4fv(m_locColor, 1, glm::value_ptr(borderColor));
 
-        glLineWidth(1.5f);
+        glLineWidth(borderWidth);
         glDrawArrays(GL_LINE_LOOP, 0, 4);
     }
 

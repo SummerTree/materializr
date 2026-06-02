@@ -35,6 +35,11 @@ struct PlaneEntry {
     int id;
     std::string name;
     gp_Pln plane;
+    bool visible = true;
+    // Half-size of the rendered translucent quad in mm. Free to grow later
+    // for autoscale; 50 mm (= 100 mm square) is a reasonable default that's
+    // clearly visible against a typical part without dominating the scene.
+    double halfSize = 50.0;
 };
 
 struct SketchEntry {
@@ -111,8 +116,21 @@ public:
     // into the serialized snapshot.
     int findSketchId(const materializr::Sketch* sk) const;
 
-    // Construction planes
+    // Construction planes — first-class document objects parallel to sketches.
+    // PlaneAddedEvent / PlaneRemovedEvent let the renderer + Items panel
+    // react without polling each frame.
     int addPlane(const gp_Pln& plane, const std::string& name = "");
+    void removePlane(int id);
+    // Update an existing plane's gp_Pln (move + rotate gizmo write-back).
+    // Fires PlaneChangedEvent so the renderer / selection-aware UI updates.
+    void setPlane(int id, const gp_Pln& plane);
+    const PlaneEntry* getPlane(int id) const;
+    std::string getPlaneName(int id) const;
+    void setPlaneName(int id, const std::string& name);
+    void setPlaneVisible(int id, bool visible);
+    bool isPlaneVisible(int id) const;
+    std::vector<int> getAllPlaneIds() const;
+    int planeCount() const;
 
     // Clear everything
     void clear();

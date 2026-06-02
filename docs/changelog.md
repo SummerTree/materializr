@@ -3,6 +3,91 @@
 All notable changes to Materializr are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow SemVer.
 
+## [0.6.0] — 2026-06-02
+
+### Added
+
+- **Construction planes as first-class document objects.** Create planes via
+  the Construction Plane popup (XY / XZ / YZ in user-Z-up convention, plus
+  Parallel-to-Face) with a live preview, an offset slider, and a typeable
+  `Rotate by N° around X/Y/Z` field. Planes survive history reload and
+  render as translucent blue quads with a darker border. Selected planes
+  switch to a warm amber highlight. Hidden while sketching in ortho so the
+  drawing canvas stays clean.
+- **Click-selectable planes.** Picker hit-tests every visible plane after
+  bodies; a closer plane wins. Selection routes through a new
+  `SelectionType::Plane` entry; the Tools panel switches to a Construction
+  Plane group with Sketch-on-Plane / Move / Rotate.
+- **Move + Rotate gizmo on planes.** Same gizmo handles that move sketch
+  planes today, now for construction planes via a new `m_planeGizmoDrag`
+  list. Translate dollies the plane along world axes; Rotate spins around
+  the plane's own origin. Auto-armed during the placement popup, opt-in
+  via W/E (or the toolbar Move/Rotate buttons) after commit — so a plane
+  click alone just highlights.
+- **Sketch on Plane.** The Tools panel exposes "Sketch on this Plane"
+  when a plane is selected, routing through the same enter-sketch path the
+  XY/XZ/YZ start-sketch actions use, just with the plane's stored
+  `gp_Pln` as the host.
+- **Plane gizmo readouts.** Cursor-pinned amber pill during a plane drag:
+  `Δ N.NN mm | Origin M.MM mm` for Move (left = this drag, right =
+  signed distance from world origin along the plane's normal), `N.N°
+  about X/Y/Z` for Rotate. Both respect the corner-widget snap step.
+- **Finer rotation snap for planes.** Rotation snap is 5° (hard) / soft
+  15° while dragging a plane, versus the body/sketch 15° / soft 45°.
+  Plane orientation is often a precise angle (15° chamfer-line, 23° draft)
+  that the looser body snap fought against.
+- **Plugin render-pass invocation.** `Application` now iterates registered
+  `RenderPassContribution` entries each frame, after the grid/background
+  and before the body/edge pass. Each pass's `initialize()` runs once on
+  the GL thread. ConstructionPlanePlugin uses this to own its
+  `PlaneRenderer` end-to-end (no more `m_planeRenderer` in Application).
+- **`PluginContext::isInSketchMode()`** exposes the host's sketch-mode
+  state so plugins can suppress visual decorations during sketch-edit.
+
+### Changed
+
+- **Construction-plane orientation in Z-up.** "XY" plane (the popup's first
+  radio) is now the floor — normal = world +Y, offset slider drives height.
+  "XZ" is the front wall, "YZ" the side wall. Reads naturally in the user's
+  Z-up convention.
+- **Body Dimensions section in Properties is read-only.** The editable
+  dim fields moved into the Scale gizmo popup, which now has a **% / mm**
+  toggle. In mm mode the X/Y/Z inputs pre-fill from the body's live bbox
+  extents (Z-up); typing applies a per-axis scale anchored at bbox-min so
+  the body grows along +axis only. % mode keeps the centre-pivot
+  multi-axis scale.
+- **Push/Pull snaps to the corner-widget grid step.** Drag the arrow,
+  type a distance, or move the slider — all snap to 0.1 / 0.5 / 1 / 10 mm
+  (whatever the snap widget says). Toggling snap off mid-drag immediately
+  frees the distance back to fine values.
+- **Fillet / Chamfer readout pinned to the cursor.** Arrow + handle still
+  come out of the edge; the mm pill now sits 14 px right of the mouse
+  (same UX as the arc-angle preview) instead of floating at the edge
+  midpoint where your eye has to track it.
+- **Toolbar grid-step row removed.** Snap on/off + step are exclusively
+  the corner widget next to the ViewCube. Duplicate grid rows in the
+  sketch and body toolbar groups were removed.
+
+### Fixed
+
+- **Plane gizmo drag no longer pushes a phantom `TransformOp` with
+  `bodyId = -1`.** Previous code reached the single-body commit branch
+  with `nBodies = 0` for plane-only drags, pushing a bad op that crashed
+  the next launch with `Body not found: -1`. New `planeOnly` branch
+  short-circuits the body/sketch commit paths since plane drags already
+  write through `Document::setPlane` during the live drag. Also added a
+  defensive `Document::putBody` reject for `id < 0` and a try-catch
+  around the full-rebuild loop so a corrupt project can still load.
+- **Construction-plane offset slider** now syncs with the live preview
+  plane each frame — gizmo-driven moves update the value rather than
+  leaving it stuck at zero.
+- **Single rotate readout per drag.** The body/sketch rotate °-label was
+  appearing alongside the plane-aware cursor-pinned pill, showing two
+  different snapped values. The body/sketch readout now skips when only
+  a plane is in the drag.
+- **Arc angle preview readout matches the snap policy.** Reads the same
+  rounded value the cursor will actually land on.
+
 ## [0.5.2] — 2026-06-01
 
 ### Added

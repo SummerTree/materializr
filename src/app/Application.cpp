@@ -22,7 +22,6 @@
 #include "viewport/SelectionHighlight.h"
 #include "viewport/BoxSelect.h"
 #include "viewport/EdgeRenderer.h"
-#include "viewport/PlaneRenderer.h"
 #include "viewport/BackgroundRenderer.h"
 #include "core/Document.h"
 #include "core/History.h"
@@ -111,7 +110,8 @@ Application::Application(bool safeMode) : m_safeMode(safeMode) {
     m_shapeRenderer = std::make_unique<ShapeRenderer>();
     m_sketchRenderer = std::make_unique<SketchRenderer>();
     m_edgeRenderer = std::make_unique<EdgeRenderer>();
-    m_planeRenderer = std::make_unique<PlaneRenderer>();
+    // PlaneRenderer ownership moved to ConstructionPlanePlugin (registered
+    // as a plugin render pass). Application no longer touches it directly.
     m_backgroundRenderer = std::make_unique<BackgroundRenderer>();
     m_document = std::make_unique<Document>();
     m_history = std::make_unique<History>();
@@ -139,6 +139,10 @@ Application::Application(bool safeMode) : m_safeMode(safeMode) {
             // point asking the partial rebuild to revisit it.
             m_dirtyBodyIds.erase(e.bodyId);
         });
+
+    // Construction-plane lifecycle is handled by ConstructionPlanePlugin —
+    // it owns the PlaneRenderer, subscribes to PlaneAdded/Removed/Changed
+    // events, and registers a render pass. Application is hands-off.
 
     // NOTE: we explicitly do NOT cascade off generic HistoryStepEvents. That
     // event also fires for in-flight push/pull preview undos (every drag
@@ -202,7 +206,8 @@ Application::Application(bool safeMode) : m_safeMode(safeMode) {
 
     // Plugin system
     m_pluginContext->_bind(m_document.get(), m_history.get(), m_selection.get(),
-                          m_eventBus.get(), &m_viewport->getCamera(), &m_meshesDirty);
+                          m_eventBus.get(), &m_viewport->getCamera(), &m_meshesDirty,
+                          &m_inSketchMode);
     materializr::force_link::linkAll();
     PluginRegistry::instance().initAll(*m_pluginContext);
 }
@@ -210,7 +215,6 @@ Application::Application(bool safeMode) : m_safeMode(safeMode) {
 Application::~Application() {
     PluginRegistry::instance().shutdownAll();
     m_backgroundRenderer.reset();
-    m_planeRenderer.reset();
     m_edgeRenderer.reset();
     m_sketchRenderer.reset();
     m_shapeRenderer.reset();
@@ -423,8 +427,15 @@ void Application::initRenderers() {
     if (!m_edgeRenderer->initialize()) {
         std::fprintf(stderr, "Failed to initialize edge renderer\n");
     }
-    if (!m_planeRenderer->initialize()) {
-        std::fprintf(stderr, "Failed to initialize plane renderer\n");
+    // Plugin-provided render passes (e.g. ConstructionPlanePlugin's plane
+    // renderer). Each pass declares its own initialize() callback — run them
+    // on the GL thread now, before the first frame, so the plugin can compile
+    // shaders / allocate GL resources.
+    for (auto& pass : materializr::PluginRegistry::instance().renderPasses()) {
+        if (pass.initialize && !pass.initialize()) {
+            std::fprintf(stderr, "Failed to initialize render pass: %s\n",
+                         pass.name.c_str());
+        }
     }
 
     // Create a demo box so there's something to see (a 20 mm cube) — but only
@@ -799,6 +810,14 @@ void Application::handleToolAction(int action) {
                     enterSketchOnFace(TopoDS::Face(entry.shape), entry.bodyId);
                     break;
                 }
+                // Sketch on a construction plane: same enter-sketch path the
+                // XY/XZ/YZ start-sketch toolbar actions use, just with the
+                // plane's stored gp_Pln rather than a canonical one.
+                if (entry.type == SelectionType::Plane && entry.planeId >= 0) {
+                    const auto* p = m_document->getPlane(entry.planeId);
+                    if (p) enterSketchOnPlane(p->plane);
+                    break;
+                }
             }
             break;
         }
@@ -1060,15 +1079,18 @@ void Application::handleToolAction(int action) {
             break;
 
         case ToolAction::Move: {
-            // Bodies AND standalone sketches both get the Move gizmo — the
-            // viewport gizmo-visibility block handles whichever selection
-            // type is active. SketchRegion picks count as the parent sketch.
-            // For sketches the click "arms" the gizmo for the current
+            // Bodies / standalone sketches / construction planes all get the
+            // Move gizmo — the viewport gizmo-visibility block handles whichever
+            // selection type is active. SketchRegion picks count as the parent
+            // sketch. For sketches the click "arms" the gizmo for the current
             // sketch id; selection-change clears the arm so the next sketch
             // selection again shows just the toolbar options.
+            const bool isPlane =
+                m_selection->primaryType() == SelectionType::Plane;
             if (!m_selection->hasSelectedBodies() &&
                 !m_selection->hasSelectedSketches() &&
-                !m_selection->hasSelectedSketchRegions()) break;
+                !m_selection->hasSelectedSketchRegions() &&
+                !isPlane) break;
             m_gizmo->setMode(GizmoMode::Translate);
             m_selection->setNavigationOnly(false);
             for (const auto& e : m_selection->getSelection()) {
@@ -1078,13 +1100,21 @@ void Application::handleToolAction(int action) {
                     m_sketchGizmoArmedFor = e.sketchId;
                     break;
                 }
+                if (e.type == SelectionType::Plane && e.planeId >= 0) {
+                    m_planeGizmoArmed = true;
+                    m_planeGizmoArmedFor = e.planeId;
+                    break;
+                }
             }
             break;
         }
         case ToolAction::Rotate: {
+            const bool isPlane =
+                m_selection->primaryType() == SelectionType::Plane;
             if (!m_selection->hasSelectedBodies() &&
                 !m_selection->hasSelectedSketches() &&
-                !m_selection->hasSelectedSketchRegions()) break;
+                !m_selection->hasSelectedSketchRegions() &&
+                !isPlane) break;
             m_gizmo->setMode(GizmoMode::Rotate);
             m_selection->setNavigationOnly(false);
             for (const auto& e : m_selection->getSelection()) {
@@ -1092,6 +1122,11 @@ void Application::handleToolAction(int action) {
                      e.type == SelectionType::SketchRegion) && e.sketchId >= 0) {
                     m_sketchGizmoArmed = true;
                     m_sketchGizmoArmedFor = e.sketchId;
+                    break;
+                }
+                if (e.type == SelectionType::Plane && e.planeId >= 0) {
+                    m_planeGizmoArmed = true;
+                    m_planeGizmoArmedFor = e.planeId;
                     break;
                 }
             }
@@ -1471,8 +1506,10 @@ void Application::rebuildMeshes() {
         m_edgeRenderer->clear();
         auto ids = m_document->getAllBodyIds();
         for (int id : ids) {
+            if (id < 0) continue;        // defensive: skip bad ids
             if (!m_document->isBodyVisible(id)) continue;
-            const TopoDS_Shape& shape = m_document->getBody(id);
+            TopoDS_Shape shape;
+            try { shape = m_document->getBody(id); } catch (...) { continue; }
             int idx = m_shapeRenderer->setBodyMesh(id, shape, deflection,
                                                    angularDeflection);
             if (idx >= 0) {
@@ -1863,6 +1900,9 @@ bool Application::loadProjectAt(const std::string& path) {
     std::fprintf(stdout, "Loaded %d bodies, %d history steps from %s\n",
                  result.bodiesLoaded, static_cast<int>(hist.steps.size()),
                  path.c_str());
+    // (Plane re-sync happens automatically — ConstructionPlanePlugin's
+    // PlaneAddedEvent subscriber flips its own dirty flag during the
+    // history replay above.)
     // Persist as the last-open project so the next launch can auto-reopen it.
     saveAppSettings();
     return true;

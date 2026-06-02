@@ -46,6 +46,23 @@ struct BodyRemovedEvent {
     int bodyId = -1;
 };
 
+// Construction plane lifecycle. Application listens to repopulate the
+// PlaneRenderer and the Items panel without polling each frame.
+struct PlaneAddedEvent {
+    int planeId = -1;
+};
+
+struct PlaneRemovedEvent {
+    int planeId = -1;
+};
+
+// Visibility or name changed on an existing plane. Application uses the
+// same handler as add/remove (mark planes-dirty) since the renderer just
+// rebuilds its full list from the document on the next frame.
+struct PlaneChangedEvent {
+    int planeId = -1;
+};
+
 struct ShutdownEvent {};
 
 } // namespace materializr

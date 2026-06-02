@@ -117,6 +117,7 @@ private:
 
     ToolAction renderSketchTools();
     ToolAction renderSketchSelectedTools();
+    ToolAction renderPlaneSelectedTools();
     ToolAction renderSketchRegionTools();
     ToolAction renderNoSelectionTools();
     // includePluginButtons=false suppresses HasBodies plugin contributions

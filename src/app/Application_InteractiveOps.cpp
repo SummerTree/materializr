@@ -1043,6 +1043,20 @@ void Application::updatePushPull() {
     if (!m_pushPullActive) return;
     if (!std::isfinite(m_pushPullDistance)) { m_pushPullDistance = 0.0f; return; }
 
+    // Snap the live distance to the corner-widget grid step before applying.
+    // Mutating m_pushPullDistance itself (rather than just the value passed
+    // to setDistance) means the dim-arrow readout, the InputText field, and
+    // the slider all reflect the snapped value — there's no "type 5.3, see
+    // 5.3 in the field, body extrudes to 5.0" discrepancy. Toggling snap off
+    // mid-drag immediately frees the distance to fine values on the next
+    // updatePushPull frame.
+    if (m_snapToGrid && m_sketchGridStep > 0.0f) {
+        const float step = m_sketchGridStep;
+        m_pushPullDistance = std::round(m_pushPullDistance / step) * step;
+        std::snprintf(m_pushPullInputBuf, sizeof(m_pushPullInputBuf),
+                      "%.1f", m_pushPullDistance);
+    }
+
     // Only undo OUR previous preview — not any other pushpull that may already be
     // committed at the top of the history.
     if (m_pushPullPreviewPushed && m_history->canUndo()) {
@@ -1501,6 +1515,16 @@ void Application::updateConstructionPlane() {
     }
     if (m_history->pushOperation(std::move(op), *m_document)) {
         m_planeOpPreviewPushed = true;
+        // Auto-select the freshly-pushed plane so the move/rotate gizmo
+        // appears on it. ConstructionPlaneOp::execute push_backs to
+        // Document, so the just-added id is the back of getAllPlaneIds().
+        auto ids = m_document->getAllPlaneIds();
+        if (!ids.empty()) {
+            SelectionEntry e;
+            e.type = SelectionType::Plane;
+            e.planeId = ids.back();
+            m_selection->select(e);
+        }
     }
     m_meshesDirty = true;
 }

@@ -23,7 +23,6 @@ class Grid;
 class ShapeRenderer;
 class SketchRenderer;
 class EdgeRenderer;
-class PlaneRenderer;
 class BackgroundRenderer;
 class ViewCube;
 class Picker;
@@ -206,7 +205,6 @@ private:
     std::unique_ptr<ShapeRenderer> m_shapeRenderer;
     std::unique_ptr<SketchRenderer> m_sketchRenderer;
     std::unique_ptr<EdgeRenderer> m_edgeRenderer;
-    std::unique_ptr<PlaneRenderer> m_planeRenderer;
     std::unique_ptr<BackgroundRenderer> m_backgroundRenderer;
     std::unique_ptr<ViewCube> m_viewCube;
     std::unique_ptr<Picker> m_picker;
@@ -421,6 +419,23 @@ private:
     // ride along through TransformOp's m_previousSketchPlanes machinery.
     std::vector<std::pair<int, gp_Pln>> m_sketchGizmoDragSketches;
 
+    // Construction-plane gizmo drag — same shape as the sketch list above,
+    // but writes back via Document::setPlane instead of Sketch::setPlane.
+    // Used by both the in-popup placement gizmo and (after the popup
+    // commits) any post-selection drag on a Plane in the document.
+    std::vector<std::pair<int, gp_Pln>> m_planeGizmoDrag;
+
+    // Construction-plane gizmo arming — mirrors m_sketchGizmoArmed. Selection
+    // alone (clicking a plane in the viewport or items panel) gets you a
+    // highlight only; pressing W/E or clicking Move/Rotate in the Plane
+    // tools panel arms the gizmo for the currently selected plane. Cleared
+    // when the active plane in the selection changes. During the original
+    // Construction Plane popup placement (m_planeOpActive) we treat the
+    // gizmo as implicitly armed so the user can manipulate the preview
+    // straight away.
+    bool m_planeGizmoArmed = false;
+    int  m_planeGizmoArmedFor = -1;
+
     // Sketches do NOT show the gizmo automatically on selection — that lets
     // the Tools toolbar surface its Move / Rotate / Loft / Edit options
     // cleanly without a gizmo dropped on top. The user clicks Move or Rotate
@@ -457,6 +472,24 @@ private:
     // Scale side panel (shown in Scale gizmo mode): X/Y/Z percentages + uniform.
     float m_scalePct[3] = {100.0f, 100.0f, 100.0f};
     bool m_scaleUniform = true;
+    // Scale popup unit mode. Percent is the multi-body-safe default; mm only
+    // makes sense when exactly one body is selected (we can show its
+    // bbox-derived target dims). renderScalePanel forces Percent whenever
+    // the selection isn't a single body.
+    enum class ScaleUnitMode { Percent, Millimeter };
+    ScaleUnitMode m_scaleUnitMode = ScaleUnitMode::Percent;
+    // mm-mode text buffer + focus state per user axis (X, Y, Z in Z-up
+    // convention). Re-seeded from the body's current bbox each frame the
+    // field isn't focused so the displayed value tracks external edits
+    // (undo/redo, other panels) without overwriting the user's in-flight
+    // typing.
+    struct ScaleMmEdit {
+        char buf[24] = "0";
+        bool focused = false;
+        int bodyId = -1;
+        double initialExtent = 0;
+    };
+    ScaleMmEdit m_scaleMmEdit[3];
 
     // Interactive fillet/chamfer state
     enum class EdgeOpType { None, Fillet, Chamfer };
@@ -608,6 +641,13 @@ private:
     bool m_planeOpHaveFace = false;
     bool m_planeOpPreviewPushed = false;
     char m_planeOpOffsetBuf[32] = "0.0";
+    // Typeable "rotate by N° around X/Y/Z" applied to the current preview
+    // plane via Document::setPlane. Keeps the offset slider + base
+    // orientation untouched (we transform the live plane on top), and the
+    // user can stack multiple rotations by re-clicking Apply.
+    float m_planeOpRotDeg = 0.0f;
+    char  m_planeOpRotBuf[32] = "0.0";
+    int   m_planeOpRotAxisIdx = 0; // 0=X, 1=Z (user up), 2=Y
 
     void beginConstructionPlane();
     void updateConstructionPlane();

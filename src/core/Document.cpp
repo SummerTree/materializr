@@ -58,6 +58,15 @@ void Document::updateBody(int id, const TopoDS_Shape& shape) {
 }
 
 void Document::putBody(int id, const TopoDS_Shape& shape, const std::string& name) {
+    // Defensive: a bad bodyId leaking in through ReplayOp/ProjectIO would
+    // sit in m_bodies forever and crash later getBody calls. Reject up
+    // front. id==-1 specifically came up when a stale TransformOp targeting
+    // a non-existent body was serialized into a project's history.
+    if (id < 0) {
+        std::fprintf(stderr,
+                     "[Document] putBody called with id=%d — rejected.\n", id);
+        return;
+    }
     int idx = findBodyIndex(id);
     if (idx >= 0) {
         m_bodies[idx].shape = shape;
@@ -226,7 +235,84 @@ int Document::addPlane(const gp_Pln& plane, const std::string& name) {
     entry.name = name.empty() ? ("Plane " + std::to_string(entry.id)) : name;
     entry.plane = plane;
     m_planes.push_back(std::move(entry));
-    return m_planes.back().id;
+    int id = m_planes.back().id;
+    if (m_eventBus) {
+        m_eventBus->publish(materializr::PlaneAddedEvent{id});
+        m_eventBus->publish(materializr::DocumentModifiedEvent{true});
+    }
+    return id;
+}
+
+void Document::setPlane(int id, const gp_Pln& plane) {
+    for (auto& p : m_planes) {
+        if (p.id == id) {
+            p.plane = plane;
+            if (m_eventBus) m_eventBus->publish(materializr::PlaneChangedEvent{id});
+            return;
+        }
+    }
+}
+
+void Document::removePlane(int id) {
+    for (auto it = m_planes.begin(); it != m_planes.end(); ++it) {
+        if (it->id == id) {
+            m_planes.erase(it);
+            if (m_eventBus) {
+                m_eventBus->publish(materializr::PlaneRemovedEvent{id});
+                m_eventBus->publish(materializr::DocumentModifiedEvent{true});
+            }
+            return;
+        }
+    }
+}
+
+const PlaneEntry* Document::getPlane(int id) const {
+    for (const auto& p : m_planes) if (p.id == id) return &p;
+    return nullptr;
+}
+
+std::string Document::getPlaneName(int id) const {
+    const PlaneEntry* p = getPlane(id);
+    return p ? p->name : std::string();
+}
+
+void Document::setPlaneName(int id, const std::string& name) {
+    for (auto& p : m_planes) {
+        if (p.id == id) {
+            p.name = name;
+            if (m_eventBus) m_eventBus->publish(materializr::PlaneChangedEvent{id});
+            return;
+        }
+    }
+}
+
+void Document::setPlaneVisible(int id, bool visible) {
+    for (auto& p : m_planes) {
+        if (p.id == id) {
+            p.visible = visible;
+            if (m_eventBus) {
+                m_eventBus->publish(materializr::PlaneChangedEvent{id});
+                m_eventBus->publish(materializr::DocumentModifiedEvent{true});
+            }
+            return;
+        }
+    }
+}
+
+bool Document::isPlaneVisible(int id) const {
+    const PlaneEntry* p = getPlane(id);
+    return p ? p->visible : false;
+}
+
+std::vector<int> Document::getAllPlaneIds() const {
+    std::vector<int> ids;
+    ids.reserve(m_planes.size());
+    for (const auto& p : m_planes) ids.push_back(p.id);
+    return ids;
+}
+
+int Document::planeCount() const {
+    return static_cast<int>(m_planes.size());
 }
 
 void Document::clear() {

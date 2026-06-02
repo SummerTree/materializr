@@ -18,6 +18,10 @@ void PluginContext::markMeshesDirty() {
     if (m_meshesDirtyFlag) *m_meshesDirtyFlag = true;
 }
 
+bool PluginContext::isInSketchMode() const {
+    return m_sketchModeFlag && *m_sketchModeFlag;
+}
+
 void PluginContext::requestInteractiveOp(const std::string& name) {
     m_pendingInteractiveOp = name;
 }
@@ -53,13 +57,15 @@ void PluginContext::registerPropertySection(PropertyContribution contrib) {
 }
 
 void PluginContext::_bind(Document* doc, History* hist, SelectionManager* sel,
-                          EventBus* bus, Camera* cam, bool* meshesDirtyFlag) {
+                          EventBus* bus, Camera* cam, bool* meshesDirtyFlag,
+                          const bool* sketchModeFlag) {
     m_document = doc;
     m_history = hist;
     m_selection = sel;
     m_eventBus = bus;
     m_camera = cam;
     m_meshesDirtyFlag = meshesDirtyFlag;
+    m_sketchModeFlag = sketchModeFlag;
 }
 
 } // namespace materializr

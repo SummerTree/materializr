@@ -356,6 +356,54 @@ PickResult Picker::pick(float screenX, float screenY,
         }
     }
 
+    // ─── Construction-plane hit-test ──────────────────────────────────────
+    // Planes are rendered as finite quads (halfSize × halfSize around the
+    // origin in the plane's local X/Y). Ray-vs-plane gives t; checking
+    // |u|,|v| ≤ halfSize bounds it to the visible quad. A plane only wins
+    // over a body if it's closer (smaller t) — bodies still take priority
+    // at the same point, so clicking through a body to a plane behind it
+    // requires hiding the body first (consistent with Items panel filter).
+    {
+        std::vector<int> planeIds = doc.getAllPlaneIds();
+        for (int pid : planeIds) {
+            if (!doc.isPlaneVisible(pid)) continue;
+            const auto* entry = doc.getPlane(pid);
+            if (!entry) continue;
+            const gp_Ax3& ax = entry->plane.Position();
+            gp_Pnt   o3 = ax.Location();
+            gp_Dir   n3 = ax.Direction();
+            gp_Dir   xd = ax.XDirection();
+            gp_Dir   yd = ax.YDirection();
+            glm::vec3 O((float)o3.X(), (float)o3.Y(), (float)o3.Z());
+            glm::vec3 N((float)n3.X(), (float)n3.Y(), (float)n3.Z());
+            glm::vec3 X((float)xd.X(), (float)xd.Y(), (float)xd.Z());
+            glm::vec3 Y((float)yd.X(), (float)yd.Y(), (float)yd.Z());
+            float denom = glm::dot(N, rayDir);
+            if (std::abs(denom) < 1e-6f) continue;          // ~parallel
+            float t = glm::dot(O - rayOrigin, N) / denom;
+            if (t <= 0.0f || t >= nearestDist) continue;    // behind / farther
+            glm::vec3 hit = rayOrigin + rayDir * t;
+            glm::vec3 d = hit - O;
+            float u = glm::dot(d, X);
+            float v = glm::dot(d, Y);
+            float h = static_cast<float>(entry->halfSize);
+            if (std::abs(u) > h || std::abs(v) > h) continue;
+            // Plane wins. bodyId stays -1 (planes aren't bodies);
+            // result.planeId tells the caller to build a Plane selection.
+            nearestDist = t;
+            result.hit = true;
+            result.bodyId = -1;
+            result.faceIndex = -1;
+            result.planeId = pid;
+            result.pickedShape = TopoDS_Shape();
+            result.hitPoint = hit;
+            result.distance = t;
+            result.nearestEdge = TopoDS_Shape();
+            result.edgeScreenDist = 1e6f;
+            result.faceScreenSize = 1e6f;
+        }
+    }
+
     return result;
 }
 

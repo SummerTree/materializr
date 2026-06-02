@@ -21,7 +21,6 @@
 #include "viewport/SelectionHighlight.h"
 #include "viewport/BoxSelect.h"
 #include "viewport/EdgeRenderer.h"
-#include "viewport/PlaneRenderer.h"
 #include "viewport/BackgroundRenderer.h"
 #include "core/Document.h"
 #include "core/History.h"
@@ -745,56 +744,201 @@ void Application::renderScalePanel() {
     if (m_inSketchMode || !m_selection->hasSelectedBodies()) return;
     if (m_gizmo->getMode() != GizmoMode::Scale) return;
 
-    ImGui::SetNextWindowPos(ImVec2(ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - 230,
+    // mm mode only makes sense for a single body — multi-body scale needs a
+    // dimensionless factor. Force Percent if more than one body is in the
+    // selection so the popup stays coherent.
+    const bool singleBody = (m_selection->selectedBodyCount() == 1);
+    if (!singleBody) m_scaleUnitMode = ScaleUnitMode::Percent;
+
+    // Resolve the (single-body) bbox now so mm-mode fields can pre-fill from
+    // the live dimensions. user-Z-up remap: user X = world X, user Y = world
+    // Z, user Z = world Y (matches the Properties size readout and the
+    // move-gizmo Z-bottom label).
+    const int userToWorld[3] = {0, 2, 1};
+    double worldMins[3] = {0, 0, 0};
+    double userExtents[3] = {0, 0, 0};
+    int targetBodyId = -1;
+    bool haveBbox = false;
+    if (singleBody) {
+        targetBodyId = m_selection->getSelection()[0].bodyId;
+        try {
+            const TopoDS_Shape& shape = m_document->getBody(targetBodyId);
+            if (!shape.IsNull()) {
+                Bnd_Box bb;
+                BRepBndLib::AddOptimal(shape, bb, Standard_False, Standard_False);
+                if (!bb.IsVoid()) {
+                    Standard_Real x1, y1, z1, x2, y2, z2;
+                    bb.Get(x1, y1, z1, x2, y2, z2);
+                    worldMins[0] = x1; worldMins[1] = y1; worldMins[2] = z1;
+                    const double worldExtents[3] = {
+                        x2 - x1, y2 - y1, z2 - z1,
+                    };
+                    for (int i = 0; i < 3; ++i)
+                        userExtents[i] = worldExtents[userToWorld[i]];
+                    haveBbox = true;
+                }
+            }
+        } catch (...) {}
+    }
+
+    ImGui::SetNextWindowPos(ImVec2(ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - 250,
                                     ImGui::GetWindowPos().y + 50));
-    ImGui::SetNextWindowSize(ImVec2(210, 0));
+    ImGui::SetNextWindowSize(ImVec2(230, 0));
     ImGui::Begin("##ScalePanel", nullptr,
         ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings);
+        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
+        ImGuiWindowFlags_AlwaysAutoResize);
 
-    ImGui::TextColored(ImVec4(0.6f, 0.9f, 1.0f, 1.0f), "Scale (%% of current)");
+    const bool mm = (m_scaleUnitMode == ScaleUnitMode::Millimeter);
+    ImGui::TextColored(ImVec4(0.6f, 0.9f, 1.0f, 1.0f),
+                       mm ? "Scale (target mm)" : "Scale (%% of current)");
     ImGui::Separator();
+
+    // Unit toggle. mm disabled when multi-body so we don't mislead — there's
+    // no single "current dimension" to type a target against.
+    ImGui::BeginDisabled(!singleBody);
+    if (ImGui::RadioButton("%", !mm))  m_scaleUnitMode = ScaleUnitMode::Percent;
+    ImGui::SameLine();
+    if (ImGui::RadioButton("mm", mm))  m_scaleUnitMode = ScaleUnitMode::Millimeter;
+    ImGui::EndDisabled();
+
+    ImGui::SameLine(0.0f, 20.0f);
     ImGui::Checkbox("Uniform", &m_scaleUniform);
 
-    // Always show X/Y/Z. Typed decimals are allowed; with Uniform on, editing one
-    // field mirrors it to the others. No +/- step buttons so the row stays narrow.
-    auto box = [&](const char* label, int i) {
-        ImGui::SetNextItemWidth(90.0f);
-        if (ImGui::InputFloat(label, &m_scalePct[i], 0.0f, 0.0f, "%.1f")) {
-            if (m_scaleUniform) { m_scalePct[0] = m_scalePct[1] = m_scalePct[2] = m_scalePct[i]; }
-        }
+    ImGui::Spacing();
+
+    // Per-axis edit row. % mode: m_scalePct in [0,inf]; field is a percent.
+    // mm mode: m_scaleMmEdit[i].buf reflects the current bbox extent on the
+    // user-X/Y/Z axis (Z-up); typing a new value reflects the absolute
+    // target dimension. Uniform mirrors percent value (% mode) or ratio
+    // (mm mode) so the body keeps proportional in both modes.
+    const char* axisLabels[3] = {"X", "Y", "Z"};
+    const ImVec4 axisColors[3] = {
+        ImVec4(1.00f, 0.35f, 0.35f, 1.0f),
+        ImVec4(0.35f, 1.00f, 0.35f, 1.0f),
+        ImVec4(0.40f, 0.55f, 1.00f, 1.0f),
     };
-    box("X %", 0);
-    box("Y %", 1);
-    box("Z %", 2);
+
+    if (!mm) {
+        for (int i = 0; i < 3; ++i) {
+            ImGui::PushID(i);
+            ImGui::TextColored(axisColors[i], "%s", axisLabels[i]);
+            ImGui::SameLine(28);
+            ImGui::SetNextItemWidth(95.0f);
+            if (ImGui::InputFloat("##pct", &m_scalePct[i], 0.0f, 0.0f, "%.1f")) {
+                if (m_scaleUniform) {
+                    m_scalePct[0] = m_scalePct[1] = m_scalePct[2] = m_scalePct[i];
+                }
+            }
+            ImGui::SameLine(); ImGui::Text("%%");
+            ImGui::PopID();
+        }
+    } else {
+        // mm mode — show current dim, target on commit applies a per-axis
+        // ratio anchored at bbox-min so growth happens along +axis only
+        // (predictable, matches the old body-dim-editor anchor).
+        for (int i = 0; i < 3; ++i) {
+            auto& edit = m_scaleMmEdit[i];
+            if (haveBbox && (!edit.focused || edit.bodyId != targetBodyId)) {
+                std::snprintf(edit.buf, sizeof(edit.buf), "%.3f", userExtents[i]);
+            }
+            ImGui::PushID(100 + i);
+            ImGui::TextColored(axisColors[i], "%s", axisLabels[i]);
+            ImGui::SameLine(28);
+            ImGui::SetNextItemWidth(95.0f);
+            ImGui::InputText("##mm", edit.buf, sizeof(edit.buf),
+                             ImGuiInputTextFlags_CharsDecimal |
+                             ImGuiInputTextFlags_AutoSelectAll);
+            if (ImGui::IsItemActivated()) {
+                edit.focused = true;
+                edit.bodyId = targetBodyId;
+                edit.initialExtent = userExtents[i];
+            }
+            if (ImGui::IsItemDeactivatedAfterEdit()) edit.focused = false;
+            ImGui::SameLine(); ImGui::Text("mm");
+            ImGui::PopID();
+        }
+    }
 
     ImGui::Spacing();
-    if (ImGui::Button("Apply", ImVec2(90, 0))) {
+    if (ImGui::Button("Apply", ImVec2(95, 0))) {
         if (m_selection->hasSelectedBodies()) {
             int bodyId = m_selection->getSelection()[0].bodyId;
-            float sx = m_scalePct[0] / 100.0f;
-            float sy = (m_scaleUniform ? m_scalePct[0] : m_scalePct[1]) / 100.0f;
-            float sz = (m_scaleUniform ? m_scalePct[0] : m_scalePct[2]) / 100.0f;
+            float sx = 1.0f, sy = 1.0f, sz = 1.0f;       // per-WORLD-axis ratios
+            double cx = 0, cy = 0, cz = 0;               // pivot in world coords
+
+            try {
+                const TopoDS_Shape& shape = m_document->getBody(bodyId);
+                Bnd_Box bb;
+                BRepBndLib::AddOptimal(shape, bb, Standard_False, Standard_False);
+                if (!bb.IsVoid()) {
+                    Standard_Real x1, y1, z1, x2, y2, z2;
+                    bb.Get(x1, y1, z1, x2, y2, z2);
+
+                    if (!mm) {
+                        // % mode: existing centre-pivot scale.
+                        cx = (x1 + x2) * 0.5; cy = (y1 + y2) * 0.5; cz = (z1 + z2) * 0.5;
+                        sx = m_scalePct[0] / 100.0f;
+                        sy = (m_scaleUniform ? m_scalePct[0] : m_scalePct[1]) / 100.0f;
+                        sz = (m_scaleUniform ? m_scalePct[0] : m_scalePct[2]) / 100.0f;
+                    } else if (haveBbox) {
+                        // mm mode: target dims → ratios on each USER axis,
+                        // then route to WORLD axes via userToWorld. Pivot at
+                        // bbox-MIN so the body grows along +axis only.
+                        double targetUser[3];
+                        for (int i = 0; i < 3; ++i)
+                            targetUser[i] = std::atof(m_scaleMmEdit[i].buf);
+                        // Uniform mode: derive ratio from whichever axis the
+                        // user most recently changed (focused), or from X by
+                        // default. Mirror that ratio to the other axes.
+                        int driver = 0;
+                        for (int i = 0; i < 3; ++i)
+                            if (m_scaleMmEdit[i].focused) { driver = i; break; }
+                        if (m_scaleUniform &&
+                            userExtents[driver] > 1e-6 &&
+                            targetUser[driver] > 0.0) {
+                            const double r = targetUser[driver] / userExtents[driver];
+                            for (int i = 0; i < 3; ++i)
+                                targetUser[i] = userExtents[i] * r;
+                        }
+                        double userRatio[3] = {1, 1, 1};
+                        for (int i = 0; i < 3; ++i) {
+                            if (userExtents[i] > 1e-6 && targetUser[i] > 0.0)
+                                userRatio[i] = targetUser[i] / userExtents[i];
+                        }
+                        // user → world remap. Default per-world-axis ratio
+                        // stays 1; only the axes that map from a user slot
+                        // get overwritten (all three do).
+                        float worldRatio[3] = {1.0f, 1.0f, 1.0f};
+                        for (int i = 0; i < 3; ++i)
+                            worldRatio[userToWorld[i]] = static_cast<float>(userRatio[i]);
+                        sx = worldRatio[0]; sy = worldRatio[1]; sz = worldRatio[2];
+                        cx = x1; cy = y1; cz = z1; // pivot at bbox-min
+                    }
+                }
+            } catch (...) {}
+
             if (sx > 0.001f && sy > 0.001f && sz > 0.001f &&
-                (std::abs(sx - 1) > 1e-4f || std::abs(sy - 1) > 1e-4f || std::abs(sz - 1) > 1e-4f)) {
-                try {
-                    const TopoDS_Shape& shape = m_document->getBody(bodyId);
-                    Bnd_Box bb; BRepBndLib::Add(shape, bb);
-                    double x1, y1, z1, x2, y2, z2; bb.Get(x1, y1, z1, x2, y2, z2);
-                    auto op = std::make_unique<TransformOp>();
-                    op->setBodyId(bodyId);
-                    op->setType(TransformType::Scale);
-                    op->setCenter((x1 + x2) * 0.5, (y1 + y2) * 0.5, (z1 + z2) * 0.5);
-                    op->setScaleXYZ(sx, sy, sz);
-                    if (m_history->pushOperation(std::move(op), *m_document)) m_meshesDirty = true;
-                } catch (...) {}
+                (std::abs(sx - 1) > 1e-4f ||
+                 std::abs(sy - 1) > 1e-4f ||
+                 std::abs(sz - 1) > 1e-4f)) {
+                auto op = std::make_unique<TransformOp>();
+                op->setBodyId(bodyId);
+                op->setType(TransformType::Scale);
+                op->setCenter(cx, cy, cz);
+                op->setScaleXYZ(sx, sy, sz);
+                if (m_history->pushOperation(std::move(op), *m_document)) m_meshesDirty = true;
             }
+            // Reset % fields after Apply. mm-mode fields reseed naturally
+            // from the new bbox next frame.
             m_scalePct[0] = m_scalePct[1] = m_scalePct[2] = 100.0f;
+            for (int i = 0; i < 3; ++i) m_scaleMmEdit[i].focused = false;
         }
     }
     ImGui::SameLine();
-    if (ImGui::Button("Reset", ImVec2(90, 0))) {
+    if (ImGui::Button("Reset", ImVec2(95, 0))) {
         m_scalePct[0] = m_scalePct[1] = m_scalePct[2] = 100.0f;
+        for (int i = 0; i < 3; ++i) m_scaleMmEdit[i].focused = false;
     }
     ImGui::End();
 }
@@ -1370,6 +1514,28 @@ void Application::renderConstructionPlanePanel() {
 
     ImGui::Separator();
     ImGui::TextColored(ImVec4(0.6f, 0.9f, 1.0f, 1.0f), "Offset");
+    // Sync the slider/field with the live preview plane's distance from
+    // world origin along its current normal, so the value reflects gizmo
+    // drags and rotations rather than only the popup-input history. Skip
+    // when the user is actively typing the field (else editing would jump
+    // mid-keystroke).
+    {
+        auto ids = m_document->getAllPlaneIds();
+        if (!ids.empty()) {
+            const auto* p = m_document->getPlane(ids.back());
+            if (p) {
+                const gp_Dir& nd = p->plane.Position().Direction();
+                const gp_Pnt& o  = p->plane.Position().Location();
+                double along = nd.X() * o.X() + nd.Y() * o.Y() + nd.Z() * o.Z();
+                if (!ImGui::IsItemActive() &&
+                    std::abs(along - m_planeOpOffset) > 1e-4) {
+                    m_planeOpOffset = along;
+                    std::snprintf(m_planeOpOffsetBuf, sizeof(m_planeOpOffsetBuf),
+                                  "%.2f", m_planeOpOffset);
+                }
+            }
+        }
+    }
     ImGui::Text("Distance"); ImGui::SameLine();
     ImGui::SetNextItemWidth(100);
     bool offsetChanged = false;
@@ -1390,6 +1556,67 @@ void Application::renderConstructionPlanePanel() {
     }
     ImGui::TextDisabled("Pushes the plane along its normal. Negative for the "
                         "opposite side.");
+
+    // Gizmo for the preview plane appears automatically (the popup auto-
+    // selects the just-pushed plane). Switch modes with W/E or click the
+    // plane after committing.
+    ImGui::TextDisabled("W = Move gizmo, E = Rotate gizmo.");
+
+    // Type-an-exact-angle rotation. Applies on top of whatever the popup
+    // base orientation + gizmo edits produced; lets the user dial in a
+    // precise angle (e.g. 23.5°) that's awkward to land with the snap.
+    // Axis labels use Z-up convention (user X = world X, user Y = world Z,
+    // user Z = world Y), so picking "Z" rotates around the up axis.
+    ImGui::Separator();
+    ImGui::TextColored(ImVec4(0.6f, 0.9f, 1.0f, 1.0f), "Rotate by");
+    ImGui::SetNextItemWidth(80);
+    // Enter in the field is equivalent to clicking Apply — same shortcut the
+    // sketch dim popup uses, so the user can dial in 23.5°, press Enter,
+    // and move on without reaching for the mouse.
+    bool rotEnter = ImGui::InputText("##planeRotDeg", m_planeOpRotBuf,
+                                     sizeof(m_planeOpRotBuf),
+                                     ImGuiInputTextFlags_CharsDecimal |
+                                     ImGuiInputTextFlags_EnterReturnsTrue);
+    ImGui::SameLine(); ImGui::Text("\xC2\xB0 around");
+    ImGui::SameLine();
+    if (ImGui::RadioButton("X##planeRotX", m_planeOpRotAxisIdx == 0)) m_planeOpRotAxisIdx = 0;
+    ImGui::SameLine();
+    if (ImGui::RadioButton("Y##planeRotY", m_planeOpRotAxisIdx == 2)) m_planeOpRotAxisIdx = 2;
+    ImGui::SameLine();
+    if (ImGui::RadioButton("Z##planeRotZ", m_planeOpRotAxisIdx == 1)) m_planeOpRotAxisIdx = 1;
+    ImGui::SameLine();
+    bool rotApply = ImGui::SmallButton("Apply##planeRotApply");
+    if (rotApply || rotEnter) {
+        float deg = static_cast<float>(std::atof(m_planeOpRotBuf));
+        if (std::abs(deg) > 1e-4f) {
+            // Find the most-recently-added plane (auto-selected on push)
+            // and rotate it around its CURRENT origin by `deg`° about the
+            // chosen world axis. Stays additive: typing 10°, Apply, then
+            // 10°, Apply nets 20° total.
+            auto ids = m_document->getAllPlaneIds();
+            if (!ids.empty()) {
+                int pid = ids.back();
+                const auto* entry = m_document->getPlane(pid);
+                if (entry) {
+                    gp_Pln pln = entry->plane;
+                    gp_Pnt o = pln.Position().Location();
+                    gp_Dir ax;
+                    // user X = world X; user Z = world Y (up); user Y = world Z.
+                    if      (m_planeOpRotAxisIdx == 0) ax = gp_Dir(1, 0, 0);
+                    else if (m_planeOpRotAxisIdx == 1) ax = gp_Dir(0, 1, 0);
+                    else                                ax = gp_Dir(0, 0, 1);
+                    gp_Trsf t;
+                    t.SetRotation(gp_Ax1(o, ax), deg * M_PI / 180.0);
+                    pln.Transform(t);
+                    m_document->setPlane(pid, pln);
+                    m_meshesDirty = true;
+                }
+            }
+        }
+        // Reset for the next stacked rotation.
+        m_planeOpRotDeg = 0.0f;
+        std::snprintf(m_planeOpRotBuf, sizeof(m_planeOpRotBuf), "0.0");
+    }
 
     ImGui::Separator();
     bool applyClicked  = ImGui::Button("Apply", ImVec2(120, 0));

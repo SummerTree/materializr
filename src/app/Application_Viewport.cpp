@@ -23,7 +23,6 @@
 #include "viewport/SelectionHighlight.h"
 #include "viewport/BoxSelect.h"
 #include "viewport/EdgeRenderer.h"
-#include "viewport/PlaneRenderer.h"
 #include "viewport/BackgroundRenderer.h"
 #include "core/Document.h"
 #include "core/History.h"
@@ -189,7 +188,16 @@ void Application::renderViewport() {
                            gp, std::max(m_sketchGridStep, 0.01f),
                            minorAlpha, 0.55f /*globalAlpha*/);
         }
-        m_planeRenderer->render(view, proj);
+        // Plugin-registered render passes (e.g. ConstructionPlanePlugin's
+        // plane quads) draw between the grid/background and the body/edge
+        // pass. PluginContext receives the same view+proj, and each pass'
+        // initialize() ran in initRenderers so GL state is ready.
+        if (m_pluginContext) {
+            for (auto& pass :
+                 materializr::PluginRegistry::instance().renderPasses()) {
+                if (pass.render) pass.render(*m_pluginContext, view, proj);
+            }
+        }
         m_shapeRenderer->render(view, proj, cam.getPosition());
         m_edgeRenderer->render(view, proj);
 
@@ -298,6 +306,65 @@ void Application::renderViewport() {
                 gizmoShown = true;
             }
         }
+        // Construction plane gizmo: same Move/Rotate handles as the sketch-
+        // as-plane case, but anchored at the plane's gp_Pln origin since
+        // planes have no point cloud to centroid. Auto-selected during
+        // ConstructionPlane placement (Application_InteractiveOps), so the
+        // gizmo appears the moment the popup pushes its preview.
+        //
+        // The anyInteractiveOpActive guard from the body/sketch path
+        // *includes* m_planeOpActive; we exclude that one bit here because
+        // for a construction plane the popup IS the placement workflow and
+        // the gizmo is its primary manipulation surface. Other ops
+        // (sketch-edit, extrude, push/pull, edge ops, pattern, loft) still
+        // suppress the gizmo as before.
+        const bool blockedByOtherOp =
+            m_inSketchMode || m_extruding || m_edgeOpActive ||
+            m_pushPullActive || m_resizeCylActive || m_shellActive ||
+            m_patternActive || m_loftActive || m_sketchPatternActive;
+        // Clear the plane-arm flag if the selection moved off the plane it
+        // was armed for. Keeps "click plane → highlight only; click Move →
+        // arm" UX consistent: switching planes hides the previous gizmo and
+        // re-surfaces the Tools panel.
+        int firstPlaneInSel = -1;
+        for (const auto& e : m_selection->getSelection()) {
+            if (e.type == SelectionType::Plane && e.planeId >= 0) {
+                firstPlaneInSel = e.planeId; break;
+            }
+        }
+        if (m_planeGizmoArmed && m_planeGizmoArmedFor != firstPlaneInSel) {
+            m_planeGizmoArmed = false;
+            m_planeGizmoArmedFor = -1;
+        }
+
+        // During the original Construction Plane placement popup we treat
+        // the gizmo as implicitly armed so the user can manipulate the
+        // preview from the start. Outside the popup we require an explicit
+        // arm (Move/Rotate button or W/E key) — same UX sketches use.
+        const bool planeImplicitArm = m_planeOpActive;
+        if (!gizmoShown && !m_selection->hasSelectedBodies() &&
+            !m_selection->navigationOnly() &&
+            !blockedByOtherOp && !cam.isOrthographic() &&
+            (m_planeGizmoArmed || planeImplicitArm)) {
+            int planeId = firstPlaneInSel;
+            if (planeId >= 0) {
+                const auto* entry = m_document->getPlane(planeId);
+                if (entry) {
+                    // Scale isn't meaningful for a plane (it's an infinite
+                    // surface; the quad is just a visual handle). Snap to
+                    // Translate if the user lands here in Scale mode so the
+                    // gizmo handles actually do something on drag.
+                    if (m_gizmo->getMode() == GizmoMode::Scale) {
+                        m_gizmo->setMode(GizmoMode::Translate);
+                    }
+                    const gp_Pnt& o = entry->plane.Position().Location();
+                    m_gizmo->setPosition(glm::vec3(o.X(), o.Y(), o.Z()));
+                    m_gizmo->setVisible(true);
+                    gizmoShown = true;
+                }
+            }
+        }
+
         if (!gizmoShown) m_gizmo->setVisible(false);
 
         if (m_gizmo->isVisible()) {
@@ -436,16 +503,23 @@ void Application::renderViewport() {
                 };
                 arrow(da, ImVec2(-dir.x, -dir.y));
                 arrow(db, dir);
-                ImVec2 ts = ImGui::CalcTextSize(label);
-                ImVec2 mid((da.x + db.x) * 0.5f + perp.x * 12.0f,
-                           (da.y + db.y) * 0.5f + perp.y * 12.0f);
-                ImVec2 tp(mid.x - ts.x * 0.5f, mid.y - ts.y * 0.5f);
-                dl->AddRectFilled(ImVec2(tp.x - 4, tp.y - 3), ImVec2(tp.x + ts.x + 4, tp.y + ts.y + 3),
-                                  IM_COL32(20, 20, 28, bold ? 235 : 205), 3.0f);
-                if (bold) dl->AddRect(ImVec2(tp.x - 4, tp.y - 3),
+                // Skip the centred label when the caller passes a null/empty
+                // label — for the fillet/chamfer drag handle we instead pin
+                // the readout to the mouse cursor (drawn by the caller),
+                // matching the arc-angle preview's "follow the mouse" pill.
+                if (label && label[0]) {
+                    ImVec2 ts = ImGui::CalcTextSize(label);
+                    ImVec2 mid((da.x + db.x) * 0.5f + perp.x * 12.0f,
+                               (da.y + db.y) * 0.5f + perp.y * 12.0f);
+                    ImVec2 tp(mid.x - ts.x * 0.5f, mid.y - ts.y * 0.5f);
+                    dl->AddRectFilled(ImVec2(tp.x - 4, tp.y - 3),
                                       ImVec2(tp.x + ts.x + 4, tp.y + ts.y + 3),
-                                      col, 3.0f, 0, 1.5f);
-                dl->AddText(tp, col, label);
+                                      IM_COL32(20, 20, 28, bold ? 235 : 205), 3.0f);
+                    if (bold) dl->AddRect(ImVec2(tp.x - 4, tp.y - 3),
+                                          ImVec2(tp.x + ts.x + 4, tp.y + ts.y + 3),
+                                          col, 3.0f, 0, 1.5f);
+                    dl->AddText(tp, col, label);
+                }
             };
 
             char dbuf[40];
@@ -460,11 +534,91 @@ void Application::renderViewport() {
                 drawDim(m_pushPullOrigin,
                         m_pushPullOrigin + m_pushPullNormal * m_pushPullDistance, dbuf,
                         DimStyle::Bold);
+            } else if (m_gizmoDragging && !m_planeGizmoDrag.empty()) {
+                // Construction-plane drag readout. The world-axis dim line
+                // from origin (used for body/sketch translate below) isn't
+                // useful here — for an askew plane the user cares about
+                // distance along the plane's own normal and the rotation
+                // angle, not the world-coord delta. Pin a compact pill near
+                // the cursor with the values that matter for plane work.
+                ImVec2 mp = ImGui::GetMousePos();
+                if (m_gizmo->getMode() == GizmoMode::Translate) {
+                    // Two values: how far the drag moved the plane along its
+                    // own normal (signed, this drag only), and where that
+                    // puts the plane in absolute terms (signed distance
+                    // from world origin along the same normal). The
+                    // absolute reading is what the popup's Offset slider
+                    // would show for an axis-aligned plane and stays
+                    // meaningful when the plane is askew.
+                    const auto& pln = m_planeGizmoDrag.front().second;
+                    const gp_Dir& nd = pln.Position().Direction();
+                    gp_Pnt o = pln.Position().Location();
+                    glm::vec3 nrm((float)nd.X(), (float)nd.Y(), (float)nd.Z());
+                    glm::vec3 origBefore((float)o.X(), (float)o.Y(), (float)o.Z());
+                    float delta    = glm::dot(m_gizmoTotalDelta, nrm);
+                    float absAfter = glm::dot(origBefore + m_gizmoTotalDelta, nrm);
+                    if (m_snapToGrid && m_sketchGridStep > 0.0f) {
+                        float step = m_sketchGridStep;
+                        delta    = std::round(delta    / step) * step;
+                        absAfter = std::round(absAfter / step) * step;
+                    }
+                    std::snprintf(dbuf, sizeof(dbuf),
+                                  "\xCE\x94 %.2f mm   |   Origin %.2f mm",
+                                  delta, absAfter);
+                } else if (m_gizmo->getMode() == GizmoMode::Rotate) {
+                    char axL = '?';
+                    if (std::abs(m_gizmoRotAxis.x) > 0.5f)      axL = 'X';
+                    else if (std::abs(m_gizmoRotAxis.y) > 0.5f) axL = 'Z'; // user Z = world Y
+                    else if (std::abs(m_gizmoRotAxis.z) > 0.5f) axL = 'Y'; // user Y = world Z
+                    // Mirror the plane-drag snap policy (5° hard, soft 15°)
+                    // so the readout matches what's actually being applied.
+                    float shownAng = m_gizmoTotalAngle;
+                    if (m_snapToGrid) {
+                        shownAng = std::round(shownAng / 5.0f) * 5.0f;
+                    } else {
+                        float n = std::round(shownAng / 15.0f) * 15.0f;
+                        if (std::abs(shownAng - n) < 3.0f) shownAng = n;
+                    }
+                    std::snprintf(dbuf, sizeof(dbuf),
+                                  "%.1f\xC2\xB0  about %c",
+                                  shownAng, axL);
+                } else {
+                    dbuf[0] = '\0';
+                }
+                if (dbuf[0]) {
+                    ImVec2 ts = ImGui::CalcTextSize(dbuf);
+                    ImVec2 tp(mp.x + 14.0f, mp.y - ts.y * 0.5f);
+                    dl->AddRectFilled(
+                        ImVec2(tp.x - 5, tp.y - 3),
+                        ImVec2(tp.x + ts.x + 5, tp.y + ts.y + 3),
+                        IM_COL32(20, 20, 28, 235), 3.0f);
+                    dl->AddRect(
+                        ImVec2(tp.x - 5, tp.y - 3),
+                        ImVec2(tp.x + ts.x + 5, tp.y + ts.y + 3),
+                        IM_COL32(255, 200, 60, 255), 3.0f, 0, 1.5f);
+                    dl->AddText(tp, IM_COL32(255, 200, 60, 255), dbuf);
+                }
             } else if (m_edgeOpActive && m_edgeOpHasHandle) {
-                // Arrow straight out of the edge (outward, perpendicular) + measurement.
+                // Arrow straight out of the edge (outward, perpendicular).
+                // Label is rendered separately at the cursor below — matches
+                // the arc-angle preview's "pinned 14 px right of the mouse"
+                // UX so the user's eye doesn't have to track a label that's
+                // floating off near the edge midpoint while they drag.
+                drawDim(m_edgeOpMid, m_edgeOpMid + m_edgeOpOutDir * m_edgeOpValue,
+                        nullptr, DimStyle::Bold);
                 std::snprintf(dbuf, sizeof(dbuf), "%.1f mm", m_edgeOpValue);
-                drawDim(m_edgeOpMid, m_edgeOpMid + m_edgeOpOutDir * m_edgeOpValue, dbuf,
-                        DimStyle::Bold);
+                ImVec2 mp = ImGui::GetMousePos();
+                ImVec2 ts = ImGui::CalcTextSize(dbuf);
+                ImVec2 tp(mp.x + 14.0f, mp.y - ts.y * 0.5f);
+                dl->AddRectFilled(
+                    ImVec2(tp.x - 5, tp.y - 3),
+                    ImVec2(tp.x + ts.x + 5, tp.y + ts.y + 3),
+                    IM_COL32(20, 20, 28, 235), 3.0f);
+                dl->AddRect(
+                    ImVec2(tp.x - 5, tp.y - 3),
+                    ImVec2(tp.x + ts.x + 5, tp.y + ts.y + 3),
+                    IM_COL32(255, 200, 60, 255), 3.0f, 0, 1.5f);
+                dl->AddText(tp, IM_COL32(255, 200, 60, 255), dbuf);
             } else if (m_gizmoDragging && glm::length(m_gizmoTotalDelta) > 1e-3f) {
                 // Translate drag: dimension line from the WORLD ORIGIN to the
                 // current pivot. Snap matches the rule used by the actual
@@ -521,8 +675,12 @@ void Application::renderViewport() {
             // Rotate (°) / Scale (%) readout near the body during a gizmo drag —
             // the analogue of the mm readout for moves. Uses the cached pivot
             // so sketch-only drags get a readout even with no body shape.
-            if (m_gizmoDragging && (m_gizmo->getMode() == GizmoMode::Rotate ||
-                                    m_gizmo->getMode() == GizmoMode::Scale)) {
+            // Suppressed for plane-only drags so we don't show two readouts
+            // (the cursor-pinned plane one above already covers it with the
+            // 5° snap policy applied).
+            if (m_gizmoDragging && m_planeGizmoDrag.empty() &&
+                (m_gizmo->getMode() == GizmoMode::Rotate ||
+                 m_gizmo->getMode() == GizmoMode::Scale)) {
                 try {
                     glm::vec3 bc = m_gizmoSharedPivot;
                     {
@@ -1385,11 +1543,19 @@ void Application::renderViewport() {
                     //    rest of the app's angle-snap behaviour (line-draw
                     //    angle snap, sketch rotate popup, etc.).
                     auto softSnap45 = [this](float deg) {
+                        // Construction-plane drags need finer granularity —
+                        // plane orientation is often a precise angle (15°
+                        // chamfer-line, 30° draft, etc.). Use 5° hard snap
+                        // when snap is on and a soft 15° anchor otherwise,
+                        // versus the body/sketch defaults of 15°/45°.
+                        const bool planeDrag = !m_planeGizmoDrag.empty();
                         if (m_snapToGrid) {
-                            return std::round(deg / 15.0f) * 15.0f;
+                            float step = planeDrag ? 5.0f : 15.0f;
+                            return std::round(deg / step) * step;
                         }
-                        float n = std::round(deg / 45.0f) * 45.0f;
-                        return (std::abs(deg - n) < 7.0f) ? n : deg;
+                        float anchor = planeDrag ? 15.0f : 45.0f;
+                        float n = std::round(deg / anchor) * anchor;
+                        return (std::abs(deg - n) < 3.0f) ? n : deg;
                     };
 
                     // Start drag: save originals for every selected body (so Move
@@ -1401,9 +1567,15 @@ void Application::renderViewport() {
                     if (gResult.activeAxis != GizmoAxis::None && !m_gizmoDragging) {
                         m_gizmoDragOriginals.clear();
                         m_sketchGizmoDragSketches.clear();
+                        m_planeGizmoDrag.clear();
                         auto addedSketch = [&](int sid) {
                             for (auto& [eid, _] : m_sketchGizmoDragSketches)
                                 if (eid == sid) return true;
+                            return false;
+                        };
+                        auto addedPlane = [&](int pid) {
+                            for (auto& [eid, _] : m_planeGizmoDrag)
+                                if (eid == pid) return true;
                             return false;
                         };
                         for (const auto& sel : m_selection->getSelection()) {
@@ -1424,9 +1596,19 @@ void Application::renderViewport() {
                                     m_sketchGizmoDragSketches.push_back(
                                         {sel.sketchId, sk->getPlane()});
                                 }
+                            } else if (sel.type == SelectionType::Plane &&
+                                       sel.planeId >= 0) {
+                                if (addedPlane(sel.planeId)) continue;
+                                const auto* entry = m_document->getPlane(sel.planeId);
+                                if (entry) {
+                                    m_planeGizmoDrag.push_back(
+                                        {sel.planeId, entry->plane});
+                                }
                             }
                         }
-                        if (!m_gizmoDragOriginals.empty() || !m_sketchGizmoDragSketches.empty()) {
+                        if (!m_gizmoDragOriginals.empty() ||
+                            !m_sketchGizmoDragSketches.empty() ||
+                            !m_planeGizmoDrag.empty()) {
                             if (!m_gizmoDragOriginals.empty()) {
                                 m_gizmoDragBodyId = m_gizmoDragOriginals.front().first;
                                 m_gizmoDragOriginalShape = m_gizmoDragOriginals.front().second;
@@ -1485,6 +1667,15 @@ void Application::renderViewport() {
                                     if (static_cast<float>(y0) < bottomY) bottomY = static_cast<float>(y0);
                                     ++np;
                                 } catch (...) {}
+                            }
+                            // Construction planes pivot at the plane's origin
+                            // (no point cloud to centroid). Rotation thus
+                            // spins the plane around its own anchor — what
+                            // you'd expect when nudging a placement plane.
+                            for (auto& [pid, plnBefore] : m_planeGizmoDrag) {
+                                const gp_Pnt& o = plnBefore.Position().Location();
+                                m_gizmoSharedPivot += glm::vec3(o.X(), o.Y(), o.Z());
+                                ++np;
                             }
                             if (np > 0) m_gizmoSharedPivot /= static_cast<float>(np);
                             m_gizmoSharedBottomY = (bottomY < FLT_MAX) ? bottomY
@@ -1556,6 +1747,16 @@ void Application::renderViewport() {
                                     pln.Transform(trsf);
                                     sk->setPlane(pln);
                                 }
+                                // Construction planes ride the same drag.
+                                // No history op yet (placement-mode write-
+                                // back); plane edits land directly via
+                                // Document::setPlane and the renderer's
+                                // PlaneChangedEvent subscriber refreshes.
+                                for (auto& [pid, plnBefore] : m_planeGizmoDrag) {
+                                    gp_Pln pln = plnBefore;
+                                    pln.Transform(trsf);
+                                    m_document->setPlane(pid, pln);
+                                }
                                 m_meshesDirty = true;
                                 applied = false; // already handled per-body above
                             } else if (gResult.mode == GizmoMode::Rotate) {
@@ -1583,6 +1784,12 @@ void Application::renderViewport() {
                                     gp_Pln pln = plnBefore;
                                     pln.Transform(trsf);
                                     sk->setPlane(pln);
+                                }
+                                // And to each selected construction plane.
+                                for (auto& [pid, plnBefore] : m_planeGizmoDrag) {
+                                    gp_Pln pln = plnBefore;
+                                    pln.Transform(trsf);
+                                    m_document->setPlane(pid, pln);
                                 }
                                 m_meshesDirty = true;
                                 applied = false; // per-body above
@@ -1684,8 +1891,20 @@ void Application::renderViewport() {
                                                (gm == GizmoMode::Rotate    && validRotate) ||
                                                (gm == GizmoMode::Scale     && validScale);
 
+                            // Plane drags write to Document::setPlane during the
+                            // live drag — no body op is needed (or correct: a
+                            // TransformOp with bodyId=-1 would later crash on
+                            // history replay via getBody(-1)). Skip the body /
+                            // sketch commit branches entirely when only planes
+                            // are in the drag.
+                            const bool planeOnly = (nBodies == 0) &&
+                                                   m_sketchGizmoDragSketches.empty() &&
+                                                   !m_planeGizmoDrag.empty();
                             if (!anyValid) {
                                 /* below-threshold drag: leave history alone */
+                            } else if (planeOnly) {
+                                /* plane gizmo: already written to Document via
+                                   setPlane during the drag; nothing to commit */
                             } else if (isMulti) {
                                 // Batched commit: one ReplayOp covering all bodies.
                                 ReplayOp::BodyState beforeState;
@@ -1785,6 +2004,7 @@ void Application::renderViewport() {
                         m_gizmoDragBodyId = -1;
                         m_gizmoDragOriginals.clear();
                         m_sketchGizmoDragSketches.clear();
+                        m_planeGizmoDrag.clear();
                     }
 
                     if (gResult.activeAxis != GizmoAxis::None) {
@@ -1948,7 +2168,15 @@ void Application::renderViewport() {
                         }
                     } else if (!regionConsumedClick && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
                         int ownerStep = -1; // fillet/chamfer step to open in the editor
-                        if (result.hit) {
+                        if (result.hit && result.planeId >= 0) {
+                            // Construction-plane hit takes its own selection path —
+                            // no edge / face / fillet-edit branching applies.
+                            SelectionEntry entry;
+                            entry.type = SelectionType::Plane;
+                            entry.planeId = result.planeId;
+                            if (io.KeyCtrl) m_selection->toggleSelection(entry);
+                            else            m_selection->select(entry);
+                        } else if (result.hit) {
                             SelectionEntry entry;
                             // If click is near an edge, select edge; otherwise face. The
                             // 8 px threshold is clamped to ¼ of the face's on-screen size

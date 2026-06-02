@@ -20,11 +20,16 @@ public:
         glm::vec4 color;
         float size;
         bool visible;
+        // The plugin marks the document-selected plane so the renderer can
+        // draw a brighter, more opaque highlight to communicate selection
+        // without forcing the gizmo on top.
+        bool selected = false;
     };
 
     void addPlane(const gp_Pln& plane, const std::string& name,
                   glm::vec4 color = glm::vec4(0.3f, 0.5f, 0.8f, 0.15f),
-                  float size = 10.0f);
+                  float size = 10.0f,
+                  bool selected = false);
 
     void render(const glm::mat4& view, const glm::mat4& projection);
     void clear();

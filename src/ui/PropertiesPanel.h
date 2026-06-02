@@ -58,17 +58,6 @@ private:
     };
     std::map<int, ConstraintEdit> m_constraintEdits;
 
-    // Per-axis edit state for the body Dimensions section. Refilled from the
-    // body's current bbox each frame the field isn't focused; commit on
-    // Enter/focus-out pushes a TransformOp::Scale that anchors at the body's
-    // bbox-min corner so growth is along +axis only (predictable).
-    struct DimensionEdit {
-        char buf[24] = "0";
-        bool focused = false;
-        int bodyId = -1;
-        double initialExtent = 0;
-    };
-    DimensionEdit m_bodyDimEdit[3]; // X, Y, Z
 };
 
 } // namespace materializr

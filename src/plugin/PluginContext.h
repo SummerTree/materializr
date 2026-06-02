@@ -23,6 +23,12 @@ public:
 
     void markMeshesDirty();
 
+    // True while the host Application has the sketch editor active. Plugins
+    // can use this to suppress decorations that would clutter the sketch
+    // canvas — the Construction Plane plugin hides plane quads when
+    // sketching in ortho so the user has a clean drawing surface.
+    bool isInSketchMode() const;
+
     // Request that the host Application start an interactive popup-driven op
     // (which the plugin can't run on its own — those need viewport + UI plumbing
     // that lives in Application). The caller passes a short string identifying
@@ -41,7 +47,8 @@ public:
     void registerPropertySection(PropertyContribution contrib);
 
     void _bind(Document* doc, History* hist, SelectionManager* sel,
-               EventBus* bus, Camera* cam, bool* meshesDirtyFlag);
+               EventBus* bus, Camera* cam, bool* meshesDirtyFlag,
+               const bool* sketchModeFlag);
 
 private:
     Document* m_document = nullptr;
@@ -50,6 +57,7 @@ private:
     EventBus* m_eventBus = nullptr;
     Camera* m_camera = nullptr;
     bool* m_meshesDirtyFlag = nullptr;
+    const bool* m_sketchModeFlag = nullptr;
     std::string m_pendingInteractiveOp;
 };
 

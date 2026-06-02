@@ -42,6 +42,8 @@ ToolAction Toolbar::render() {
         action = renderNoSelectionTools();
     } else if (m_selection->hasSelectedSketchRegions()) {
         action = renderSketchRegionTools();
+    } else if (m_selection->primaryType() == SelectionType::Plane) {
+        action = renderPlaneSelectedTools();
     } else if (m_selection->hasSelectedSketches()) {
         action = renderSketchSelectedTools();
     } else if (m_selection->hasSelectedFaces()) {
@@ -445,6 +447,28 @@ ToolAction Toolbar::renderSketchSelectedTools() {
     // Plugin buttons for HasSketches context
     renderPluginButtons(1 << static_cast<int>(SelectionContext::HasSketches));
 
+    return action;
+}
+
+ToolAction Toolbar::renderPlaneSelectedTools() {
+    ToolAction action = ToolAction::None;
+    ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "Construction Plane");
+    ImGui::Separator();
+    if (ImGui::Button("Sketch on this Plane", ImVec2(-1, 30)))
+        action = ToolAction::SketchOnFace; // dispatched on Plane in handler
+    tip("Start a new sketch lying on this construction plane — same workflow as "
+        "Sketch on Face, just with the plane as the host.");
+
+    ImGui::Separator();
+    ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "Transform");
+    ImGui::Separator();
+    if (ImGui::Button("Move", ImVec2(-1, 30)))   action = ToolAction::Move;
+    tip("Show the Move gizmo on this plane. Drag an axis arrow to nudge it; "
+        "the live readout pinned to the cursor shows the offset along the "
+        "plane's own normal.");
+    if (ImGui::Button("Rotate", ImVec2(-1, 30))) action = ToolAction::Rotate;
+    tip("Show the Rotate gizmo. Drag a ring to spin the plane around its "
+        "origin; snap is 5° increments when snap-to-grid is on.");
     return action;
 }
 

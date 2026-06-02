@@ -32,20 +32,25 @@ void ConstructionPlaneOp::setName(const std::string& name) {
 }
 
 gp_Pln ConstructionPlaneOp::computePlane() const {
+    // Plane names are in the user's Z-up convention (user Z = world Y).
+    // What the popup labels "XY" is the floor; its normal is the up axis,
+    // which in world coords is +Y. Same remap applies to the other two.
+    //   user XY  →  world plane normal = world +Y  (floor; offset is height)
+    //   user XZ  →  world plane normal = world +Z  (front/back wall)
+    //   user YZ  →  world plane normal = world +X  (left/right wall)
+    // Offset slides along that normal so the slider reads as user-Z offset
+    // for the floor case, user-Y for the front, user-X for the side.
     switch (m_type) {
         case PlaneCreationType::XY: {
-            // XY plane: normal along Z
-            return gp_Pln(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1));
+            return gp_Pln(gp_Pnt(0, m_offset, 0), gp_Dir(0, 1, 0));
         }
 
         case PlaneCreationType::XZ: {
-            // XZ plane: normal along Y
-            return gp_Pln(gp_Pnt(0, 0, 0), gp_Dir(0, 1, 0));
+            return gp_Pln(gp_Pnt(0, 0, m_offset), gp_Dir(0, 0, 1));
         }
 
         case PlaneCreationType::YZ: {
-            // YZ plane: normal along X
-            return gp_Pln(gp_Pnt(0, 0, 0), gp_Dir(1, 0, 0));
+            return gp_Pln(gp_Pnt(m_offset, 0, 0), gp_Dir(1, 0, 0));
         }
 
         case PlaneCreationType::OffsetFromPlane: {
@@ -98,10 +103,14 @@ bool ConstructionPlaneOp::execute(Document& doc) {
 }
 
 bool ConstructionPlaneOp::undo(Document& doc) {
-    // Document does not currently expose removePlane, so this is a no-op.
-    // When removePlane is added, call: doc.removePlane(m_createdPlaneId);
-    (void)doc;
-    m_createdPlaneId = -1;
+    // Actually remove the plane now that Document exposes the API. Without
+    // this every preview cycle (radio-click XY/XZ/YZ, drag the offset
+    // slider) would stack a fresh plane on top of the previous one — the
+    // visible "every selection shows" + "offset has no effect" symptoms.
+    if (m_createdPlaneId >= 0) {
+        doc.removePlane(m_createdPlaneId);
+        m_createdPlaneId = -1;
+    }
     return true;
 }
 

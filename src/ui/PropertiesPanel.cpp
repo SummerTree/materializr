@@ -134,110 +134,28 @@ bool PropertiesPanel::render() {
         ImGui::Spacing();
         ImGui::Separator();
 
-        // Bounding box dimensions
+        // Bounding-box readout (display only). Editing dimensions used to
+        // live here as an inline editor, but it was functionally a glorified
+        // Scale — same TransformOp, same anchor, same ellipse-from-cylinder
+        // surprise. Editing now lives on the Scale gizmo popup, which has a
+        // % / mm toggle and shows live dimensions in mm mode.
         ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "Dimensions");
-
         const TopoDS_Shape& shape = m_document->getBody(bodyId);
         if (!shape.IsNull()) {
             Bnd_Box bbox;
-            // AddOptimal w/ useTriangulation=false, useShapeTolerance=false:
-            // evaluates analytic surfaces (so a Ø80 cylinder reads exactly
-            // 80.000, not 80.007 from a tessellation chord) and skips the
-            // per-face Tolerance() safety padding (which would inflate the
-            // 20 mm height to 20.010). User-facing dim readouts only — leave
-            // the conservative BRepBndLib::Add elsewhere alone since hit
-            // boxes / framing want the safety margin.
             BRepBndLib::AddOptimal(shape, bbox, Standard_False, Standard_False);
-
             if (!bbox.IsVoid()) {
                 Standard_Real xmin, ymin, zmin, xmax, ymax, zmax;
                 bbox.Get(xmin, ymin, zmin, xmax, ymax, zmax);
-
-                // World axes (Y-up internally) -> user axes (Z-up): user X is
-                // world X, user Y is world Z, user Z is world Y. The display
-                // and edit code below talks user-axis order; m_userToWorld
-                // maps the loop index to the actual world axis the value
-                // describes.
-                const int m_userToWorld[3] = {0, 2, 1};
-                const double worldExtents[3] = {xmax - xmin, ymax - ymin, zmax - zmin};
-                const double worldMins[3] = {xmin, ymin, zmin};
+                // user-Z-up remap: user X = world X, user Y = world Z, user Z = world Y.
                 const double userExtents[3] = {
-                    worldExtents[m_userToWorld[0]],
-                    worldExtents[m_userToWorld[1]],
-                    worldExtents[m_userToWorld[2]],
+                    xmax - xmin,
+                    zmax - zmin,
+                    ymax - ymin,
                 };
-
-                char dimText[128];
-                std::snprintf(dimText, sizeof(dimText), "%.2f x %.2f x %.2f",
-                              userExtents[0], userExtents[1], userExtents[2]);
-                ImGui::Text("Size: %s", dimText);
-
-                ImGui::Spacing();
-
-                // Editable per-axis bbox extents. Typing a new value and
-                // pressing Enter (or clicking out) scales the body so that
-                // axis's extent matches the typed value, anchored at the
-                // body's bbox-min corner — body grows in +axis direction
-                // only so the result is predictable. Non-uniform scale via
-                // TransformOp keeps each axis independent.
-                const char* axisLabels[3] = {"X", "Y", "Z"};
-                const ImVec4 axisColors[3] = {
-                    ImVec4(1.00f, 0.35f, 0.35f, 1.0f),
-                    ImVec4(0.35f, 1.00f, 0.35f, 1.0f),
-                    ImVec4(0.40f, 0.55f, 1.00f, 1.0f),
-                };
-
-                for (int i = 0; i < 3; ++i) {
-                    auto& edit = m_bodyDimEdit[i];
-                    // Refresh the buffer from current bbox whenever the
-                    // user isn't actively editing — covers external updates
-                    // (undo/redo, other panels) AND first-time display.
-                    if (!edit.focused || edit.bodyId != bodyId) {
-                        std::snprintf(edit.buf, sizeof(edit.buf), "%.3f", userExtents[i]);
-                    }
-
-                    ImGui::PushID(i);
-                    ImGui::TextColored(axisColors[i], "%s", axisLabels[i]);
-                    ImGui::SameLine(40);
-                    ImGui::SetNextItemWidth(110);
-                    ImGui::InputText("##bodydim", edit.buf, sizeof(edit.buf),
-                                     ImGuiInputTextFlags_CharsDecimal |
-                                     ImGuiInputTextFlags_AutoSelectAll);
-                    bool justActivated   = ImGui::IsItemActivated();
-                    bool justDeactivated = ImGui::IsItemDeactivatedAfterEdit();
-                    ImGui::SameLine(); ImGui::Text("mm");
-
-                    if (justActivated) {
-                        edit.focused = true;
-                        edit.bodyId = bodyId;
-                        edit.initialExtent = userExtents[i];
-                    }
-                    if (justDeactivated) {
-                        double newExtent = std::atof(edit.buf);
-                        if (newExtent > 0 &&
-                            edit.initialExtent > 1e-6 &&
-                            std::abs(newExtent - edit.initialExtent) > 1e-4) {
-                            double ratio = newExtent / edit.initialExtent;
-                            // Apply the scale to the WORLD axis that backs
-                            // this user-axis slot.
-                            int worldAxis = m_userToWorld[i];
-                            auto op = std::make_unique<TransformOp>();
-                            op->setBodyId(bodyId);
-                            op->setType(TransformType::Scale);
-                            double sx = 1, sy = 1, sz = 1;
-                            if (worldAxis == 0)      sx = ratio;
-                            else if (worldAxis == 1) sy = ratio;
-                            else                     sz = ratio;
-                            op->setScaleXYZ(sx, sy, sz);
-                            op->setCenter(worldMins[0], worldMins[1], worldMins[2]);
-                            m_history->pushOperation(std::move(op), *m_document);
-                            modified = true;
-                        }
-                        edit.focused = false;
-                    }
-                    ImGui::PopID();
-                }
-                ImGui::TextDisabled("Press Enter or click out to commit.");
+                ImGui::Text("Size: %.2f x %.2f x %.2f mm",
+                            userExtents[0], userExtents[1], userExtents[2]);
+                ImGui::TextDisabled("Edit dimensions via the Scale gizmo (R).");
             } else {
                 ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "Empty shape");
             }
