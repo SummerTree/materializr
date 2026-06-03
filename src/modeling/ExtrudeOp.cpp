@@ -1,5 +1,7 @@
 #include "ExtrudeOp.h"
 #include "Sketch.h"
+#include <cstdio>
+#include <cstdlib>
 #include <BRepPrimAPI_MakePrism.hxx>
 #include <BRepOffsetAPI_DraftAngle.hxx>
 #include <BRepAdaptor_Surface.hxx>
@@ -260,6 +262,65 @@ bool ExtrudeOp::undo(Document& doc) {
     } catch (...) {
         return false;
     }
+}
+
+std::string ExtrudeOp::serializeParams() const {
+    // Profile geometry is NOT stored — it is re-derived from the source sketch
+    // on reload. Only ops with a sketch source (m_sketchId >= 0) can rehydrate;
+    // a face-driven extrude serialises its scalars but declines rehydration.
+    char buf[160];
+    std::snprintf(buf, sizeof(buf),
+        "sketch=%d;dist=%.6f;dir=%d;mode=%d;target=%d;draft=%.6f",
+        m_sketchId, m_distance, static_cast<int>(m_direction),
+        static_cast<int>(m_mode), m_targetBodyId, m_draftAngle);
+    return buf;
+}
+
+bool ExtrudeOp::deserializeParams(const std::string& blob) {
+    bool any = false;
+    size_t pos = 0;
+    while (pos < blob.size()) {
+        size_t eq = blob.find('=', pos);
+        if (eq == std::string::npos) break;
+        size_t end = blob.find(';', eq);
+        if (end == std::string::npos) end = blob.size();
+        std::string key = blob.substr(pos, eq - pos);
+        std::string val = blob.substr(eq + 1, end - eq - 1);
+        double d = std::atof(val.c_str());
+        int    i = std::atoi(val.c_str());
+        if      (key == "sketch") { m_sketchId = i; any = true; }
+        else if (key == "dist")   { m_distance = d; any = true; }
+        else if (key == "dir")    { m_direction = static_cast<ExtrudeDirection>(i); any = true; }
+        else if (key == "mode")   { m_mode = static_cast<ExtrudeMode>(i); any = true; }
+        else if (key == "target") { m_targetBodyId = i; any = true; }
+        else if (key == "draft")  { m_draftAngle = d; any = true; }
+        pos = end + 1;
+    }
+    return any;
+}
+
+bool ExtrudeOp::rehydrateFromReload(const ReloadState& state, Document& doc) {
+    // Re-derive the profile from the persistent source sketch. Without a sketch
+    // source (e.g. a face-driven extrude) there's nothing to rebuild from, so
+    // decline and let the loader fall back to a baked ReplayOp.
+    if (m_sketchId < 0) return false;
+    if (!rebuildProfileFromSketch(doc)) return false;
+
+    if (m_mode == ExtrudeMode::NewBody) {
+        // The body this step created is the extruded solid; adopt its id so
+        // undo()/redo() and a distance edit recreate it under the same id
+        // (addOrPutBody reuses it, restoring tombstoned folder/colour/name).
+        if (state.created.empty()) return false;
+        m_createdBodyId = state.created.front();
+    } else {
+        // Boolean mode mutates the target in place; restore its pre-step shape
+        // so undo() reverts and editStep can recompute from it.
+        for (const auto& [id, shp] : state.modifiedBefore) {
+            if (id == m_targetBodyId) { m_previousTargetShape = shp; break; }
+        }
+        if (m_previousTargetShape.IsNull()) return false;
+    }
+    return true;
 }
 
 std::string ExtrudeOp::description() const {

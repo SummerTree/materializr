@@ -1944,7 +1944,7 @@ void Application::rebuildHistoryFromProject(const ProjectHistory& hist) {
         if (!op && !st.params.empty()) {
             auto candidate = OperationFactory::create(st.typeId);
             if (candidate && candidate->deserializeParams(st.params) &&
-                candidate->rehydrateFromReload(reload)) {
+                candidate->rehydrateFromReload(reload, *m_document)) {
                 op = std::move(candidate);
             }
         }

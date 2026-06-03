@@ -70,14 +70,16 @@ public:
 
     // Restore an op (already populated via deserializeParams) to its
     // post-execution state from a saved project, so undo()/redo() and
-    // parameter re-editing work across sessions. Return true if this op is now
-    // a fully editable reloaded op; the default returns false, which tells the
-    // loader to fall back to a baked ReplayOp (preserving prior behaviour for
-    // every op that hasn't opted in). Ops that reference whole bodies by id
-    // (patterns, shells, transforms) can implement this cheaply; ops that
-    // reference specific sub-shapes (fillet edges, push/pull faces) need
-    // persistent topological naming first and should leave it unimplemented.
-    virtual bool rehydrateFromReload(const ReloadState& /*state*/) { return false; }
+    // parameter re-editing work across sessions. `doc` is the live document
+    // (sketch-sourced ops re-derive their profile from a persistent sketch id
+    // through it). Return true if this op is now a fully editable reloaded op;
+    // the default returns false, which tells the loader to fall back to a baked
+    // ReplayOp (preserving prior behaviour for every op that hasn't opted in).
+    // Ops that reference whole bodies by id (patterns) or a persistent sketch
+    // (extrude/revolve) can implement this; ops that reference specific raw
+    // sub-shapes (fillet edges, face push/pull) need persistent topological
+    // naming first and should leave it unimplemented.
+    virtual bool rehydrateFromReload(const ReloadState& /*state*/, Document& /*doc*/) { return false; }
 
     bool isEnabled() const { return m_enabled; }
     void setEnabled(bool enabled) { m_enabled = enabled; }

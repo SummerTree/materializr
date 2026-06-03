@@ -179,7 +179,7 @@ bool PatternOp::deserializeParams(const std::string& blob) {
     return any;
 }
 
-bool PatternOp::rehydrateFromReload(const ReloadState& state) {
+bool PatternOp::rehydrateFromReload(const ReloadState& state, Document& /*doc*/) {
     // deserializeParams has already restored m_bodyId + the pattern params.
     // Without a valid source body the op can't re-execute, so keep it as a
     // baked ReplayOp instead.
