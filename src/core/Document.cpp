@@ -435,6 +435,20 @@ int Document::axisCount() const {
 }
 
 void Document::clear() {
+    // Announce each entity's removal before wiping the lists. Subscribers keep
+    // caches keyed off these events — the plugin Plane/Axis renderers only
+    // rebuild when a removal flips their dirty flag, and the TShape-keyed
+    // selection caches evict on BodyRemovedEvent. Clearing silently left ghost
+    // construction planes/axes rendered (but unclickable) after File → Close
+    // Project.
+    if (m_eventBus) {
+        for (const auto& b : m_bodies)
+            m_eventBus->publish(materializr::BodyRemovedEvent{b.id});
+        for (const auto& p : m_planes)
+            m_eventBus->publish(materializr::PlaneRemovedEvent{p.id});
+        for (const auto& a : m_axes)
+            m_eventBus->publish(materializr::AxisRemovedEvent{a.id});
+    }
     m_bodies.clear();
     m_planes.clear();
     m_axes.clear();
