@@ -70,10 +70,17 @@ bool PropertiesPanel::render() {
             // Render the operation's parameter controls
             const_cast<Operation*>(op)->renderProperties();
 
+            // Enter commits the edit directly — the Apply button stays as the
+            // mouse-driven alternative.
+            bool enterCommits =
+                ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows) &&
+                (ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
+                 ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false));
+
             ImGui::Spacing();
             ImGui::Separator();
 
-            if (ImGui::Button("Apply Changes", ImVec2(-1, 0))) {
+            if (ImGui::Button("Apply Changes", ImVec2(-1, 0)) || enterCommits) {
                 if (m_document) {
                     m_history->editStep(m_editingStep, *m_document);
                     modified = true;

@@ -58,8 +58,15 @@ bool HistoryPanel::render() {
         ImGui::Separator();
     }
 
-    // Step list
-    ImGui::BeginChild("StepList", ImVec2(0, -60), true);
+    // Step list. When a step's properties editor is open below, shrink the
+    // list so the editor + its pinned Apply button stay on-screen instead of
+    // overflowing past the panel bottom (previously: type, scroll, THEN
+    // apply — every single edit).
+    const bool propsOpen =
+        m_showProperties && m_editingStep >= 0 && m_editingStep < stepCount &&
+        m_history->getStep(m_editingStep) != nullptr;
+    const float propsBlockH = propsOpen ? 210.0f : 0.0f;
+    ImGui::BeginChild("StepList", ImVec2(0, -(60.0f + propsBlockH)), true);
 
     int deleteIndex = -1; // set by the context menu, applied after the loop
 
@@ -250,16 +257,25 @@ bool HistoryPanel::render() {
 
     ImGui::EndChild();
 
-    // Properties sub-section
-    if (m_showProperties && m_editingStep >= 0 && m_editingStep < stepCount) {
+    // Properties sub-section — the parameter widgets live in a bounded,
+    // scrollable child; the Apply button is pinned BELOW it so it's always
+    // visible no matter how many fields the op renders. Enter anywhere in
+    // the editor commits too.
+    if (propsOpen) {
         const Operation* op = m_history->getStep(m_editingStep);
         if (op) {
             ImGui::Separator();
             ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "Properties: %s",
                                op->name().c_str());
+            ImGui::BeginChild("StepProps", ImVec2(0, propsBlockH - 60.0f), true);
             const_cast<Operation*>(op)->renderProperties();
+            bool enterInProps =
+                ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows) &&
+                (ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
+                 ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false));
+            ImGui::EndChild();
 
-            if (ImGui::Button("Apply Changes", ImVec2(-1, 0))) {
+            if (ImGui::Button("Apply Changes", ImVec2(-1, 0)) || enterInProps) {
                 m_history->editStep(m_editingStep, *m_document);
                 modified = true;
                 // If the edited step is a SketchEditOp, publish a cascade

@@ -620,16 +620,29 @@ bool ResizeCylindricalOp::undo(Document& doc) {
 }
 
 void ResizeCylindricalOp::renderProperties() {
+    ImGui::Text("Resize %s", m_isHole ? "Hole" : "Cylinder");
+    ImGui::Separator();
+    // Directly editable — Apply (or Enter) re-executes the op with the new
+    // diameters (m_old* stays the original cylinder, so the change volume is
+    // rebuilt correctly). A uniform cylinder edits one Ø; a cone edits both.
     if (std::abs(m_newTopR - m_newBottomR) < 1e-5) {
-        ImGui::Text("%s diameter: %.2f mm",
-                    m_isHole ? "Hole" : "Outer", m_newTopR * 2.0);
+        double dia = m_newTopR * 2.0;
+        if (ImGui::InputDouble("Diameter (mm)", &dia, 0.1, 1.0, "%.2f")) {
+            if (dia > 0.01) { m_newTopR = dia * 0.5; m_newBottomR = dia * 0.5; }
+        }
     } else {
-        ImGui::Text("%s — cone", m_isHole ? "Hole" : "Outer");
-        ImGui::Text("  bottom diameter: %.2f mm", m_newBottomR * 2.0);
-        ImGui::Text("  top    diameter: %.2f mm", m_newTopR    * 2.0);
+        double db = m_newBottomR * 2.0;
+        double dt = m_newTopR * 2.0;
+        if (ImGui::InputDouble("Bottom Ø (mm)", &db, 0.1, 1.0, "%.2f")) {
+            if (db > 0.01) m_newBottomR = db * 0.5;
+        }
+        if (ImGui::InputDouble("Top Ø (mm)", &dt, 0.1, 1.0, "%.2f")) {
+            if (dt > 0.01) m_newTopR = dt * 0.5;
+        }
     }
     ImGui::Text("Length: %.2f mm", m_height);
-    ImGui::TextDisabled("Re-edit by clicking a circular edge or the face.");
+    ImGui::TextDisabled("Clicking the circular edge / face in the viewport "
+                        "also re-edits.");
 }
 
 std::string ResizeCylindricalOp::description() const {
