@@ -33,6 +33,7 @@ public:
     std::string description() const override;
     void renderProperties() override;
     std::string typeId() const override { return "loft"; }
+    OperationDiff captureDiff() const override;
 
 private:
     std::vector<TopoDS_Wire> m_profiles;

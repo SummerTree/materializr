@@ -184,6 +184,10 @@ bool PatternOp::rehydrateFromReload(const ReloadState& state, Document& /*doc*/)
     // Without a valid source body the op can't re-execute, so keep it as a
     // baked ReplayOp instead.
     if (m_bodyId < 0) return false;
+    // A pattern with count >= 2 must have created copies. An empty created
+    // set means the file was saved before PatternOp had captureDiff (the
+    // step's diff is missing) — decline so undo doesn't silently no-op.
+    if (state.created.empty()) return false;
 
     // The bodies this step created ARE the pattern copies (copies 1..count-1;
     // copy 0 is the original source, which the op never creates). Adopt them
@@ -227,4 +231,14 @@ void PatternOp::renderProperties() {
     if (!m_createdBodyIds.empty()) {
         ImGui::Text("Created %d copies", static_cast<int>(m_createdBodyIds.size()));
     }
+}
+
+OperationDiff PatternOp::captureDiff() const {
+    // The pattern's copies are the bodies this step created. Without this the
+    // step saved an EMPTY diff: copies masqueraded as initial-state bodies and
+    // undoing the reloaded step removed nothing.
+    OperationDiff d;
+    for (int id : m_createdBodyIds)
+        if (id >= 0) d.created.push_back(id);
+    return d;
 }

@@ -365,6 +365,10 @@ bool PushPullOp::rehydrateFromReload(const ReloadState& state, Document& doc) {
     for (const auto& t : m_targets) {
         if (t.profile.IsNull()) return false;
     }
+    // A push/pull must have created or mutated SOMETHING; both sets empty
+    // means the step's diff is missing from the file — decline so undo
+    // doesn't silently no-op.
+    if (state.created.empty() && state.modifiedBefore.empty()) return false;
     // Post-execution bookkeeping from the saved step's body delta, so undo()
     // removes/restores exactly the right bodies and a distance edit re-executes
     // under the same ids (tombstone metadata included).

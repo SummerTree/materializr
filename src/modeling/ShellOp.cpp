@@ -100,3 +100,10 @@ bool ShellOp::deserializeParams(const std::string& blob) {
     }
     return any;
 }
+
+OperationDiff ShellOp::captureDiff() const {
+    OperationDiff d;
+    if (m_bodyId >= 0 && !m_previousShape.IsNull())
+        d.modifiedBefore.push_back({m_bodyId, m_previousShape});
+    return d;
+}

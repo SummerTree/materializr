@@ -38,6 +38,7 @@ public:
     std::string description() const override;
     void renderProperties() override;
     std::string typeId() const override { return "resize_cylindrical"; }
+    OperationDiff captureDiff() const override;
     std::string serializeParams() const override;
     bool deserializeParams(const std::string& blob) override;
 

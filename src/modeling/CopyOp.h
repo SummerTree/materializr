@@ -22,6 +22,7 @@ public:
     std::string description() const override;
     void renderProperties() override;
     std::string typeId() const override { return "copy"; }
+    OperationDiff captureDiff() const override;
 
 private:
     int m_sourceBodyId = -1;

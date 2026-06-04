@@ -606,3 +606,10 @@ std::string ResizeCylindricalOp::description() const {
                       m_newBottomR * 2.0, m_newTopR * 2.0);
     return buf;
 }
+
+OperationDiff ResizeCylindricalOp::captureDiff() const {
+    OperationDiff d;
+    if (m_bodyId >= 0 && !m_previousShape.IsNull())
+        d.modifiedBefore.push_back({m_bodyId, m_previousShape});
+    return d;
+}

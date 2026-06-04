@@ -125,3 +125,9 @@ void LoftOp::renderProperties() {
     ImGui::Checkbox("Solid", &m_solid);
     ImGui::Checkbox("Ruled Surface", &m_ruled);
 }
+
+OperationDiff LoftOp::captureDiff() const {
+    OperationDiff d;
+    if (m_createdBodyId >= 0) d.created.push_back(m_createdBodyId);
+    return d;
+}

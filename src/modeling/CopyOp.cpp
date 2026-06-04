@@ -81,3 +81,9 @@ void CopyOp::renderProperties() {
         ImGui::Text("Created body ID: %d", m_createdBodyId);
     }
 }
+
+OperationDiff CopyOp::captureDiff() const {
+    OperationDiff d;
+    if (m_createdBodyId >= 0) d.created.push_back(m_createdBodyId);
+    return d;
+}

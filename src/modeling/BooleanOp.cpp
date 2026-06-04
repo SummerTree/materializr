@@ -128,3 +128,13 @@ void BooleanOp::renderProperties() {
     ImGui::InputInt("Target Body ID", &m_targetBodyId);
     ImGui::InputInt("Tool Body ID", &m_toolBodyId);
 }
+
+OperationDiff BooleanOp::captureDiff() const {
+    OperationDiff d;
+    // The target mutates in place; the tool body is consumed by the boolean.
+    if (m_targetBodyId >= 0 && !m_previousTargetShape.IsNull())
+        d.modifiedBefore.push_back({m_targetBodyId, m_previousTargetShape});
+    if (m_toolBodyId >= 0 && !m_previousToolShape.IsNull())
+        d.deletedBefore.push_back({m_toolBodyId, m_previousToolShape});
+    return d;
+}

@@ -69,3 +69,9 @@ void SweepOp::renderProperties() {
     ImGui::Separator();
     ImGui::TextWrapped("Select a profile (face or wire) and a path (wire) to sweep along.");
 }
+
+OperationDiff SweepOp::captureDiff() const {
+    OperationDiff d;
+    if (m_createdBodyId >= 0) d.created.push_back(m_createdBodyId);
+    return d;
+}

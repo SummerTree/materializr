@@ -96,3 +96,10 @@ void AlignOp::renderProperties() {
     double dx = tx - sx, dy = ty - sy, dz = tz - sz;
     ImGui::Text("Translation: (%.3f, %.3f, %.3f)", dx, dy, dz);
 }
+
+OperationDiff AlignOp::captureDiff() const {
+    OperationDiff d;
+    if (m_bodyId >= 0 && !m_previousShape.IsNull())
+        d.modifiedBefore.push_back({m_bodyId, m_previousShape});
+    return d;
+}

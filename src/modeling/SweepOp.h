@@ -21,6 +21,7 @@ public:
     std::string description() const override;
     void renderProperties() override;
     std::string typeId() const override { return "sweep"; }
+    OperationDiff captureDiff() const override;
 
 private:
     TopoDS_Shape m_profile;

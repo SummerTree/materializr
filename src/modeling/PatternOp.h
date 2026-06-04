@@ -37,6 +37,7 @@ public:
     std::string description() const override;
     void renderProperties() override;
     std::string typeId() const override { return "pattern"; }
+    OperationDiff captureDiff() const override;
     std::string serializeParams() const override;
     bool deserializeParams(const std::string& blob) override;
     bool rehydrateFromReload(const ReloadState& state, Document& doc) override;
