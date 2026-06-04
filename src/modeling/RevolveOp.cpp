@@ -1,4 +1,7 @@
 #include "RevolveOp.h"
+#include "Sketch.h"
+#include <cstdio>
+#include <cstdlib>
 #include <BRepPrimAPI_MakeRevol.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
@@ -154,6 +157,84 @@ bool RevolveOp::undo(Document& doc) {
     } catch (...) {
         return false;
     }
+}
+
+bool RevolveOp::rebuildProfileFromSketch(Document& doc) {
+    if (m_sketchId < 0) return false;
+    auto sk = doc.getSketch(m_sketchId);
+    if (!sk) return false;
+    auto regions = sk->buildRegions();
+    if (regions.empty() || regions[0].face.IsNull()) return false;
+    m_profile = regions[0].face; // mirrors the Revolve popup's creation path
+    return true;
+}
+
+OperationDiff RevolveOp::captureDiff() const {
+    OperationDiff d;
+    if (m_mode == RevolveMode::NewBody) {
+        if (m_createdBodyId >= 0) d.created.push_back(m_createdBodyId);
+    } else if (m_targetBodyId >= 0 && !m_previousTargetShape.IsNull()) {
+        d.modifiedBefore.push_back({m_targetBodyId, m_previousTargetShape});
+    }
+    return d;
+}
+
+std::string RevolveOp::serializeParams() const {
+    // Profile geometry is re-derived from the source sketch on reload; the
+    // axis is geometric (origin + direction), so it serialises directly.
+    char buf[256];
+    std::snprintf(buf, sizeof(buf),
+        "sketch=%d;angle=%.6f;mode=%d;target=%d;"
+        "ox=%.6f;oy=%.6f;oz=%.6f;dx=%.6f;dy=%.6f;dz=%.6f",
+        m_sketchId, m_angle, static_cast<int>(m_mode), m_targetBodyId,
+        m_axisOriginX, m_axisOriginY, m_axisOriginZ,
+        m_axisDirX, m_axisDirY, m_axisDirZ);
+    return buf;
+}
+
+bool RevolveOp::deserializeParams(const std::string& blob) {
+    bool any = false;
+    size_t pos = 0;
+    while (pos < blob.size()) {
+        size_t eq = blob.find('=', pos);
+        if (eq == std::string::npos) break;
+        size_t end = blob.find(';', eq);
+        if (end == std::string::npos) end = blob.size();
+        std::string key = blob.substr(pos, eq - pos);
+        std::string val = blob.substr(eq + 1, end - eq - 1);
+        double d = std::atof(val.c_str());
+        int    i = std::atoi(val.c_str());
+        if      (key == "sketch") { m_sketchId = i; any = true; }
+        else if (key == "angle")  { m_angle = d; any = true; }
+        else if (key == "mode")   { m_mode = static_cast<RevolveMode>(i); any = true; }
+        else if (key == "target") { m_targetBodyId = i; any = true; }
+        else if (key == "ox")     { m_axisOriginX = d; any = true; }
+        else if (key == "oy")     { m_axisOriginY = d; any = true; }
+        else if (key == "oz")     { m_axisOriginZ = d; any = true; }
+        else if (key == "dx")     { m_axisDirX = d; any = true; }
+        else if (key == "dy")     { m_axisDirY = d; any = true; }
+        else if (key == "dz")     { m_axisDirZ = d; any = true; }
+        pos = end + 1;
+    }
+    // execute() reconstructs m_axis from the component doubles, so no gp_Ax1
+    // rebuild is needed here.
+    return any;
+}
+
+bool RevolveOp::rehydrateFromReload(const ReloadState& state, Document& doc) {
+    if (m_sketchId < 0) return false;
+    if (!rebuildProfileFromSketch(doc)) return false;
+
+    if (m_mode == RevolveMode::NewBody) {
+        if (state.created.empty()) return false;
+        m_createdBodyId = state.created.front();
+    } else {
+        for (const auto& [id, shp] : state.modifiedBefore) {
+            if (id == m_targetBodyId) { m_previousTargetShape = shp; break; }
+        }
+        if (m_previousTargetShape.IsNull()) return false;
+    }
+    return true;
 }
 
 std::string RevolveOp::description() const {

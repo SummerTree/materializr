@@ -2238,6 +2238,7 @@ void Application::applyRevolve() {
 
     auto op = std::make_unique<RevolveOp>();
     op->setProfile(regions[0].face);
+    op->setSketchSource(m_revolveSketchId); // for reload profile re-derivation
     op->setAxis(gp_Ax1(axisOrigin, axisDir));
     op->setAngle(static_cast<double>(m_revolveAngle));
     RevolveMode mode = RevolveMode::NewBody;
