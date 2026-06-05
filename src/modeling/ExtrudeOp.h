@@ -46,6 +46,11 @@ public:
     void renderProperties() override;
     std::string typeId() const override { return "extrude"; }
     OperationDiff captureDiff() const override;
+    std::vector<int> plannedBodyIds() const override {
+        if (m_mode != ExtrudeMode::NewBody && m_targetBodyId >= 0)
+            return {m_targetBodyId};
+        return {};
+    }
     std::string serializeParams() const override;
     bool deserializeParams(const std::string& blob) override;
     bool rehydrateFromReload(const ReloadState& state, Document& doc) override;

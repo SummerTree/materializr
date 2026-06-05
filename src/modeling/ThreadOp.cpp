@@ -20,6 +20,8 @@
 #include <BRepCheck_Analyzer.hxx>
 #include <ShapeFix_Shape.hxx>
 #include <TopTools_ListOfShape.hxx>
+#include <GProp_GProps.hxx>
+#include <BRepGProp.hxx>
 #include <TopoDS.hxx>
 #include <gp_Ax3.hxx>
 #include <gp_Pnt2d.hxx>
@@ -197,8 +199,16 @@ TopoDS_Shape ThreadOp::buildResult(const TopoDS_Shape& body) const {
             } catch (...) { return {}; }
         };
 
-        auto tryCut = [&](const TopoDS_Shape& tool) -> TopoDS_Shape {
-            if (tool.IsNull()) return {};
+        auto shapeVol = [](const TopoDS_Shape& s) -> double {
+            try {
+                GProp_GProps p;
+                BRepGProp::VolumeProperties(s, p);
+                return p.Mass();
+            } catch (...) { return 0.0; }
+        };
+        const double bodyVol = shapeVol(body);
+
+        auto cutOnce = [&](const TopoDS_Shape& tool) -> TopoDS_Shape {
             try {
                 BRepAlgoAPI_Cut cut;
                 TopTools_ListOfShape args, tools;
@@ -209,17 +219,41 @@ TopoDS_Shape ThreadOp::buildResult(const TopoDS_Shape& body) const {
                 cut.SetFuzzyValue(1.0e-3);
                 cut.Build();
                 if (!cut.IsDone()) return {};
-                TopoDS_Shape res = cut.Shape();
-                // The cut result regularly carries tolerance nits — heal it
-                // so downstream ops (fillets, further booleans, save) get a
-                // clean solid.
-                if (!BRepCheck_Analyzer(res).IsValid()) {
-                    ShapeFix_Shape fixer(res);
-                    fixer.Perform();
-                    res = fixer.Shape();
-                }
-                return res;
+                return cut.Shape();
             } catch (...) { return {}; }
+        };
+
+        auto tryCut = [&](const TopoDS_Shape& tool) -> TopoDS_Shape {
+            if (tool.IsNull()) return {};
+            TopoDS_Shape res = cutOnce(tool);
+            // Validate: a CUT must shrink the body. Against partial bodies
+            // (e.g. the half-rod a reflow re-threads) the helical tool's
+            // classification can invert and the "cut" ADDS the groove volume
+            // — retry with the reversed tool, which flips it back.
+            if (!res.IsNull() && shapeVol(res) > bodyVol + 1e-3) {
+                std::fprintf(stderr, "[Thread] cut inverted (vol grew) — "
+                                     "retrying with reversed tool\n");
+                TopoDS_Shape rev = tool;
+                rev.Reverse();
+                res = cutOnce(rev);
+            }
+            if (res.IsNull()) return {};
+            double v = shapeVol(res);
+            if (v > bodyVol + 1e-3 || v < 0.0) {
+                std::fprintf(stderr, "[Thread] cut produced invalid volume "
+                                     "(%.2f vs body %.2f) — rejecting\n",
+                             v, bodyVol);
+                return {};
+            }
+            // The cut result regularly carries tolerance nits — heal it so
+            // downstream ops (fillets, further booleans, save) get a clean
+            // solid.
+            if (!BRepCheck_Analyzer(res).IsValid()) {
+                ShapeFix_Shape fixer(res);
+                fixer.Perform();
+                res = fixer.Shape();
+            }
+            return res;
         };
 
         std::fprintf(stderr, "[Thread] cutting (span %.2f..%.2f)...\n", vLo, vHi);

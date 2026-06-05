@@ -29,6 +29,9 @@ public:
     void renderProperties() override;
     std::string typeId() const override { return "boolean"; }
     OperationDiff captureDiff() const override;
+    std::vector<int> plannedBodyIds() const override {
+        return {m_targetBodyId, m_toolBodyId};
+    }
 
 private:
     int m_targetBodyId = -1;

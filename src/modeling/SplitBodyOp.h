@@ -26,6 +26,7 @@ public:
     void renderProperties() override;
     std::string typeId() const override { return "split_body"; }
     OperationDiff captureDiff() const override;
+    std::vector<int> plannedBodyIds() const override { return {m_bodyId}; }
 
 private:
     int m_bodyId = -1;

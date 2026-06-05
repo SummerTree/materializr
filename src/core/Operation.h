@@ -88,6 +88,15 @@ public:
     bool isEnabled() const { return m_enabled; }
     void setEnabled(bool enabled) { m_enabled = enabled; }
 
+    // Body ids this op will read/modify when executed — known BEFORE
+    // execution for ops that carry explicit target ids. Used by the
+    // thread-last reflow: an op that touches a threaded body is inserted
+    // BEFORE the trailing Thread steps so its boolean runs against clean
+    // geometry (OCCT can't classify cuts along helical groove fields), and
+    // the thread re-cuts parametrically afterwards. Empty (the default)
+    // means "unknown / not boolean-sensitive" — no reflow.
+    virtual std::vector<int> plannedBodyIds() const { return {}; }
+
     // Maintained by History: the serialised parameter set from this op's last
     // SUCCESSFUL execute. Used to roll a rejected edit back — the UI mutates
     // params in place before editStep runs, so "the values that worked" must

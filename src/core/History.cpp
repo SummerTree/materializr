@@ -10,6 +10,21 @@ bool History::pushOperation(std::unique_ptr<Operation> op, Document& doc) {
         return false;
     }
 
+    // Thread-last reflow: threads are a finishing pass. An op that touches
+    // a threaded body is inserted BEFORE the trailing Thread steps so its
+    // boolean runs against clean geometry (OCCT cannot classify cuts along
+    // helical groove fields — established empirically at length), and the
+    // threads re-cut parametrically afterwards.
+    {
+        int at = reflowInsertionIndex(*op);
+        if (at >= 0) {
+            std::fprintf(stderr, "[History] reflow: inserting '%s' before "
+                                 "thread step %d\n",
+                         op->name().c_str(), at);
+            return insertStepAndReplay(at, std::move(op), doc);
+        }
+    }
+
     // Execute the operation
     if (!op->execute(doc)) {
         return false;
@@ -308,4 +323,76 @@ void History::clear() {
 
 const std::vector<std::unique_ptr<Operation>>& History::operations() const {
     return m_operations;
+}
+
+int History::reflowInsertionIndex(const Operation& op) const {
+    if (op.typeId() == "thread") return -1; // stacking threads is fine as-is
+    std::vector<int> planned = op.plannedBodyIds();
+    if (planned.empty()) return -1;
+
+    int limit = m_currentIndex;
+    if (m_breakpoint >= 0 && m_breakpoint < limit) limit = m_breakpoint;
+
+    int insertAt = -1;
+    for (int i = limit; i >= 0; --i) {
+        const Operation* s = m_operations[i].get();
+        if (s->typeId() != "thread") break; // only a TRAILING thread run
+        if (!s->isEnabled()) continue;
+        OperationDiff d = s->captureDiff();
+        for (const auto& [id, shp] : d.modifiedBefore) {
+            for (int p : planned) {
+                if (p == id) { insertAt = i; break; }
+            }
+        }
+    }
+    return insertAt;
+}
+
+bool History::insertStepAndReplay(int index, std::unique_ptr<Operation> op,
+                                  Document& doc) {
+    int limit = m_currentIndex;
+    if (m_breakpoint >= 0 && m_breakpoint < limit) limit = m_breakpoint;
+    if (index < 0 || index > limit) return false;
+
+    // Roll back to just before the threads.
+    for (int i = limit; i >= index; --i) {
+        Operation* s = m_operations[i].get();
+        if (s->isEnabled()) s->undo(doc);
+    }
+
+    // The new op runs against clean geometry.
+    if (!op->execute(doc)) {
+        // Failed — put the displaced steps back and report failure.
+        for (int i = index; i <= limit; ++i) {
+            Operation* s = m_operations[i].get();
+            if (s->isEnabled() && s->execute(doc)) s->rememberGoodParams();
+        }
+        return false;
+    }
+    op->rememberGoodParams();
+
+    // Splice it in and replay the displaced threads on the new geometry.
+    m_operations.insert(m_operations.begin() + index, std::move(op));
+    if (m_breakpoint >= index) m_breakpoint++;
+    m_currentIndex = limit + 1;
+    for (int i = index + 1; i <= limit + 1; ++i) {
+        Operation* s = m_operations[i].get();
+        if (s->isEnabled()) {
+            if (!s->execute(doc)) {
+                // The thread couldn't re-cut the new geometry (e.g. its
+                // cylindrical span was consumed). The op the user asked for
+                // DID apply; the thread suspends with the explainer banner.
+                std::fprintf(stderr, "[History] reflow: step %d '%s' could "
+                                     "not re-execute\n",
+                             i, s->name().c_str());
+                m_currentIndex = i - 1;
+                m_failedReplayAt = i;
+                break;
+            }
+            s->rememberGoodParams();
+        }
+    }
+    if (m_eventBus)
+        m_eventBus->publish(materializr::HistoryStepEvent{m_currentIndex, false});
+    return true;
 }

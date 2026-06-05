@@ -41,6 +41,12 @@ public:
     void renderProperties() override;
     std::string typeId() const override { return "pushpull"; }
     OperationDiff captureDiff() const override;
+    std::vector<int> plannedBodyIds() const override {
+        std::vector<int> ids;
+        for (const auto& t : m_targets)
+            if (t.sourceBodyId >= 0) ids.push_back(t.sourceBodyId);
+        return ids;
+    }
     std::string serializeParams() const override;
     bool deserializeParams(const std::string& blob) override;
     bool rehydrateFromReload(const ReloadState& state, Document& doc) override;

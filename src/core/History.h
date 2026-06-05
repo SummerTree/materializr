@@ -33,6 +33,19 @@ public:
     int currentStep() const; // index of last executed step
     const Operation* getStep(int index) const;
 
+    // Thread-last reflow support: if `op` plans to touch a body that the
+    // trailing Thread steps modified, returns the index those threads start
+    // at (where the op should be inserted); -1 = no reflow needed.
+    int reflowInsertionIndex(const Operation& op) const;
+    // Insert `op` at `index`, executing it against the state rolled back to
+    // just before `index`, then replay the displaced steps (the threads
+    // re-cut parametrically on the new geometry). Returns false only if the
+    // INSERTED op itself fails (history left as it was); a displaced step
+    // failing to re-execute suspends with lastReplayFailure(), same as
+    // editStep.
+    bool insertStepAndReplay(int index, std::unique_ptr<Operation> op,
+                             Document& doc);
+
     // Edit a historical step's parameters and replay. Editing a step ABOVE
     // the current index (e.g. one suspended by a failed recompute) rolls
     // forward to it instead of refusing; a successful edit also auto-retries
