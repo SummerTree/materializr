@@ -174,7 +174,11 @@ TopoDS_Shape ThreadOp::buildResult(const TopoDS_Shape& body) const {
                 // (chirality is invariant under axis flip).
                 double t = (hi - lo) / m_pitch;
                 double uSign = m_rightHanded ? 1.0 : -1.0;
-                double halfW = std::min(0.57735 * depth, 0.45 * m_pitch) * 0.5;
+                // Groove opening = 7/8 of the pitch, leaving an ISO-like
+                // crest land of P/8. The old 0.45·pitch cap (a leftover sweep
+                // -era safety) left two-thirds of the pitch as flat land —
+                // Steve: "looks more like a leadscrew than an actual screw".
+                double halfW = 0.4375 * m_pitch;
                 int nSeg = std::max(4, static_cast<int>(std::ceil(t)));
 
                 TopoDS_Wire w1 = bandWire(sOut, uSign, lo, hi, halfW, nSeg);
