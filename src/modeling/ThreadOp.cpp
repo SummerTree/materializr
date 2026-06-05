@@ -2,6 +2,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cmath>
+#include <algorithm>
+#include <algorithm>
 #include <vector>
 #include <Geom_CylindricalSurface.hxx>
 #include <Geom2d_Line.hxx>
@@ -12,6 +14,9 @@
 #include <BRepOffsetAPI_MakePipeShell.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepClass3d_SolidClassifier.hxx>
+#include <BRepCheck_Analyzer.hxx>
+#include <ShapeFix_Shape.hxx>
+#include <TopTools_ListOfShape.hxx>
 #include <TopoDS.hxx>
 #include <gp_Ax3.hxx>
 #include <gp_Pnt2d.hxx>
@@ -48,6 +53,17 @@ TopoDS_Shape ThreadOp::buildResult(const TopoDS_Shape& body) const {
     // sane model at this app's scale (+2 below for the runout extensions).
     if (turns > 300.0) return {};
 
+    // Geometric sanity: a depth beyond ~0.65·pitch merges adjacent grooves
+    // and leaves paper-thin helical fins instead of crests (ISO depth is
+    // 0.6134·P); beyond ~45% of the radius it eats the core. Clamp rather
+    // than fail — the UI clamps too, but reloaded files / old params must
+    // never produce garbage solids.
+    const double depth = std::min({m_depth, 0.65 * m_pitch, 0.45 * m_radius});
+    if (depth <= 0.0) return {};
+
+    std::fprintf(stderr, "[Thread] buildResult: pitch=%.3f depth=%.3f r=%.3f "
+                         "len=%.3f hole=%d\n",
+                 m_pitch, m_depth, m_radius, m_length, m_isHole ? 1 : 0);
     try {
         // Rebuild the axis from the serialisable components (identical for
         // fresh and reloaded ops).
@@ -68,8 +84,8 @@ TopoDS_Shape ThreadOp::buildResult(const TopoDS_Shape& body) const {
         // mid-groove radius) lies outside the body — a rod tip or a hole
         // mouth extends; a boss rooted in a plate or a blind hole bottom
         // stays exact so the cutter can't gouge surrounding material.
-        double probeR = m_isHole ? (m_radius + 0.5 * m_depth)
-                                 : (m_radius - 0.5 * m_depth);
+        double probeR = m_isHole ? (m_radius + 0.5 * depth)
+                                 : (m_radius - 0.5 * depth);
         auto endIsFree = [&](double vBeyond) {
             try {
                 BRepClass3d_SolidClassifier cls(body, pt(probeR, vBeyond), 1e-6);
@@ -80,55 +96,98 @@ TopoDS_Shape ThreadOp::buildResult(const TopoDS_Shape& body) const {
         double vHi = m_length +
                      (endIsFree(m_length + 0.6 * m_pitch) ? m_pitch : 0.0);
         turns = (vHi - vLo) / m_pitch;
+        std::fprintf(stderr, "[Thread] runout: vLo=%.3f vHi=%.3f turns=%.1f\n",
+                     vLo, vHi, turns);
 
-        // ---- Helix spine: a straight 2D line on the cylindrical surface.
-        // U is the angular coordinate, V the axial one, so slope pitch/2π in
-        // (U,V) IS the helix; handedness flips the U direction.
-        Handle(Geom_CylindricalSurface) cylSurf =
-            new Geom_CylindricalSurface(ax3, m_radius);
-        gp_Dir2d slope(m_rightHanded ? 2.0 * M_PI : -2.0 * M_PI, m_pitch);
-        Handle(Geom2d_Line) line2d =
-            new Geom2d_Line(gp_Pnt2d(0.0, vLo), slope);
-        // Parametric length of `turns` revolutions along that 2D line.
-        double uLen = std::sqrt(4.0 * M_PI * M_PI + m_pitch * m_pitch) * turns;
-        TopoDS_Edge helixEdge =
-            BRepBuilderAPI_MakeEdge(line2d, cylSurf, 0.0, uLen).Edge();
-        BRepLib::BuildCurves3d(helixEdge); // pipe shell needs the 3D curve
-        TopoDS_Wire spine = BRepBuilderAPI_MakeWire(helixEdge).Wire();
+        // Build the groove cutter for a given helix span [lo, hi] along the
+        // axis: helix as a straight 2D line on the cylindrical surface
+        // (U angular, V axial — slope pitch/2π IS the helix, sign = hand),
+        // swept with a 60° V profile in binormal mode so the triangle stays
+        // axis-aligned the whole way round (Frenet would corkscrew it).
+        auto buildCutter = [&](double lo, double hi) -> TopoDS_Shape {
+            try {
+                double t = (hi - lo) / m_pitch;
+                Handle(Geom_CylindricalSurface) cylSurf =
+                    new Geom_CylindricalSurface(ax3, m_radius);
+                gp_Dir2d slope(m_rightHanded ? 2.0 * M_PI : -2.0 * M_PI, m_pitch);
+                Handle(Geom2d_Line) line2d =
+                    new Geom2d_Line(gp_Pnt2d(0.0, lo), slope);
+                double uLen =
+                    std::sqrt(4.0 * M_PI * M_PI + m_pitch * m_pitch) * t;
+                TopoDS_Edge helixEdge =
+                    BRepBuilderAPI_MakeEdge(line2d, cylSurf, 0.0, uLen).Edge();
+                BRepLib::BuildCurves3d(helixEdge); // pipe needs the 3D curve
+                TopoDS_Wire spine = BRepBuilderAPI_MakeWire(helixEdge).Wire();
 
-        // ---- V-groove profile at the helix start (U=0, V=vLo). The triangle
-        // lives in the radial/axial plane: base slightly on the MATERIAL-FREE
-        // side of the surface so the cut detaches cleanly, apex `depth` into
-        // the material. Hole: material is outside the surface → apex outward.
-        double pad   = 0.05 * m_pitch + 1e-3;
-        double baseR = m_isHole ? (m_radius - pad) : (m_radius + pad);
-        double apexR = m_isHole ? (m_radius + m_depth) : (m_radius - m_depth);
-        // 60° ISO flanks: half-width = depth·tan(30°). Capped at 0.45·pitch
-        // so adjacent grooves can't merge and shave the crests off entirely.
-        double halfW = std::min(0.57735 * m_depth, 0.45 * m_pitch);
+                // V profile at the helix start: base slightly on the
+                // material-free side so the cut detaches cleanly, apex
+                // `depth` into the material; 60° ISO flanks capped so
+                // adjacent grooves can't merge.
+                double pad   = 0.05 * m_pitch + 1e-3;
+                double baseR = m_isHole ? (m_radius - pad) : (m_radius + pad);
+                double apexR = m_isHole ? (m_radius + depth) : (m_radius - depth);
+                double halfW = std::min(0.57735 * depth, 0.45 * m_pitch);
+                BRepBuilderAPI_MakePolygon tri;
+                tri.Add(pt(baseR, lo - halfW));
+                tri.Add(pt(baseR, lo + halfW));
+                tri.Add(pt(apexR, lo));
+                tri.Close();
 
-        BRepBuilderAPI_MakePolygon tri;
-        tri.Add(pt(baseR, vLo - halfW));
-        tri.Add(pt(baseR, vLo + halfW));
-        tri.Add(pt(apexR, vLo));
-        tri.Close();
-        TopoDS_Wire profile = tri.Wire();
+                BRepOffsetAPI_MakePipeShell pipe(spine);
+                pipe.SetMode(zd);
+                pipe.Add(tri.Wire(), Standard_False, Standard_False);
+                pipe.Build();
+                if (!pipe.IsDone()) return {};
+                if (!pipe.MakeSolid()) return {};
+                TopoDS_Shape cutter = pipe.Shape();
+                // Helical sweeps regularly come out marginally invalid, and
+                // the boolean then rejects them outright — heal first.
+                if (!BRepCheck_Analyzer(cutter).IsValid()) {
+                    std::fprintf(stderr, "[Thread] healing swept cutter\n");
+                    ShapeFix_Shape fixer(cutter);
+                    fixer.Perform();
+                    cutter = fixer.Shape();
+                }
+                return cutter;
+            } catch (...) { return {}; }
+        };
 
-        // ---- Sweep the profile along the helix. Binormal mode keeps the
-        // triangle's axial edge parallel to the cylinder axis the whole way
-        // round (Frenet would corkscrew it).
-        BRepOffsetAPI_MakePipeShell pipe(spine);
-        pipe.SetMode(zd);
-        pipe.Add(profile, Standard_False, Standard_False);
-        pipe.Build();
-        if (!pipe.IsDone()) return {};
-        if (!pipe.MakeSolid()) return {};
+        auto tryCut = [&](const TopoDS_Shape& tool) -> TopoDS_Shape {
+            if (tool.IsNull()) return {};
+            try {
+                BRepAlgoAPI_Cut cut;
+                TopTools_ListOfShape args, tools;
+                args.Append(body);
+                tools.Append(tool);
+                cut.SetArguments(args);
+                cut.SetTools(tools);
+                // Fuzzy tolerance is the standard remedy for helical contact
+                // zones — without it the cut fails on near-coincident strips.
+                cut.SetFuzzyValue(1.0e-3);
+                cut.Build();
+                if (!cut.IsDone()) return {};
+                return cut.Shape();
+            } catch (...) { return {}; }
+        };
 
-        BRepAlgoAPI_Cut cut(body, pipe.Shape());
-        cut.Build();
-        if (!cut.IsDone()) return {};
-        return cut.Shape();
+        std::fprintf(stderr, "[Thread] sweeping (span %.2f..%.2f)...\n", vLo, vHi);
+        TopoDS_Shape result = tryCut(buildCutter(vLo, vHi));
+        if (result.IsNull() && (vLo < 0.0 || vHi > m_length)) {
+            // The runout-extended cutter crosses the end caps, which the
+            // boolean occasionally rejects outright. Retry on the exact face
+            // span — a blunt thread end beats no thread at all.
+            std::fprintf(stderr,
+                         "[Thread] runout cut failed — retrying exact span\n");
+            result = tryCut(buildCutter(0.0, m_length));
+        }
+        if (result.IsNull()) {
+            std::fprintf(stderr, "[Thread] boolean cut FAILED\n");
+            return {};
+        }
+        std::fprintf(stderr, "[Thread] buildResult OK\n");
+        return result;
     } catch (...) {
+        std::fprintf(stderr, "[Thread] buildResult threw\n");
         return {};
     }
 }
@@ -182,6 +241,11 @@ void ThreadOp::renderProperties() {
     if (m_pitch < 0.1) m_pitch = 0.1;
     ImGui::InputDouble("Depth (mm)", &m_depth, 0.05, 0.2, "%.2f");
     if (m_depth < 0.05) m_depth = 0.05;
+    // Past ~0.65·pitch the grooves merge and shred the crests into floating
+    // helical fins (Steve found this empirically — "it's jumping lol").
+    double maxDepth = std::min(0.65 * m_pitch, 0.45 * m_radius);
+    if (m_depth > maxDepth) m_depth = maxDepth;
+    ImGui::TextDisabled("Depth caps at 0.65 \xC3\x97 pitch (ISO is 0.61).");
     bool rh = m_rightHanded;
     if (ImGui::Checkbox("Right-handed", &rh)) m_rightHanded = rh;
     ImGui::Text("Diameter: %.2f mm   Length: %.2f mm", m_radius * 2.0, m_length);

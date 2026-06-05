@@ -1327,6 +1327,18 @@ void Application::renderThreadPanel() {
         if (v >= 0.05f) m_threadDepth = v;
     }
     ImGui::SameLine(); ImGui::Text("mm");
+    // Depth beyond ~0.65·pitch merges grooves into floating helical fins;
+    // beyond ~45% of the radius it eats the core. Clamp + say so.
+    {
+        float maxDepth = static_cast<float>(
+            std::min(0.65 * m_threadPitch, 0.45 * m_threadRadius));
+        if (m_threadDepth > maxDepth) {
+            m_threadDepth = maxDepth;
+            std::snprintf(m_threadDepthBuf, sizeof(m_threadDepthBuf), "%.2f",
+                          m_threadDepth);
+        }
+        ImGui::TextDisabled("Depth caps at 0.65 \xC3\x97 pitch.");
+    }
 
     ImGui::Checkbox("Right-handed", &m_threadRightHanded);
 

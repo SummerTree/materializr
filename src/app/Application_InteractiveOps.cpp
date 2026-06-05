@@ -550,6 +550,14 @@ std::unique_ptr<ThreadOp> Application::makeThreadOpFromState() const {
 
 void Application::commitThread() {
     if (m_threadBodyId < 0) { cancelThread(); return; }
+    if (m_threadComputing) {
+        // Assigning a new std::async future while the old one is in flight
+        // BLOCKS until it finishes — exactly the "app frozen and punishing
+        // the CPU" failure. One compute at a time.
+        std::fprintf(stderr, "[Thread] Apply ignored — still computing\n");
+        return;
+    }
+    std::fprintf(stderr, "[Thread] Apply: launching worker\n");
     // Kick the multi-second sweep + boolean onto a worker thread. The shape
     // handle is copied in (OCCT handles are atomically refcounted) and the
     // worker touches no Document state; renderThreadPanel polls the future
