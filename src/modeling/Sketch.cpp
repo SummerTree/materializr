@@ -16,8 +16,8 @@
 #include <Geom_Curve.hxx>
 #include <GC_MakeCircle.hxx>
 #include <GC_MakeArcOfCircle.hxx>
-#include <GeomAPI_Interpolate.hxx>
-#include <TColgp_HArray1OfPnt.hxx>
+#include <GeomAPI_PointsToBSpline.hxx>
+#include <TColgp_Array1OfPnt.hxx>
 #include <Geom_BSplineCurve.hxx>
 #include <ElCLib.hxx>
 #include <gp_Pnt.hxx>
@@ -226,73 +226,74 @@ const std::vector<SketchSpline>& Sketch::getSplines() const {
     return m_splines;
 }
 
+namespace {
+// Centripetal Catmull-Rom point on the span p1->p2 at local t in [0,1].
+// LOCAL control: each span only sees its two neighbours, so the curve
+// hugs the clicked points instead of ballooning the way a global C2
+// interpolation does around sparse points and closed seams (Steve's
+// "the math is just a little off / it ends weird" vase).
+glm::vec2 catmullRomPoint(glm::vec2 p0, glm::vec2 p1, glm::vec2 p2,
+                          glm::vec2 p3, float t) {
+    auto tj = [](float ti, glm::vec2 a, glm::vec2 b) {
+        float d = glm::length(b - a);
+        return ti + std::sqrt(std::max(d, 1e-6f));
+    };
+    float t0 = 0.0f;
+    float t1 = tj(t0, p0, p1);
+    float t2 = tj(t1, p1, p2);
+    float t3 = tj(t2, p2, p3);
+    float tt = t1 + (t2 - t1) * t;
+    auto lp = [](glm::vec2 a, glm::vec2 b, float u) {
+        return a * (1.0f - u) + b * u;
+    };
+    glm::vec2 A1 = lp(p0, p1, (tt - t0) / std::max(t1 - t0, 1e-6f));
+    glm::vec2 A2 = lp(p1, p2, (tt - t1) / std::max(t2 - t1, 1e-6f));
+    glm::vec2 A3 = lp(p2, p3, (tt - t2) / std::max(t3 - t2, 1e-6f));
+    glm::vec2 B1 = lp(A1, A2, (tt - t0) / std::max(t2 - t0, 1e-6f));
+    glm::vec2 B2 = lp(A2, A3, (tt - t1) / std::max(t3 - t1, 1e-6f));
+    return lp(B1, B2, (tt - t1) / std::max(t2 - t1, 1e-6f));
+}
+} // anonymous
+
 std::vector<glm::vec2> Sketch::interpolate2D(const std::vector<glm::vec2>& ctrl,
                                              int segsPerSpan, bool closed) {
     int n = static_cast<int>(ctrl.size());
     if (n < 2) return ctrl;
-    try {
-        Handle(TColgp_HArray1OfPnt) pts = new TColgp_HArray1OfPnt(1, n);
-        for (int k = 0; k < n; ++k)
-            pts->SetValue(k + 1, gp_Pnt(ctrl[k].x, ctrl[k].y, 0.0));
-        GeomAPI_Interpolate interp(pts, closed ? Standard_True
-                                               : Standard_False, 1e-6);
-        interp.Perform();
-        if (!interp.IsDone()) return ctrl;
-        Handle(Geom_BSplineCurve) c = interp.Curve();
-        int total = segsPerSpan * std::max(1, n - (closed ? 0 : 1));
-        double f = c->FirstParameter(), l = c->LastParameter();
-        std::vector<glm::vec2> out;
-        out.reserve(total + 1);
-        for (int i = 0; i <= total; ++i) {
-            gp_Pnt p;
-            c->D0(f + (l - f) * i / total, p);
-            out.push_back(glm::vec2(static_cast<float>(p.X()),
-                                    static_cast<float>(p.Y())));
+    auto at = [&](int i) -> glm::vec2 {
+        if (closed) return ctrl[((i % n) + n) % n];
+        // Open ends: reflect the end point through its neighbour for a
+        // natural phantom tangent.
+        if (i < 0) return ctrl[0] * 2.0f - ctrl[1];
+        if (i >= n) return ctrl[n - 1] * 2.0f - ctrl[n - 2];
+        return ctrl[i];
+    };
+    int spans = closed ? n : n - 1;
+    std::vector<glm::vec2> out;
+    out.reserve(spans * segsPerSpan + 1);
+    for (int s = 0; s < spans; ++s) {
+        for (int i = 0; i < segsPerSpan; ++i) {
+            float t = static_cast<float>(i) / segsPerSpan;
+            out.push_back(catmullRomPoint(at(s - 1), at(s), at(s + 1),
+                                          at(s + 2), t));
         }
-        return out;
-    } catch (...) { return ctrl; }
+    }
+    out.push_back(closed ? ctrl[0] : ctrl[n - 1]);
+    return out;
 }
 
 std::vector<glm::vec2> Sketch::sampleSpline2D(const SketchSpline& sp,
                                               int segsPerSpan) const {
-    std::vector<glm::vec2> out;
     const auto& ids = sp.controlPointIds;
-    auto fallback = [&]() {
-        out.clear();
-        for (int id : ids)
-            if (const SketchPoint* p = getPoint(id)) out.push_back(p->pos);
-    };
     bool closedSp = ids.size() > 2 && ids.front() == ids.back();
-    int n = static_cast<int>(ids.size()) - (closedSp ? 1 : 0);
-    if (n < 2) { fallback(); return out; }
-    try {
-        Handle(TColgp_HArray1OfPnt) pts = new TColgp_HArray1OfPnt(1, n);
-        for (int k = 0; k < n; ++k) {
-            const SketchPoint* p = getPoint(ids[k]);
-            if (!p) { fallback(); return out; }
-            pts->SetValue(k + 1, sketchToWorld(p->pos));
-        }
-        GeomAPI_Interpolate interp(pts,
-                                   closedSp ? Standard_True : Standard_False,
-                                   1e-6);
-        interp.Perform();
-        if (!interp.IsDone()) { fallback(); return out; }
-        Handle(Geom_BSplineCurve) c = interp.Curve();
-        gp_Ax3 ax = m_plane.Position();
-        gp_Pnt o = ax.Location();
-        gp_Dir xd = ax.XDirection(), yd = ax.YDirection();
-        int total = segsPerSpan * std::max(1, static_cast<int>(ids.size()) - 1);
-        double f = c->FirstParameter(), l = c->LastParameter();
-        out.reserve(total + 1);
-        for (int i = 0; i <= total; ++i) {
-            gp_Pnt p;
-            c->D0(f + (l - f) * i / total, p);
-            gp_Vec v(o, p);
-            out.push_back(glm::vec2(static_cast<float>(v.Dot(gp_Vec(xd))),
-                                    static_cast<float>(v.Dot(gp_Vec(yd)))));
-        }
-    } catch (...) { fallback(); }
-    return out;
+    std::vector<glm::vec2> ctrl;
+    ctrl.reserve(ids.size());
+    size_t n = ids.size() - (closedSp ? 1 : 0);
+    for (size_t k = 0; k < n; ++k) {
+        const SketchPoint* p = getPoint(ids[k]);
+        if (!p) return ctrl;
+        ctrl.push_back(p->pos);
+    }
+    return interpolate2D(ctrl, segsPerSpan, closedSp);
 }
 
 const std::vector<SketchPolygon>& Sketch::getPolygons() const {
@@ -635,28 +636,25 @@ std::vector<TopoDS_Wire> Sketch::buildWires() const {
             return false; // (a CLOSED spline legitimately starts where it ends)
 
         if (es.splineIdx >= 0) {
-            // Smooth B-spline interpolated through ALL control points,
-            // walked in the chain's direction.
+            // The SAME centripetal Catmull-Rom curve the renderer draws,
+            // densely sampled and fitted with a B-spline — what you see is
+            // what extrudes. Walked in the chain's direction.
             const SketchSpline& sp = m_splines[es.splineIdx];
-            std::vector<int> ids = sp.controlPointIds;
-            bool closedSp = ids.size() > 2 && ids.front() == ids.back();
+            std::vector<glm::vec2> samp = sampleSpline2D(sp, 24);
+            if (samp.size() < 2) return false;
+            bool closedSp = sp.controlPointIds.size() > 2 &&
+                            sp.controlPointIds.front() ==
+                                sp.controlPointIds.back();
             if (fromPt == es.endPtId && !closedSp)
-                std::reverse(ids.begin(), ids.end());
-            int n = static_cast<int>(ids.size()) - (closedSp ? 1 : 0);
-            if (n < 2 && !closedSp) return false;
+                std::reverse(samp.begin(), samp.end());
             try {
-                Handle(TColgp_HArray1OfPnt) pts =
-                    new TColgp_HArray1OfPnt(1, n);
-                for (int k = 0; k < n; ++k) {
-                    const SketchPoint* p = getPoint(ids[k]);
-                    if (!p) return false;
-                    pts->SetValue(k + 1, sketchToWorld(p->pos));
-                }
-                GeomAPI_Interpolate interp(
-                    pts, closedSp ? Standard_True : Standard_False, 1e-6);
-                interp.Perform();
-                if (!interp.IsDone()) return false;
-                BRepBuilderAPI_MakeEdge mk(interp.Curve());
+                TColgp_Array1OfPnt arr(1, static_cast<int>(samp.size()));
+                for (size_t k = 0; k < samp.size(); ++k)
+                    arr.SetValue(static_cast<int>(k) + 1,
+                                 sketchToWorld(samp[k]));
+                GeomAPI_PointsToBSpline fit(arr, 3, 8, GeomAbs_C2, 1.0e-3);
+                if (!fit.IsDone()) return false;
+                BRepBuilderAPI_MakeEdge mk(fit.Curve());
                 if (!mk.IsDone()) return false;
                 wm.Add(mk.Edge());
                 return true;
