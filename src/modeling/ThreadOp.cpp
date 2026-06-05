@@ -110,37 +110,46 @@ TopoDS_Shape ThreadOp::buildResult(const TopoDS_Shape& body) const {
         // four variants, four different wrong answers), these tools cut
         // consistently, and the ellipse tips taper to nothing, giving
         // natural thread runout at both ends.
-        // Half-ellipse wire on a cylindrical surface, SEGMENTED per turn:
-        // the long UV ellipse is trimmed into ~one-turn arcs (and the seam
-        // into matching chunks) so ThruSections lofts a row of tame patches
-        // instead of one 30-turn B-spline — the difference between booleans
-        // that cut reliably and booleans that silently remove nothing
-        // (proven via the headless volume harness on both prism-made and
-        // primitive bodies, both handednesses).
-        auto ellipseWire = [&](const Handle(Geom_CylindricalSurface)& surf,
-                               const gp_Ax2d& ax2d, double major, double minor,
-                               int nSeg) -> TopoDS_Wire {
-            Handle(Geom2d_Ellipse) ell = new Geom2d_Ellipse(ax2d, major, minor);
+        // Closed UV band wire on a cylindrical surface: helix seam, half-turn
+        // taper up, an offset line PARALLEL to the helix (constant groove all
+        // the way — a stretched half-ellipse made the groove deep mid-rod and
+        // shallow at the ends, Steve's "slinky"), half-turn taper down. All
+        // edges are straight 2D lines on the surface (clean helical curves in
+        // 3D), and the long runs are CHUNKED per turn — the tame-patch
+        // segmentation that makes the boolean cut reliably (a single
+        // 30-turn-long lofted spline removes nothing or worse; proven via the
+        // headless volume harness on prism + primitive bodies, both hands).
+        auto bandWire = [&](const Handle(Geom_CylindricalSurface)& surf,
+                            double uSign, double lo, double hi, double off,
+                            int nSeg) -> TopoDS_Wire {
+            auto onHelix = [&](double v) {
+                return gp_Pnt2d(uSign * 2.0 * M_PI * (v - lo) / m_pitch, v);
+            };
+            auto offHelix = [&](double v) {
+                gp_Pnt2d p = onHelix(v);
+                return gp_Pnt2d(p.X(), p.Y() + off);
+            };
+            double tl = 0.5 * m_pitch; // taper length at each end
+            gp_Pnt2d A = onHelix(lo), B = offHelix(lo + tl),
+                     C = offHelix(hi - tl), D = onHelix(hi);
             BRepBuilderAPI_MakeWire mw;
-            for (int i = 0; i < nSeg; ++i) {
-                double t0 = M_PI * i / nSeg, t1 = M_PI * (i + 1) / nSeg;
-                Handle(Geom2d_TrimmedCurve) a =
-                    new Geom2d_TrimmedCurve(ell, t0, t1);
-                TopoDS_Edge e = BRepBuilderAPI_MakeEdge(a, surf).Edge();
-                BRepLib::BuildCurves3d(e);
-                mw.Add(e);
-            }
-            gp_Pnt2d p1 = ell->Value(M_PI), p2 = ell->Value(0);
-            for (int i = 0; i < nSeg; ++i) {
-                gp_Pnt2d a(p1.X() + (p2.X() - p1.X()) * i / nSeg,
-                           p1.Y() + (p2.Y() - p1.Y()) * i / nSeg);
-                gp_Pnt2d b(p1.X() + (p2.X() - p1.X()) * (i + 1) / nSeg,
-                           p1.Y() + (p2.Y() - p1.Y()) * (i + 1) / nSeg);
-                Handle(Geom2d_TrimmedCurve) sgm = GCE2d_MakeSegment(a, b).Value();
-                TopoDS_Edge e = BRepBuilderAPI_MakeEdge(sgm, surf).Edge();
-                BRepLib::BuildCurves3d(e);
-                mw.Add(e);
-            }
+            auto addChunked = [&](gp_Pnt2d p, gp_Pnt2d q, int n) {
+                for (int i = 0; i < n; ++i) {
+                    gp_Pnt2d a(p.X() + (q.X() - p.X()) * i / n,
+                               p.Y() + (q.Y() - p.Y()) * i / n);
+                    gp_Pnt2d b(p.X() + (q.X() - p.X()) * (i + 1) / n,
+                               p.Y() + (q.Y() - p.Y()) * (i + 1) / n);
+                    Handle(Geom2d_TrimmedCurve) sg =
+                        GCE2d_MakeSegment(a, b).Value();
+                    TopoDS_Edge e = BRepBuilderAPI_MakeEdge(sg, surf).Edge();
+                    BRepLib::BuildCurves3d(e);
+                    mw.Add(e);
+                }
+            };
+            addChunked(A, B, 1);
+            addChunked(B, C, nSeg);
+            addChunked(C, D, 1);
+            addChunked(D, A, nSeg + 2); // seam back along the helix
             return mw.Wire();
         };
 
@@ -156,22 +165,15 @@ TopoDS_Shape ThreadOp::buildResult(const TopoDS_Shape& body) const {
                 Handle(Geom_CylindricalSurface) sIn =
                     new Geom_CylindricalSurface(ax3, rIn);
 
-                // One long, thin ellipse in (U, V) space whose major axis runs
-                // along the helix; the U sign sets the handedness (chirality
-                // is invariant under axis flip, so u+ is right-handed for any
-                // face axis orientation).
+                // u+ is a right-handed screw for any face axis orientation
+                // (chirality is invariant under axis flip).
                 double t = (hi - lo) / m_pitch;
-                double uMax = 2.0 * M_PI * t;
                 double uSign = m_rightHanded ? 1.0 : -1.0;
-                gp_Pnt2d centre(uSign * uMax * 0.5, (lo + hi) * 0.5);
-                gp_Dir2d along(uSign * 2.0 * M_PI, m_pitch);
-                gp_Ax2d ax2d(centre, along);
-                double major = 0.5 * std::hypot(uMax, hi - lo);
-                double minor = std::min(0.57735 * depth, 0.45 * m_pitch);
+                double halfW = std::min(0.57735 * depth, 0.45 * m_pitch);
                 int nSeg = std::max(4, static_cast<int>(std::ceil(t)));
 
-                TopoDS_Wire w1 = ellipseWire(sOut, ax2d, major, minor, nSeg);
-                TopoDS_Wire w2 = ellipseWire(sIn, ax2d, major, minor * 0.25, nSeg);
+                TopoDS_Wire w1 = bandWire(sOut, uSign, lo, hi, halfW, nSeg);
+                TopoDS_Wire w2 = bandWire(sIn, uSign, lo, hi, halfW * 0.25, nSeg);
 
                 BRepOffsetAPI_ThruSections tool(Standard_True);
                 tool.AddWire(w1);
