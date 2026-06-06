@@ -172,6 +172,7 @@ add_executable(materializr
     src/modeling/TransformOp.cpp
     src/modeling/ShellOp.cpp
     src/modeling/TaperOp.cpp
+    src/modeling/ScaleFaceOp.cpp
     src/modeling/SplitBodyOp.cpp
     src/modeling/MirrorOp.cpp
     src/modeling/PatternOp.cpp

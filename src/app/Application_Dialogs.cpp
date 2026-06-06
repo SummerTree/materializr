@@ -812,6 +812,69 @@ void Application::renderTaperPanel() {
     ImGui::End();
 }
 
+void Application::renderScaleFacePanel() {
+    if (!m_scaleFaceActive) return;
+
+    ImGui::SetNextWindowPos(ImVec2(ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - 280,
+                                    ImGui::GetWindowPos().y + 50));
+    ImGui::SetNextWindowSize(ImVec2(260, 0));
+    ImGui::Begin("##ScaleFacePanel", nullptr,
+        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
+        ImGuiWindowFlags_AlwaysAutoResize);
+
+    ImGui::TextColored(ImVec4(0.6f, 0.9f, 1.0f, 1.0f), "Scale Face");
+    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + 240.0f);
+    ImGui::TextDisabled("Pinch (or flare) the body toward a scaled copy of "
+                        "this end face — wing tip to winglet.");
+    ImGui::PopTextWrapPos();
+    ImGui::Separator();
+
+    if (m_scaleFacePreviewOk) {
+        ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.5f, 1.0f),
+                           "Previewing %.0f%% over %.1f mm",
+                           m_scaleFacePct, m_scaleFaceLen);
+    } else {
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + 240.0f);
+        ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.4f, 1.0f),
+                           "No preview: needs a FLAT end face (and 100%% is "
+                           "a no-op). Try another face or tweak values.");
+        ImGui::PopTextWrapPos();
+    }
+
+    bool changed = false;
+    if (ImGui::SliderFloat("Scale", &m_scaleFacePct, 5.0f, 200.0f, "%.0f %%"))
+        changed = true;
+    if (ImGui::SliderFloat("Length", &m_scaleFaceLen, 0.5f, 100.0f,
+                           "%.1f mm"))
+        changed = true;
+    ImGui::Text("Mode");
+    ImGui::SameLine();
+    if (ImGui::RadioButton("Extend tip", m_scaleFaceMode == 0)) {
+        m_scaleFaceMode = 0;
+        changed = true;
+    }
+    ImGui::SameLine();
+    if (ImGui::RadioButton("Pinch existing", m_scaleFaceMode == 1)) {
+        m_scaleFaceMode = 1;
+        changed = true;
+    }
+    if (changed) updateInteractiveScaleFace();
+
+    ImGui::Spacing();
+    bool enter = ImGui::IsKeyPressed(ImGuiKey_Enter, false);
+    bool esc   = ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+    if (ImGui::Button("Confirm (Enter)", ImVec2(120, 0)) || enter)
+        commitInteractiveScaleFace();
+    else {
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel (Esc)", ImVec2(120, 0)) || esc)
+            cancelInteractiveScaleFace();
+    }
+
+    ImGui::End();
+}
+
 void Application::renderScalePanel() {
     // Shown only while the Scale gizmo is active with a body selected.
     if (m_inSketchMode || !m_selection->hasSelectedBodies()) return;

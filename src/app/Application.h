@@ -687,6 +687,23 @@ private:
     void commitInteractiveTaper();
     void cancelInteractiveTaper();
     void renderTaperPanel();
+
+    // Interactive Scale Face (pinch/flare a planar END face's profile over
+    // a blend length — the winglet op). Same pattern as Taper.
+    bool m_scaleFaceActive = false;
+    int  m_scaleFaceBodyId = -1;
+    TopoDS_Face m_scaleFaceFace;
+    float m_scaleFacePct = 30.0f;
+    float m_scaleFaceLen = 10.0f;
+    int   m_scaleFaceMode = 0; // 0=Extend, 1=Pinch
+    bool  m_scaleFacePreviewOk = false;
+    TopoDS_Shape m_scaleFacePreviousShape;
+
+    void beginInteractiveScaleFace();
+    void updateInteractiveScaleFace();
+    void commitInteractiveScaleFace();
+    void cancelInteractiveScaleFace();
+    void renderScaleFacePanel();
     // Resolve the pull direction + neutral-plane point from the current
     // axis choice, the picked faces, and the body's bounds.
     bool resolveTaperFrame(glm::vec3& dirOut, glm::vec3& neutralOut) const;

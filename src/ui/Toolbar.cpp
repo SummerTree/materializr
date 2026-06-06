@@ -473,6 +473,11 @@ ToolAction Toolbar::renderFaceTools() {
     tip("Tilt the picked face(s) by an angle about the body's base - "
         "a cylinder wall becomes a cone, box sides become a pyramid. "
         "Angle and pull axis in the popup.");
+    if (ImGui::Button("Scale Face", ImVec2(-1, 30)))
+        action = ToolAction::ScaleFace;
+    tip("Pinch or flare the body toward a scaled copy of this END face - "
+        "shrink a wing tip profile into a winglet taper. Scale, blend "
+        "length and extend/pinch mode in the popup.");
     if (m_canEditDiameter &&
         ImGui::Button("Edit Diameter", ImVec2(-1, 30)))
         action = ToolAction::EditDiameter;

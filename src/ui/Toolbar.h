@@ -19,7 +19,7 @@ enum class ToolAction {
     // 3D tools that still need the old dispatch path. (Face extrude is owned by
     // ExtrudePlugin's toolbar button; the inline interactive extrude is reached
     // from sketch-extrude and the viewport context menu, not via a ToolAction.)
-    Fillet, Chamfer, EditFilletChamfer, EditDiameter, Shell, Thread, Taper,
+    Fillet, Chamfer, EditFilletChamfer, EditDiameter, Shell, Thread, Taper, ScaleFace,
     // Gizmo modes + Mirror
     Move, Rotate, Scale, Mirror, Revolve,
     // Sketch constraints (operate on the current SketchTool element selection).

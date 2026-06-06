@@ -1274,6 +1274,19 @@ void Application::handleToolAction(int action) {
             break;
         }
 
+        case ToolAction::ScaleFace: {
+            for (const auto& e : m_selection->getSelection()) {
+                if (e.type == SelectionType::Face && e.bodyId >= 0 &&
+                    !e.shape.IsNull()) {
+                    m_scaleFaceBodyId = e.bodyId;
+                    m_scaleFaceFace = TopoDS::Face(e.shape);
+                    beginInteractiveScaleFace();
+                    break;
+                }
+            }
+            break;
+        }
+
         case ToolAction::EditFilletChamfer: {
             // Find the FilletOp / ChamferOp in history that owns the picked face,
             // then re-open it for editing with the existing radius / distance.
@@ -1558,6 +1571,8 @@ void Application::handleShortcuts() {
             cancelInteractiveShell();
         } else if (m_taperActive) {
             cancelInteractiveTaper();
+        } else if (m_scaleFaceActive) {
+            cancelInteractiveScaleFace();
         } else if (m_resizeCylActive) {
             cancelResizeCylindrical();
         } else if (m_edgeOpActive) {
@@ -1663,21 +1678,34 @@ void Application::handleShortcuts() {
             const auto& sel = m_selection->getSelection();
             std::vector<int> bodiesToDelete;
             std::vector<int> sketchesToDelete;
+            std::vector<int> planesToDelete;
+            std::vector<int> axesToDelete;
             for (const auto& entry : sel) {
                 // A selected sketch (or sketch region) deletes the whole
-                // sketch; a body/face/edge selection deletes its body.
+                // sketch; a body/face/edge selection deletes its body;
+                // planes and axes delete directly (same as the Items
+                // panel's right-click — the Delete key used to silently
+                // ignore them).
                 if (entry.type == SelectionType::Sketch || entry.type == SelectionType::SketchRegion) {
                     if (entry.sketchId >= 0) {
                         bool already = false;
                         for (int s : sketchesToDelete) { if (s == entry.sketchId) { already = true; break; } }
                         if (!already) sketchesToDelete.push_back(entry.sketchId);
                     }
+                } else if (entry.type == SelectionType::Plane) {
+                    if (entry.planeId >= 0) planesToDelete.push_back(entry.planeId);
+                } else if (entry.type == SelectionType::Axis) {
+                    if (entry.axisId >= 0) axesToDelete.push_back(entry.axisId);
                 } else if (entry.bodyId >= 0) {
                     bool already = false;
                     for (int b : bodiesToDelete) { if (b == entry.bodyId) { already = true; break; } }
                     if (!already) bodiesToDelete.push_back(entry.bodyId);
                 }
             }
+            for (int pid : planesToDelete) { m_document->removePlane(pid); markDirty(); }
+            for (int aid : axesToDelete)   { m_document->removeAxis(aid);  markDirty(); }
+            if (!planesToDelete.empty() || !axesToDelete.empty())
+                m_selection->clear();
             for (int bodyId : bodiesToDelete) {
                 auto op = std::make_unique<DeleteOp>();
                 op->setBodyId(bodyId);
@@ -3256,6 +3284,7 @@ void Application::run() {
             renderResizeCylindricalPanel();
             renderShellPanel();
             renderTaperPanel();
+            renderScaleFacePanel();
             renderPatternPanel();
             renderThreadPanel();
             renderSectionPanel();

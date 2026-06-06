@@ -22,6 +22,7 @@
 #include "modeling/ChamferOp.h"
 #include "modeling/ShellOp.h"
 #include "modeling/TaperOp.h"
+#include "modeling/ScaleFaceOp.h"
 #include "modeling/ResizeCylindricalOp.h"
 #include "modeling/ThreadOp.h"
 #include <future>
@@ -899,6 +900,93 @@ void Application::cancelInteractiveTaper() {
     m_taperBodyId = -1;
     m_taperFaces.clear();
     m_taperPreviousShape.Nullify();
+    m_meshesDirty = true;
+}
+
+// --- Interactive Scale Face (winglet pinch / flare) ---
+
+void Application::beginInteractiveScaleFace() {
+    if (m_scaleFaceBodyId < 0 || m_scaleFaceFace.IsNull()) return;
+    try {
+        m_scaleFacePreviousShape = m_document->getBody(m_scaleFaceBodyId);
+    } catch (...) { return; }
+    m_scaleFacePct = 30.0f;
+    m_scaleFaceMode = 0;
+    // Default blend length: ~15% of the body's bbox diagonal - visible at
+    // any scale without dwarfing small parts.
+    m_scaleFaceLen = 10.0f;
+    try {
+        Bnd_Box bb;
+        BRepBndLib::Add(m_scaleFacePreviousShape, bb);
+        if (!bb.IsVoid()) {
+            double x0, y0, z0, x1, y1, z1;
+            bb.Get(x0, y0, z0, x1, y1, z1);
+            float diag = static_cast<float>(
+                gp_Pnt(x0, y0, z0).Distance(gp_Pnt(x1, y1, z1)));
+            m_scaleFaceLen = std::max(1.0f, diag * 0.15f);
+        }
+    } catch (...) {}
+    m_scaleFaceActive = true;
+    updateInteractiveScaleFace();
+}
+
+void Application::updateInteractiveScaleFace() {
+    if (!m_scaleFaceActive || m_scaleFaceBodyId < 0) return;
+    m_document->updateBody(m_scaleFaceBodyId, m_scaleFacePreviousShape);
+    m_meshesDirty = true;
+    m_scaleFacePreviewOk = false;
+    try {
+        auto op = std::make_unique<ScaleFaceOp>();
+        op->setBody(m_scaleFaceBodyId);
+        op->setFace(m_scaleFaceFace);
+        op->setScalePercent(static_cast<double>(m_scaleFacePct));
+        op->setLength(static_cast<double>(m_scaleFaceLen));
+        op->setMode(m_scaleFaceMode == 1 ? ScaleFaceOp::Mode::Pinch
+                                         : ScaleFaceOp::Mode::Extend);
+        if (op->execute(*m_document)) {
+            m_meshesDirty = true;
+            m_scaleFacePreviewOk = true;
+        } else {
+            m_document->updateBody(m_scaleFaceBodyId,
+                                   m_scaleFacePreviousShape);
+        }
+    } catch (...) {
+        m_document->updateBody(m_scaleFaceBodyId, m_scaleFacePreviousShape);
+    }
+}
+
+void Application::commitInteractiveScaleFace() {
+    if (!m_scaleFaceActive) return;
+    m_document->updateBody(m_scaleFaceBodyId, m_scaleFacePreviousShape);
+    if (!m_scaleFacePreviewOk) {
+        cancelInteractiveScaleFace();
+        return;
+    }
+    auto op = std::make_unique<ScaleFaceOp>();
+    op->setBody(m_scaleFaceBodyId);
+    op->setFace(m_scaleFaceFace);
+    op->setScalePercent(static_cast<double>(m_scaleFacePct));
+    op->setLength(static_cast<double>(m_scaleFaceLen));
+    op->setMode(m_scaleFaceMode == 1 ? ScaleFaceOp::Mode::Pinch
+                                     : ScaleFaceOp::Mode::Extend);
+    m_history->pushOperation(std::move(op), *m_document);
+
+    m_scaleFaceActive = false;
+    m_scaleFaceBodyId = -1;
+    m_scaleFaceFace.Nullify();
+    m_scaleFacePreviousShape.Nullify();
+    m_selection->clear();
+    m_meshesDirty = true;
+}
+
+void Application::cancelInteractiveScaleFace() {
+    if (m_scaleFaceBodyId >= 0 && !m_scaleFacePreviousShape.IsNull()) {
+        m_document->updateBody(m_scaleFaceBodyId, m_scaleFacePreviousShape);
+    }
+    m_scaleFaceActive = false;
+    m_scaleFaceBodyId = -1;
+    m_scaleFaceFace.Nullify();
+    m_scaleFacePreviousShape.Nullify();
     m_meshesDirty = true;
 }
 
