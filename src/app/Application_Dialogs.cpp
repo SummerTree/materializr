@@ -776,6 +776,10 @@ void Application::renderTaperPanel() {
                            "No preview: this face can't taper along the "
                            "current Pull axis. Try another axis, Flip base, "
                            "or pick a side face.");
+        ImGui::TextDisabled("Note: only flat / cylindrical / conical walls "
+                            "can be drafted (a kernel limit) - for freeform "
+                            "shapes like wing skins, use Scale Face on the "
+                            "END face instead.");
         ImGui::PopTextWrapPos();
     }
 
