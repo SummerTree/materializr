@@ -1636,6 +1636,9 @@ void Application::renderSnapWidget() {
                 m_sketchGridStep = steps[i];
                 if (m_toolbar) m_toolbar->setGridStep(m_sketchGridStep);
                 saveAppSettings();
+                // Picking a step is the task — close the popup so drawing
+                // resumes immediately (no click-away-to-dismiss).
+                ImGui::CloseCurrentPopup();
             }
             if (active) ImGui::PopStyleColor();
         }

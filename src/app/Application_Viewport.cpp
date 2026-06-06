@@ -203,7 +203,27 @@ void Application::renderViewport() {
                 }
                 if (s_hideMinor) minorAlpha = 0.0f;
             }
-            m_grid->render(view, proj, cam.getTarget(), std::max(fadeDist, 10.0f),
+            // Fade around the centre of the CURRENT VIEW (the view ray's
+            // intersection with the grid plane), not the orbit target —
+            // cursor-zoom walks the view away from the target, and with the
+            // fade still centred there, zooming in moved the whole viewport
+            // outside the (shrinking) fade radius: "the sketch grid
+            // disappears entirely".
+            glm::vec3 fadeCenter = cam.getTarget();
+            {
+                glm::vec3 ro = cam.getPosition();
+                glm::vec3 rd = cam.getTarget() - cam.getPosition();
+                float rl = glm::length(rd);
+                if (rl > 1e-6f) {
+                    rd /= rl;
+                    float denom = glm::dot(rd, gp.normal);
+                    if (std::abs(denom) > 1e-6f) {
+                        float t = glm::dot(gp.origin - ro, gp.normal) / denom;
+                        if (t > 0.0f) fadeCenter = ro + rd * t;
+                    }
+                }
+            }
+            m_grid->render(view, proj, fadeCenter, std::max(fadeDist, 10.0f),
                            gp, std::max(m_sketchGridStep, 0.01f),
                            minorAlpha, 0.55f /*globalAlpha*/);
         }
