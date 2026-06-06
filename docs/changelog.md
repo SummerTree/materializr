@@ -3,6 +3,74 @@
 All notable changes to Materializr are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow SemVer.
 
+## [0.8.0] — 2026-06-05
+
+The "threads and curves" release: real modeled ISO threads with a validated
+cutting engine, a working spline tool, and a section view for looking inside
+parts without cutting them.
+
+### Added
+
+- **Threads.** Select a cylindrical face (rod or hole) → **Thread** → ISO
+  coarse defaults are pre-filled from the diameter; pitch, depth, length and
+  handedness are editable. Threads are real cut geometry — they export to
+  STEP/STL and survive project reload as an editable parametric step.
+
+  **How the cutting works:** a fast single-tool pass handles clean cylinders;
+  anything harder (interrupted or partial cylinders) falls back to a
+  turn-by-turn engine that cuts one thread turn at a time and **validates
+  every cut** — removed volume plus classifier probes for groove depth,
+  crest integrity, and full groove width — before accepting it. Two
+  complementary cutter families (square-ended bands for whole/holed rods,
+  tapered tools for split halves) are selected automatically per body. A cut
+  that cannot be verified is skipped or the whole operation fails cleanly —
+  threads can no longer produce garbage solids or crash the app.
+
+  **Workflow rule — apply threads LAST.** Modeling operations on a threaded
+  body (push/pull, boolean, split) are refused with guidance: delete the
+  Thread step in History, make the change, then re-apply the thread (the
+  step is parametric, so re-applying is a couple of clicks). The Thread
+  panel states this.
+
+  **What threads handle today:** plain rods, chamfered rods, rods with
+  transverse holes, internal threads in holes, and lengthwise-split halves
+  (split first, then thread each half). **Known limitations:** slots crossing
+  the threaded length can leave gapped turns near the slot (failed cuts are
+  skipped honestly, never garbled); threading long or interrupted rods takes
+  up to a minute — every turn is being individually verified; the
+  "operation refused on threaded body" message currently only appears in the
+  console log.
+
+- **Spline sketch tool — now real geometry.** Previously the spline drew a
+  display-only polyline that couldn't extrude. Now: smooth centripetal
+  Catmull-Rom curves that follow your clicks live, close into extrudable
+  regions (click your first point to close, your last point or Enter to
+  finish open), chain with lines and arcs into mixed profiles, and feed
+  extrude/revolve/loft with exactly the curve you see — renderer and
+  geometry sample the same function.
+- **Section View** (View menu). A render-only clipping plane: pick a world
+  plane or any construction plane, drag the offset, flip sides. Bodies open
+  up visually with interior lighting and exact intersection curves traced on
+  the cut — inspect thread profiles or wall thickness with zero booleans and
+  zero risk to the model.
+
+### Changed
+
+- **Push/pull on dense bodies** (threaded rods and anything else past ~250
+  faces) shows a tinted ghost of the tool volume during the drag and runs
+  the real boolean once on release — live dragging no longer freezes the
+  app for seconds per frame.
+- Boolean cuts inside the thread engine run with OCCT's parallel mode.
+
+### Fixed
+
+- Threads no longer produce "stacked poker chip" bodies, inverted cuts,
+  uneven groove widths, or blunt unfinished groove ends at the rod faces —
+  the validated per-turn engine rejects every one of these (each was
+  reproduced and beaten during development).
+- Two segfault classes traced to unvalidated thread cuts reaching the
+  tessellator are gone with their cause.
+
 ## [0.7.0] — 2026-06-04
 
 The "real parametric CAD" release: a reopened project is no longer a frozen
