@@ -745,6 +745,55 @@ void Application::renderShellPanel() {
     ImGui::End();
 }
 
+void Application::renderTaperPanel() {
+    if (!m_taperActive) return;
+
+    ImGui::SetNextWindowPos(ImVec2(ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - 280,
+                                    ImGui::GetWindowPos().y + 50));
+    ImGui::SetNextWindowSize(ImVec2(260, 0));
+    ImGui::Begin("##TaperPanel", nullptr,
+        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
+        ImGuiWindowFlags_AlwaysAutoResize);
+
+    ImGui::TextColored(ImVec4(0.6f, 0.9f, 1.0f, 1.0f), "Taper");
+    ImGui::TextDisabled("%zu face(s) tilt about the body's base.",
+                        m_taperFaces.size());
+    ImGui::Separator();
+
+    bool changed = false;
+    if (ImGui::SliderFloat("Angle", &m_taperAngle, -45.0f, 45.0f, "%.1f deg"))
+        changed = true;
+
+    ImGui::Text("Pull axis");
+    ImGui::SameLine();
+    const char* axisNames[4] = {"Auto", "X", "Y", "Z"};
+    for (int i = 0; i < 4; ++i) {
+        if (i > 0) ImGui::SameLine();
+        if (ImGui::RadioButton(axisNames[i], m_taperAxisIdx == i)) {
+            m_taperAxisIdx = i;
+            changed = true;
+        }
+    }
+    if (ImGui::Checkbox("Flip base (fixed end)", &m_taperFlipBase))
+        changed = true;
+
+    if (changed) updateInteractiveTaper();
+
+    ImGui::Spacing();
+    bool enter = ImGui::IsKeyPressed(ImGuiKey_Enter, false);
+    bool esc   = ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+    if (ImGui::Button("Confirm (Enter)", ImVec2(120, 0)) || enter)
+        commitInteractiveTaper();
+    else {
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel (Esc)", ImVec2(120, 0)) || esc)
+            cancelInteractiveTaper();
+    }
+
+    ImGui::End();
+}
+
 void Application::renderScalePanel() {
     // Shown only while the Scale gizmo is active with a body selected.
     if (m_inSketchMode || !m_selection->hasSelectedBodies()) return;

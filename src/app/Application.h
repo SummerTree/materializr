@@ -670,6 +670,26 @@ private:
     void cancelInteractiveShell();
     void renderShellPanel();
 
+    // Interactive Taper (draft selected faces about the body's base along a
+    // pull axis — cylinder→cone, box→pyramid). Same popup-with-live-preview
+    // pattern as Shell.
+    bool m_taperActive = false;
+    int  m_taperBodyId = -1;
+    std::vector<TopoDS_Face> m_taperFaces;
+    float m_taperAngle = 5.0f;      // degrees
+    int   m_taperAxisIdx = 0;       // 0=Auto, 1=X, 2=Y, 3=Z (user convention)
+    bool  m_taperFlipBase = false;  // neutral plane at the far end instead
+    TopoDS_Shape m_taperPreviousShape;
+
+    void beginInteractiveTaper();
+    void updateInteractiveTaper();
+    void commitInteractiveTaper();
+    void cancelInteractiveTaper();
+    void renderTaperPanel();
+    // Resolve the pull direction + neutral-plane point from the current
+    // axis choice, the picked faces, and the body's bounds.
+    bool resolveTaperFrame(glm::vec3& dirOut, glm::vec3& neutralOut) const;
+
     // Interactive Pattern (Linear / Radial). Same live-preview-via-history idiom
     // as push/pull and resize: each parameter change replays an updated PatternOp,
     // commit leaves the op in history at the user's values, cancel undoes it.

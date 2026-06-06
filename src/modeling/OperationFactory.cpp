@@ -10,6 +10,7 @@
 #include "FilletOp.h"
 #include "ChamferOp.h"
 #include "ShellOp.h"
+#include "TaperOp.h"
 #include "ResizeCylindricalOp.h"
 #include "ThreadOp.h"
 
@@ -38,6 +39,7 @@ std::unique_ptr<Operation> create(const std::string& typeId) {
     if (typeId == "fillet")  return std::make_unique<FilletOp>();
     if (typeId == "chamfer") return std::make_unique<ChamferOp>();
     if (typeId == "shell")   return std::make_unique<ShellOp>();
+    if (typeId == "taper")   return std::make_unique<TaperOp>();
     if (typeId == "resize_cylindrical") return std::make_unique<ResizeCylindricalOp>();
     if (typeId == "thread")  return std::make_unique<ThreadOp>(); // pure derived geometry
 

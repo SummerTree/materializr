@@ -1257,6 +1257,23 @@ void Application::handleToolAction(int action) {
             break;
         }
 
+        case ToolAction::Taper: {
+            // Collect every selected face on ONE body — multi-select all
+            // four sides of a box to pyramid it in one go.
+            m_taperFaces.clear();
+            m_taperBodyId = -1;
+            for (const auto& e : m_selection->getSelection()) {
+                if (e.type != SelectionType::Face || e.bodyId < 0 ||
+                    e.shape.IsNull())
+                    continue;
+                if (m_taperBodyId < 0) m_taperBodyId = e.bodyId;
+                if (e.bodyId != m_taperBodyId) continue; // one body per op
+                m_taperFaces.push_back(TopoDS::Face(e.shape));
+            }
+            if (!m_taperFaces.empty()) beginInteractiveTaper();
+            break;
+        }
+
         case ToolAction::EditFilletChamfer: {
             // Find the FilletOp / ChamferOp in history that owns the picked face,
             // then re-open it for editing with the existing radius / distance.
@@ -1539,6 +1556,8 @@ void Application::handleShortcuts() {
             cancelPushPull();
         } else if (m_shellActive) {
             cancelInteractiveShell();
+        } else if (m_taperActive) {
+            cancelInteractiveTaper();
         } else if (m_resizeCylActive) {
             cancelResizeCylindrical();
         } else if (m_edgeOpActive) {
@@ -3236,6 +3255,7 @@ void Application::run() {
             renderMultiTransformPanel();
             renderResizeCylindricalPanel();
             renderShellPanel();
+            renderTaperPanel();
             renderPatternPanel();
             renderThreadPanel();
             renderSectionPanel();

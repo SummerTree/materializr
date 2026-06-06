@@ -468,6 +468,11 @@ ToolAction Toolbar::renderFaceTools() {
     if (ImGui::Button("Shell", ImVec2(-1, 30)))
         action = ToolAction::Shell;
     tip("Hollow the body, removing the picked face. Wall thickness in the popup.");
+    if (ImGui::Button("Taper", ImVec2(-1, 30)))
+        action = ToolAction::Taper;
+    tip("Tilt the picked face(s) by an angle about the body's base - "
+        "a cylinder wall becomes a cone, box sides become a pyramid. "
+        "Angle and pull axis in the popup.");
     if (m_canEditDiameter &&
         ImGui::Button("Edit Diameter", ImVec2(-1, 30)))
         action = ToolAction::EditDiameter;

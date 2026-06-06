@@ -21,6 +21,7 @@
 #include "modeling/FilletOp.h"
 #include "modeling/ChamferOp.h"
 #include "modeling/ShellOp.h"
+#include "modeling/TaperOp.h"
 #include "modeling/ResizeCylindricalOp.h"
 #include "modeling/ThreadOp.h"
 #include <future>
@@ -746,6 +747,153 @@ void Application::cancelInteractiveShell() {
     m_shellBodyId = -1;
     m_shellFace.Nullify();
     m_shellPreviousShape.Nullify();
+    m_meshesDirty = true;
+}
+
+// ─── Interactive Taper (draft faces about the body's base) ──────────────────
+
+bool Application::resolveTaperFrame(glm::vec3& dirOut,
+                                    glm::vec3& neutralOut) const {
+    if (m_taperBodyId < 0 || m_taperFaces.empty()) return false;
+
+    // Pull direction. Auto: a cylindrical/conical face drafts along its own
+    // axis; a planar face drafts along the world axis most PERPENDICULAR to
+    // its normal (preferring up). Manual: the user-convention X/Y/Z radios
+    // (user Z = world Y).
+    glm::vec3 dir(0.0f, 1.0f, 0.0f);
+    if (m_taperAxisIdx == 0) {
+        try {
+            const TopoDS_Face& f = m_taperFaces.front();
+            Handle(Geom_Surface) s = BRep_Tool::Surface(f);
+            Handle(Geom_CylindricalSurface) cyl =
+                Handle(Geom_CylindricalSurface)::DownCast(s);
+            Handle(Geom_ConicalSurface) cone =
+                Handle(Geom_ConicalSurface)::DownCast(s);
+            if (!cyl.IsNull() || !cone.IsNull()) {
+                gp_Dir a = !cyl.IsNull() ? cyl->Cylinder().Position().Direction()
+                                         : cone->Cone().Position().Direction();
+                dir = glm::vec3(static_cast<float>(a.X()),
+                                static_cast<float>(a.Y()),
+                                static_cast<float>(a.Z()));
+            } else {
+                BRepGProp_Face prop(f);
+                double u1, u2, v1, v2;
+                prop.Bounds(u1, u2, v1, v2);
+                gp_Pnt c;
+                gp_Vec nv;
+                prop.Normal(0.5 * (u1 + u2), 0.5 * (v1 + v2), c, nv);
+                glm::vec3 n(static_cast<float>(nv.X()),
+                            static_cast<float>(nv.Y()),
+                            static_cast<float>(nv.Z()));
+                if (glm::length(n) > 1e-6f) n = glm::normalize(n);
+                const glm::vec3 axes[3] = {{0, 1, 0}, {1, 0, 0}, {0, 0, 1}};
+                float best = 2.0f;
+                for (const auto& a : axes) {
+                    float d = std::abs(glm::dot(n, a));
+                    if (d < best - 1e-4f) { best = d; dir = a; }
+                }
+            }
+        } catch (...) {}
+    } else {
+        dir = userAxisToWorldVec(m_taperAxisIdx - 1);
+    }
+    if (glm::length(dir) < 1e-6f) return false;
+    dir = glm::normalize(dir);
+
+    // Neutral plane: perpendicular to the pull direction, through the
+    // body's extreme along it — the BASE stays fixed and the far end
+    // tilts. Flip moves the fixed plane to the other extreme.
+    try {
+        Bnd_Box bb;
+        BRepBndLib::Add(m_document->getBody(m_taperBodyId), bb);
+        if (bb.IsVoid()) return false;
+        double x0, y0, z0, x1, y1, z1;
+        bb.Get(x0, y0, z0, x1, y1, z1);
+        glm::vec3 corners[8] = {
+            {(float)x0, (float)y0, (float)z0}, {(float)x1, (float)y0, (float)z0},
+            {(float)x0, (float)y1, (float)z0}, {(float)x1, (float)y1, (float)z0},
+            {(float)x0, (float)y0, (float)z1}, {(float)x1, (float)y0, (float)z1},
+            {(float)x0, (float)y1, (float)z1}, {(float)x1, (float)y1, (float)z1}};
+        float lo = 1e30f, hi = -1e30f;
+        for (const auto& c : corners) {
+            float p = glm::dot(c, dir);
+            lo = std::min(lo, p);
+            hi = std::max(hi, p);
+        }
+        glm::vec3 center(0.5f * (float)(x0 + x1), 0.5f * (float)(y0 + y1),
+                         0.5f * (float)(z0 + z1));
+        float proj = m_taperFlipBase ? hi : lo;
+        neutralOut = center + dir * (proj - glm::dot(center, dir));
+        dirOut = dir;
+        return true;
+    } catch (...) { return false; }
+}
+
+void Application::beginInteractiveTaper() {
+    if (m_taperBodyId < 0 || m_taperFaces.empty()) return;
+    try {
+        m_taperPreviousShape = m_document->getBody(m_taperBodyId);
+    } catch (...) { return; }
+    m_taperAngle = 5.0f;
+    m_taperAxisIdx = 0;
+    m_taperFlipBase = false;
+    m_taperActive = true;
+    updateInteractiveTaper();
+}
+
+void Application::updateInteractiveTaper() {
+    if (!m_taperActive || m_taperBodyId < 0) return;
+    m_document->updateBody(m_taperBodyId, m_taperPreviousShape);
+    m_meshesDirty = true;
+    if (std::abs(m_taperAngle) < 0.1f) return;
+    glm::vec3 dir, np;
+    if (!resolveTaperFrame(dir, np)) return;
+    try {
+        auto op = std::make_unique<TaperOp>();
+        op->setBody(m_taperBodyId);
+        for (const auto& f : m_taperFaces) op->addFace(f);
+        op->setDirection(dir.x, dir.y, dir.z);
+        op->setNeutralPoint(np.x, np.y, np.z);
+        op->setAngleDeg(static_cast<double>(m_taperAngle));
+        if (op->execute(*m_document)) m_meshesDirty = true;
+        else m_document->updateBody(m_taperBodyId, m_taperPreviousShape);
+    } catch (...) {
+        m_document->updateBody(m_taperBodyId, m_taperPreviousShape);
+    }
+}
+
+void Application::commitInteractiveTaper() {
+    if (!m_taperActive) return;
+    m_document->updateBody(m_taperBodyId, m_taperPreviousShape);
+    glm::vec3 dir, np;
+    if (std::abs(m_taperAngle) < 0.1f || !resolveTaperFrame(dir, np)) {
+        cancelInteractiveTaper();
+        return;
+    }
+    auto op = std::make_unique<TaperOp>();
+    op->setBody(m_taperBodyId);
+    for (const auto& f : m_taperFaces) op->addFace(f);
+    op->setDirection(dir.x, dir.y, dir.z);
+    op->setNeutralPoint(np.x, np.y, np.z);
+    op->setAngleDeg(static_cast<double>(m_taperAngle));
+    m_history->pushOperation(std::move(op), *m_document);
+
+    m_taperActive = false;
+    m_taperBodyId = -1;
+    m_taperFaces.clear();
+    m_taperPreviousShape.Nullify();
+    m_selection->clear();
+    m_meshesDirty = true;
+}
+
+void Application::cancelInteractiveTaper() {
+    if (m_taperBodyId >= 0 && !m_taperPreviousShape.IsNull()) {
+        m_document->updateBody(m_taperBodyId, m_taperPreviousShape);
+    }
+    m_taperActive = false;
+    m_taperBodyId = -1;
+    m_taperFaces.clear();
+    m_taperPreviousShape.Nullify();
     m_meshesDirty = true;
 }
 

@@ -291,6 +291,7 @@ void Application::renderViewport() {
         const bool anyInteractiveOpActive =
             m_inSketchMode || m_extruding || m_edgeOpActive ||
             m_pushPullActive || m_resizeCylActive || m_shellActive ||
+            m_taperActive ||
             m_patternActive || m_loftActive || m_planeOpActive ||
             m_sketchPatternActive || m_revolveActive;
         bool gizmoShown = false;
@@ -413,6 +414,7 @@ void Application::renderViewport() {
         const bool blockedByOtherOp =
             m_inSketchMode || m_extruding || m_edgeOpActive ||
             m_pushPullActive || m_resizeCylActive || m_shellActive ||
+            m_taperActive ||
             m_patternActive || m_loftActive || m_sketchPatternActive;
         // Construction-axis gizmo — Move only. Same arming pattern as
         // planes: implicit during the Construction Axis popup
