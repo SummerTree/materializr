@@ -3,6 +3,46 @@
 All notable changes to Materializr are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow SemVer.
 
+## [0.8.4] — 2026-06-06
+
+### Added
+
+- **Scale Face.** Select a flat end face → **Scale Face** → the body
+  re-slopes toward a scaled copy of that face's profile. Defaults to the
+  whole body following from its base (scale a box top → frustum, height
+  unchanged); dial the length down for a localized blend, switch to Extend
+  mode to add a tapered tip instead. **Non-uniform scaling** via two
+  in-plane sliders or by **dragging the on-face arrow handles** (red/blue,
+  live percentages); a Uniform checkbox links them. >100% flares. The
+  winglet op: pinch a wing-tip profile and the skin follows. Fully
+  parametric and reload-editable.
+- **Startup splash screen** — the blank window during long project
+  auto-opens is now a branded loading screen with live status.
+- **Application icon on Windows** — embedded in the exe (Explorer,
+  installer) and set at runtime (taskbar); X11 docks get it too.
+
+### Changed
+
+- **Sketch inferences keep their hands off the cursor**: directional snaps
+  (perpendicular / parallel / tangent / 15° increments) are capped at
+  ~1.5 mm of actual cursor deviation — their angular tolerances used to
+  make capture distance grow with line length.
+- Dashed inference guides extend past the anchor end only, so the
+  endpoint marker at the cursor stays visible.
+- The **Delete key** removes selected construction planes and axes (same
+  as the Items panel's right-click).
+- The Taper panel explains the kernel's face-type limit (flat /
+  cylindrical / conical walls only) and points freeform cases to Scale
+  Face.
+
+### Fixed
+
+- Two dangling-lifetime bugs producing impossible geometry: the first
+  polygon per session came out scrambled (vector reallocation invalidated
+  the centre pointer — also shipped in 0.8.2's notes, fully resolved
+  here), and Scale Face stopped working entirely while drawing a "red
+  line to infinity" (reference into a temporary plane → garbage axes).
+
 ## [0.8.3] — 2026-06-06
 
 ### Added
