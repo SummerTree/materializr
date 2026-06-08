@@ -300,9 +300,11 @@ ToolAction Toolbar::renderSketchTools() {
     // Drawing-inference level — a live Full → Reduced → Off toggle. Lets the
     // user calm the ghost guides (and the hover-charged references) in a busy
     // area without leaving the sketch. Constraints now live exclusively on the
-    // sketch-viewport right-click "Add Constraint" menu.
-    ImGui::Separator();
-    {
+    // sketch-viewport right-click "Add Constraint" menu. Hidden when the user
+    // has set the level once in Settings and prefers not to see the live
+    // toggle (Settings → Sketch → "Show level toggle in sketch toolbar").
+    if (m_showInferenceToggle) {
+        ImGui::Separator();
         const char* lbl = m_inferenceLevel == 0 ? "Inferences: Full"
                         : m_inferenceLevel == 1 ? "Inferences: Reduced"
                                                 : "Inferences: Off";

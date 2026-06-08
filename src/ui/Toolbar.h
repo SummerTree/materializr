@@ -88,6 +88,9 @@ public:
     // SketchTool::InferenceLevel (0=Full, 1=Reduced, 2=Off) to keep Toolbar
     // free of a SketchTool.h dependency.
     void setInferenceLevel(int lvl) { m_inferenceLevel = lvl; }
+    // Off hides the inference cycle button from the sketch toolbar so a user
+    // who set the level once in Settings can declutter. Default on.
+    void setShowInferenceToggle(bool b) { m_showInferenceToggle = b; }
     // Most recent SketchSolver state: 0 = Fully, 1 = Under, 2 = Over (matches
     // the SketchState enum). Drives the small status badge at the top of the
     // sketch toolbar so the user knows whether the current constraint set is
@@ -118,6 +121,7 @@ private:
     int  m_sketchSolverState = -1; // -1=none, 0=Fully, 1=Under, 2=Over
     int  m_sketchSolverDof = 0;
     int  m_inferenceLevel = 0; // 0=Full, 1=Reduced, 2=Off (see setInferenceLevel)
+    bool m_showInferenceToggle = true; // see setShowInferenceToggle
 
     ToolAction renderSketchTools();
     ToolAction renderSketchSelectedTools();

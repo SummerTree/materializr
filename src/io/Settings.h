@@ -50,6 +50,18 @@ struct AppSettings {
     // have to re-enable snap and re-pick a 1 mm step every launch.
     bool  snapToGrid    = true;
     float sketchGridStep = 1.0f;
+
+    // --- Sketch inferences ---
+    // Default inference level applied at launch and whenever no project
+    // override exists. 0 = Full (includes hover-to-charge), 1 = Reduced
+    // (classic guides), 2 = Off (grid + endpoint only). Mirrors
+    // SketchTool::InferenceLevel; kept as int to keep this header free of
+    // a sketch-tool dependency.
+    int  inferenceLevel = 0;
+    // Whether the sketch toolbar shows the live Full/Reduced/Off cycle
+    // button. Off lets users who set the level once in Settings declutter
+    // the toolbar; on (default) keeps the per-session live toggle visible.
+    bool showInferenceToolbarToggle = true;
 };
 
 // Reads/writes AppSettings as a simple `key = value` text file. The reader is

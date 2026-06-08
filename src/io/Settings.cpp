@@ -72,6 +72,8 @@ void applyKv(const std::map<std::string, std::string>& kv, AppSettings& s) {
     readBool(kv, "checkForUpdatesOnLaunch", s.checkForUpdatesOnLaunch);
     readBool(kv, "snapToGrid",           s.snapToGrid);
     readFloat(kv, "sketchGridStep",      s.sketchGridStep);
+    readInt (kv, "inferenceLevel",       s.inferenceLevel);
+    readBool(kv, "showInferenceToolbarToggle", s.showInferenceToolbarToggle);
 }
 
 // Make sure the parent directory of `path` exists. Best-effort: a failure here
@@ -224,6 +226,9 @@ bool SettingsIO::save(const std::string& path, const AppSettings& s) {
     ofs << "checkForUpdatesOnLaunch = " << (s.checkForUpdatesOnLaunch ? "true" : "false") << "\n";
     ofs << "snapToGrid = "              << (s.snapToGrid ? "true" : "false") << "\n";
     ofs << "sketchGridStep = "          << s.sketchGridStep      << "\n";
+    ofs << "inferenceLevel = "          << s.inferenceLevel      << "\n";
+    ofs << "showInferenceToolbarToggle = "
+        << (s.showInferenceToolbarToggle ? "true" : "false") << "\n";
 
     return ofs.good();
 }
@@ -258,7 +263,10 @@ bool SettingsIO::exportJson(const std::string& path, const AppSettings& s) {
     ofs << "  \"autoOpenLastProject\": "     << b(s.autoOpenLastProject)<< ",\n";
     ofs << "  \"checkForUpdatesOnLaunch\": " << b(s.checkForUpdatesOnLaunch) << ",\n";
     ofs << "  \"snapToGrid\": "              << b(s.snapToGrid)         << ",\n";
-    ofs << "  \"sketchGridStep\": "          << s.sketchGridStep        << "\n";
+    ofs << "  \"sketchGridStep\": "          << s.sketchGridStep        << ",\n";
+    ofs << "  \"inferenceLevel\": "          << s.inferenceLevel        << ",\n";
+    ofs << "  \"showInferenceToolbarToggle\": "
+        << b(s.showInferenceToolbarToggle) << "\n";
     ofs << "}\n";
 
     return ofs.good();

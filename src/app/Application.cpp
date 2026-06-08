@@ -920,6 +920,11 @@ AppSettings Application::currentSettings() const {
     s.checkForUpdatesOnLaunch = m_checkForUpdatesOnLaunch;
     s.snapToGrid = m_snapToGrid;
     s.sketchGridStep = m_sketchGridStep;
+    // Mirror the live sketch-tool inference level back into the saved settings
+    // so cycling the toolbar Full→Reduced→Off button persists across launches.
+    s.inferenceLevel = m_sketchTool
+        ? static_cast<int>(m_sketchTool->getInferenceLevel()) : 0;
+    s.showInferenceToolbarToggle = m_showInferenceToolbarToggle;
     return s;
 }
 
@@ -952,11 +957,20 @@ void Application::applyAppSettings(const AppSettings& s) {
     m_checkForUpdatesOnLaunch = s.checkForUpdatesOnLaunch;
     m_snapToGrid = s.snapToGrid;
     m_sketchGridStep = s.sketchGridStep;
+    m_showInferenceToolbarToggle = s.showInferenceToolbarToggle;
+    if (m_sketchTool) {
+        using IL = SketchTool::InferenceLevel;
+        IL lvl = (s.inferenceLevel == 1) ? IL::Reduced
+               : (s.inferenceLevel == 2) ? IL::Off
+                                         : IL::Full;
+        m_sketchTool->setInferenceLevel(lvl);
+    }
     // Mirror onto the toolbar so the in-sketch grid controls show the loaded
     // values right away rather than waiting for the first frame's sync.
     if (m_toolbar) {
         m_toolbar->setSnapToGrid(s.snapToGrid);
         m_toolbar->setGridStep(s.sketchGridStep);
+        m_toolbar->setShowInferenceToggle(s.showInferenceToolbarToggle);
     }
 }
 
@@ -3391,6 +3405,10 @@ void Application::run() {
             // of a SketchTool.h dependency (matches setActiveSketchMode).
             m_toolbar->setInferenceLevel(m_inSketchMode && m_sketchTool
                 ? static_cast<int>(m_sketchTool->getInferenceLevel()) : 0);
+            // Per-frame hide/show of the toolbar's inference cycle button.
+            // Users who set the level once in Settings can declutter the
+            // sketch toolbar; default is on (the live toggle is visible).
+            m_toolbar->setShowInferenceToggle(m_showInferenceToolbarToggle);
             // Pass the active sketch tool mode so the matching button gets
             // a highlight border — disambiguates which tool is currently in
             // use (Line vs Circle vs etc.) when in sketch mode.

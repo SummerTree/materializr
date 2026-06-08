@@ -413,6 +413,10 @@ private:
     int   m_meshQuality = 1;        // tessellation density: 0=Low..3=Ultra
     float m_selectionLineWidth = 3.0f; // px width of highlighted edges/body outlines
     bool  m_showToolbarTooltips = true; // hover description on each toolbar button
+    // Toggle for the sketch toolbar's live Full/Reduced/Off inference cycle
+    // button. Off hides the button so users who set the level once in
+    // Settings can declutter the sketch toolbar.
+    bool  m_showInferenceToolbarToggle = true;
     // Apply m_light*/m_msaaSamples/m_selectionLineWidth to the renderer + viewport.
     void applyRenderingSettings();
     // Map m_meshQuality to OCCT tessellation parameters.

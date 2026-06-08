@@ -157,12 +157,30 @@ public:
 
     // Hover-to-charge references (Full level only). Call once per frame during
     // sketch placement with the current time and the sketch-space cursor. After
-    // the cursor dwells ~0.3 s on an existing point it becomes "charged" and
-    // projects axis + perpendicular guides anchored AT that point — until a
-    // different point charges or the placement ends. The renderer reads
-    // getChargedRefPoint() to draw the glow.
+    // the cursor dwells ~0.3 s on an existing reference (sketch point, sketch
+    // line midpoint, host-face vertex, or host-face edge midpoint) it becomes
+    // "charged" and projects axis + perpendicular guides anchored AT that
+    // position — until a different one charges or the placement ends. The
+    // renderer reads hasChargedRef() / getChargedPos() to draw the cyan ring.
+    struct ChargedRef {
+        // None = nothing charged; the other kinds carry an anchor position the
+        // snap engine projects V / H / perpendicular guides from. SketchLineMid
+        // and FaceLineMid each have exactly one PerpToRef direction (perp to
+        // the segment); the Point kinds scan touching lines / face edges.
+        enum class Kind { None, SketchPoint, SketchLineMid, FacePoint, FaceLineMid };
+        Kind kind = Kind::None;
+        glm::vec2 pos{0.0f};
+        // Sketch point or line id for the Sketch* kinds; -1 for Face*.
+        int sourceId = -1;
+    };
     void updateHoverCharge(double tNow, glm::vec2 cursorSketchPos);
-    int  getChargedRefPoint() const { return m_chargedPointId; }
+    bool hasChargedRef() const { return m_charged.kind != ChargedRef::Kind::None; }
+    glm::vec2 getChargedPos() const { return m_charged.pos; }
+    // Legacy accessor used elsewhere — returns the sketch-point id only when
+    // the charged ref happens to BE a sketch point; -1 for the new kinds.
+    int  getChargedRefPoint() const {
+        return m_charged.kind == ChargedRef::Kind::SketchPoint ? m_charged.sourceId : -1;
+    }
 
     // Current state for rendering preview
     bool hasPreview() const;
@@ -187,12 +205,13 @@ private:
     Sketch* m_sketch = nullptr;
     SketchSolver* m_solver = nullptr;
     InferenceLevel m_inferenceLevel = InferenceLevel::Full;
-    // Hover-charge state (see updateHoverCharge). m_chargedPointId is the
-    // active reference; the m_hover* fields track the in-progress dwell.
-    int    m_chargedPointId  = -1;
-    int    m_hoverCandidateId = -1;
-    double m_hoverProbeStart = 0.0;
-    glm::vec2 m_hoverProbePos{0.0f};
+    // Hover-charge state (see updateHoverCharge). m_charged is the active
+    // reference (Kind::None when nothing's charged); the m_hover* fields
+    // track the in-progress dwell on a candidate before it commits.
+    ChargedRef m_charged;
+    ChargedRef m_hoverCandidate;
+    double     m_hoverProbeStart = 0.0;
+    glm::vec2  m_hoverProbePos{0.0f};
 
     // State for multi-click tools
     bool m_isPlacing = false;

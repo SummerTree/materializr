@@ -174,12 +174,44 @@ void Application::renderSettings() {
                     ImGui::TextWrapped(
                         "As you draw, coloured ghost guides show alignment "
                         "(perpendicular, parallel, on-axis, on-midpoint, etc.) "
-                        "and the cursor snaps. The Full / Reduced / Off button "
-                        "in the sketch toolbar dials this live: Full adds "
-                        "hover-to-charge references (dwell on a point to align "
-                        "from it), Reduced is the classic guides, Off is grid + "
-                        "endpoint only. Constraints live on the sketch "
-                        "right-click \"Add Constraint\" menu.");
+                        "and the cursor snaps. Full adds hover-to-charge "
+                        "references (dwell on a point / midpoint / face vertex "
+                        "to align from it). Reduced is the classic guides only, "
+                        "no hover-charging. Off is grid + endpoint only. "
+                        "Constraints live on the sketch right-click \"Add "
+                        "Constraint\" menu.");
+
+                    ImGui::Spacing();
+                    {
+                        // The combo edits the live sketch tool inference level,
+                        // which currentSettings() then reads back when the file
+                        // saves below — so the user's last-set level survives a
+                        // relaunch regardless of whether they used this combo or
+                        // the toolbar's live cycle button.
+                        using IL = SketchTool::InferenceLevel;
+                        int cur = m_sketchTool
+                            ? static_cast<int>(m_sketchTool->getInferenceLevel()) : 0;
+                        const char* labels[] = { "Full", "Reduced", "Off" };
+                        if (ImGui::Combo("Inference level", &cur, labels, 3)) {
+                            if (m_sketchTool) {
+                                IL next = (cur == 1) ? IL::Reduced
+                                        : (cur == 2) ? IL::Off
+                                                     : IL::Full;
+                                m_sketchTool->setInferenceLevel(next);
+                            }
+                            changed = true;
+                        }
+                    }
+
+                    ImGui::Spacing();
+                    if (ImGui::Checkbox("Show level toggle in sketch toolbar",
+                                        &m_showInferenceToolbarToggle)) {
+                        changed = true;
+                    }
+                    ImGui::TextWrapped("Off hides the live Full / Reduced / Off "
+                                       "cycle button from the sketch toolbar — "
+                                       "use this combo instead. On (default) "
+                                       "keeps the per-session button visible.");
 
                     ImGui::Spacing();
                     ImGui::SeparatorText("Toolbar tooltips");

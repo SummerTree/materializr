@@ -1351,15 +1351,17 @@ void Application::renderViewport() {
                     }
                 }
 
-                // Hover-charged reference: a cyan ring on the point the cursor
-                // dwelled on, so it's clear which point is feeding the guides.
-                {
-                    int charged = m_sketchTool->getChargedRefPoint();
-                    const SketchPoint* cp =
-                        (charged >= 0 && m_activeSketch)
-                            ? m_activeSketch->getPoint(charged) : nullptr;
+                // Hover-charged reference: a cyan ring on the dwelt-on
+                // anchor (sketch point, sketch line midpoint, face vertex,
+                // or face-edge midpoint) so it's clear which feature is
+                // sourcing the guides. Anchor position is read from the
+                // tool directly — the kinds without a sketch-element id
+                // (face refs) wouldn't survive a getPoint() lookup. Gated
+                // on m_inSketchMode above so face features only highlight
+                // during a sketch.
+                if (m_sketchTool->hasChargedRef()) {
                     ImVec2 cs;
-                    if (cp && toImg(sk2w(cp->pos), cs)) {
+                    if (toImg(sk2w(m_sketchTool->getChargedPos()), cs)) {
                         const ImU32 ring = IM_COL32(80, 220, 235, 235);
                         dl->AddCircle(cs, 9.0f, halo, 0, 4.0f);
                         dl->AddCircle(cs, 9.0f, ring, 0, 2.0f);

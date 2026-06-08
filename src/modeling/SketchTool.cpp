@@ -48,8 +48,8 @@ void SketchTool::onMouseDown(glm::vec2 pos, bool addToSel) {
     if (!m_sketch) return;
     m_lastDownAddedToSel = addToSel;
     // Placing a point ends this segment's charge — re-hover to charge again.
-    m_chargedPointId = -1;
-    m_hoverCandidateId = -1;
+    m_charged = {};
+    m_hoverCandidate = {};
 
     // Trim picks by proximity to existing geometry; snapping the cursor first
     // would pull the click toward unrelated nearby points/edges and pick wrong.
@@ -453,39 +453,94 @@ void SketchTool::updateHoverCharge(double tNow, glm::vec2 cursor) {
     // Only charge while actively placing a line at Full inference level.
     if (!m_sketch || !m_isPlacing || m_mode != SketchToolMode::Line ||
         m_inferenceLevel != InferenceLevel::Full) {
-        m_hoverCandidateId = -1;
-        m_chargedPointId = -1;
+        m_hoverCandidate = {};
+        m_charged = {};
         return;
     }
-    // Nearest chargeable point within the hover band. The band is a touch wider
-    // than the endpoint-snap radius so you can charge a point by hovering near
-    // it without landing exactly on top of it.
+    // Nearest chargeable reference within the hover band. Wider than the
+    // endpoint-snap radius so you can charge by hovering NEAR a candidate
+    // without landing exactly on top of it.
+    // Candidates (priority by closeness, not by kind):
+    //   - sketch points (vertices)
+    //   - sketch line midpoints
+    //   - host-face vertices ("corners")
+    //   - host-face edge midpoints
+    // The face-ref kinds give axis + perpendicular guides off the host
+    // geometry without needing a sketch element there yet — they only
+    // exist while the sketch is open, so the cyan ring is naturally
+    // hidden in the regular 3D view.
     const float band = std::max(0.4f, m_gridStep * 0.9f);
-    int   best = -1;
+    ChargedRef best;
     float bestD = band;
     for (const auto& pt : m_sketch->getPoints()) {
         if (pt.fromText) continue;
         if (m_snapExcludePoints.count(pt.id)) continue;
         float d = glm::length(cursor - pt.pos);
-        if (d < bestD) { bestD = d; best = pt.id; }
+        if (d < bestD) {
+            bestD = d;
+            best.kind = ChargedRef::Kind::SketchPoint;
+            best.pos = pt.pos;
+            best.sourceId = pt.id;
+        }
     }
-    if (best < 0) {
-        // Not hovering any point — keep whatever is already charged (so the
-        // guide survives while you drag away to align against it).
-        m_hoverCandidateId = -1;
+    for (const auto& ln : m_sketch->getLines()) {
+        if (ln.fromText) continue;
+        if (m_snapExcludePoints.count(ln.startPointId) ||
+            m_snapExcludePoints.count(ln.endPointId)) continue;
+        const SketchPoint* p1 = m_sketch->getPoint(ln.startPointId);
+        const SketchPoint* p2 = m_sketch->getPoint(ln.endPointId);
+        if (!p1 || !p2) continue;
+        glm::vec2 mid = 0.5f * (p1->pos + p2->pos);
+        float d = glm::length(cursor - mid);
+        if (d < bestD) {
+            bestD = d;
+            best.kind = ChargedRef::Kind::SketchLineMid;
+            best.pos = mid;
+            best.sourceId = ln.id;
+        }
+    }
+    for (const auto& fp : m_sketch->getFaceReferences().points) {
+        float d = glm::length(cursor - fp);
+        if (d < bestD) {
+            bestD = d;
+            best.kind = ChargedRef::Kind::FacePoint;
+            best.pos = fp;
+            best.sourceId = -1;
+        }
+    }
+    for (const auto& fl : m_sketch->getFaceReferences().lines) {
+        glm::vec2 mid = 0.5f * (fl.first + fl.second);
+        float d = glm::length(cursor - mid);
+        if (d < bestD) {
+            bestD = d;
+            best.kind = ChargedRef::Kind::FaceLineMid;
+            best.pos = mid;
+            best.sourceId = -1;
+        }
+    }
+    if (best.kind == ChargedRef::Kind::None) {
+        // Not hovering any candidate — keep whatever is already charged
+        // (so the guide survives while you drag away to align against it).
+        m_hoverCandidate = {};
         return;
     }
-    // Dwell: the cursor must linger ~0.3 s on the same candidate (without
-    // wandering off it) before it charges.
+    // Dwell: cursor must linger ~0.3 s on the same candidate (without
+    // wandering off it) before it charges. "Same candidate" = same kind
+    // and same sourceId; FacePoint and FaceLineMid match by position
+    // since they have no id.
     const double dwell = 0.30;
     const float  moveTol = std::max(0.3f, m_gridStep * 0.6f);
-    if (best == m_hoverCandidateId &&
+    bool sameCandidate =
+        m_hoverCandidate.kind == best.kind &&
+        ((best.sourceId >= 0 && m_hoverCandidate.sourceId == best.sourceId) ||
+         (best.sourceId < 0  && glm::length(m_hoverCandidate.pos - best.pos) < 1e-4f));
+    if (sameCandidate &&
         glm::length(cursor - m_hoverProbePos) < moveTol) {
-        if (tNow - m_hoverProbeStart >= dwell) m_chargedPointId = best;
+        if (tNow - m_hoverProbeStart >= dwell) m_charged = best;
     } else {
-        m_hoverCandidateId = best;
-        m_hoverProbeStart  = tNow;
-        m_hoverProbePos    = cursor;
+        m_hoverCandidate = best;
+        m_hoverProbeStart = tNow;
+        m_hoverProbePos = cursor;
     }
 }
 
@@ -737,8 +792,11 @@ glm::vec2 SketchTool::snap(glm::vec2 pos) const {
             if (pt.fromText) continue;
             // Charged ref is added with bigger tolerance + standaloneAllowed
             // by the charged block below — skip here to avoid two cands for
-            // the same line.
-            if (allowCharge && pt.id == m_chargedPointId) continue;
+            // the same line. Only matters when the charged ref IS this sketch
+            // point; midpoint / face-ref charged kinds don't shadow this pt.
+            if (allowCharge &&
+                m_charged.kind == ChargedRef::Kind::SketchPoint &&
+                pt.id == m_charged.sourceId) continue;
             float dX = std::abs(pos.x - pt.pos.x);
             float dY = std::abs(pos.y - pt.pos.y);
             if (dX < axisThresh) {
@@ -848,47 +906,92 @@ glm::vec2 SketchTool::snap(glm::vec2 pos) const {
         }
     }
 
-    // Hover-charged reference (Full level): the dwelt-on point projects
+    // Hover-charged reference (Full level): the dwelt-on reference projects
     // vertical, horizontal, and per-touching-line perpendicular guides AT
-    // R. Wider tolerance than incidental axis-from-point (posCap, not
-    // axisThresh) — the user deliberately charged this — and
+    // its position. Wider tolerance than incidental axis-from-point
+    // (posCap, not axisThresh) — the user deliberately charged this — and
     // standaloneAllowed=true so it can be the lone snap.
-    if (allowCharge && m_isPlacing && m_chargedPointId >= 0 &&
+    //
+    // The set of "touching lines" feeding PerpToRef depends on the charged
+    // kind: a sketch point scans every sketch line whose endpoint is it; a
+    // sketch line midpoint has exactly one touching line (the segment
+    // itself); a face vertex / face-edge midpoint use the host-face
+    // references in the same way.
+    if (allowCharge && m_isPlacing && m_charged.kind != ChargedRef::Kind::None &&
         m_mode == SketchToolMode::Line) {
-        const SketchPoint* ref = m_sketch->getPoint(m_chargedPointId);
-        if (ref) {
-            const glm::vec2 R = ref->pos;
-            float dxR = std::abs(pos.x - R.x);
-            if (dxR < posCap) {
-                glm::vec2 proj(R.x, pos.y);
-                cands.push_back({R, glm::vec2(0,1), InferenceGuide::AxisVFromPoint,
-                                 m_chargedPointId, R, false, 0.0f, proj, dxR, true});
+        const glm::vec2 R = m_charged.pos;
+        const int chargedSrc = m_charged.sourceId; // sketch refId for the V/H/perp guides
+        float dxR = std::abs(pos.x - R.x);
+        if (dxR < posCap) {
+            glm::vec2 proj(R.x, pos.y);
+            cands.push_back({R, glm::vec2(0,1), InferenceGuide::AxisVFromPoint,
+                             chargedSrc, R, false, 0.0f, proj, dxR, true});
+        }
+        float dyR = std::abs(pos.y - R.y);
+        if (dyR < posCap) {
+            glm::vec2 proj(pos.x, R.y);
+            cands.push_back({R, glm::vec2(1,0), InferenceGuide::AxisHFromPoint,
+                             chargedSrc, R, false, 0.0f, proj, dyR, true});
+        }
+        // Helper: push a PerpToRef cand perpendicular to a (p1, p2) segment
+        // through R, if the cursor is near that ray.
+        auto pushPerp = [&](glm::vec2 p1, glm::vec2 p2) {
+            glm::vec2 e = p2 - p1;
+            if (glm::length(e) < 1e-6f) return;
+            e = glm::normalize(e);
+            glm::vec2 perp(-e.y, e.x);
+            float t = glm::dot(pos - R, perp);
+            glm::vec2 proj = R + perp * t;
+            float d = glm::length(proj - pos);
+            if (d < posCap) {
+                cands.push_back({R, perp, InferenceGuide::PerpToRef,
+                                 chargedSrc, R, false, 0.0f, proj, d, true});
             }
-            float dyR = std::abs(pos.y - R.y);
-            if (dyR < posCap) {
-                glm::vec2 proj(pos.x, R.y);
-                cands.push_back({R, glm::vec2(1,0), InferenceGuide::AxisHFromPoint,
-                                 m_chargedPointId, R, false, 0.0f, proj, dyR, true});
-            }
+        };
+        switch (m_charged.kind) {
+        case ChargedRef::Kind::SketchPoint:
             for (const auto& ln : m_sketch->getLines()) {
                 if (ln.fromText) continue;
-                if (ln.startPointId != m_chargedPointId &&
-                    ln.endPointId   != m_chargedPointId) continue;
+                if (ln.startPointId != m_charged.sourceId &&
+                    ln.endPointId   != m_charged.sourceId) continue;
                 const SketchPoint* p1 = m_sketch->getPoint(ln.startPointId);
                 const SketchPoint* p2 = m_sketch->getPoint(ln.endPointId);
-                if (!p1 || !p2) continue;
-                glm::vec2 e = p2->pos - p1->pos;
-                if (glm::length(e) < 1e-6f) continue;
-                e = glm::normalize(e);
-                glm::vec2 perp(-e.y, e.x);
-                float t = glm::dot(pos - R, perp);
-                glm::vec2 proj = R + perp * t;
-                float d = glm::length(proj - pos);
-                if (d < posCap) {
-                    cands.push_back({R, perp, InferenceGuide::PerpToRef,
-                                     m_chargedPointId, R, false, 0.0f, proj, d, true});
+                if (p1 && p2) pushPerp(p1->pos, p2->pos);
+            }
+            break;
+        case ChargedRef::Kind::SketchLineMid: {
+            const SketchLine* ln = nullptr;
+            for (const auto& l : m_sketch->getLines()) {
+                if (l.id == m_charged.sourceId) { ln = &l; break; }
+            }
+            if (ln) {
+                const SketchPoint* p1 = m_sketch->getPoint(ln->startPointId);
+                const SketchPoint* p2 = m_sketch->getPoint(ln->endPointId);
+                if (p1 && p2) pushPerp(p1->pos, p2->pos);
+            }
+            break;
+        }
+        case ChargedRef::Kind::FacePoint:
+            // Face edges meeting at this corner — matched by endpoint
+            // position since face refs have no ids.
+            for (const auto& fl : m_sketch->getFaceReferences().lines) {
+                const float tol = 1e-4f;
+                if (glm::length(fl.first - R) < tol ||
+                    glm::length(fl.second - R) < tol) {
+                    pushPerp(fl.first, fl.second);
                 }
             }
+            break;
+        case ChargedRef::Kind::FaceLineMid:
+            for (const auto& fl : m_sketch->getFaceReferences().lines) {
+                glm::vec2 mid = 0.5f * (fl.first + fl.second);
+                if (glm::length(mid - R) < 1e-4f) {
+                    pushPerp(fl.first, fl.second);
+                    break;
+                }
+            }
+            break;
+        case ChargedRef::Kind::None: break;
         }
     }
 
