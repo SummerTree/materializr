@@ -21,6 +21,7 @@
 #include <BRepAdaptor_Curve.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
+#include <BRepCheck_Analyzer.hxx>
 #include <TopoDS.hxx>
 #include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
 #include <TopTools_ListOfShape.hxx>
@@ -532,6 +533,28 @@ bool ResizeCylindricalOp::execute(Document& doc) {
         } catch (...) {
             // Non-fatal — fall back to the un-unified result.
             MZLOG("[Resize] unify pass threw, using raw result\n");
+        }
+
+        // Validate before committing: a hole grown past the outer wall
+        // (or any degenerate resize) removes all material — the cut
+        // returns an empty/invalid solid. Storing it leaves nothing but
+        // the stale face highlight on screen. Refuse so the caller
+        // restores the original and flags an error, exactly as Scale
+        // Face does.
+        if (!BRepCheck_Analyzer(result).IsValid()) {
+            MZLOG("[Resize] result invalid — refusing\n");
+            return false;
+        }
+        int nsolids = 0;
+        for (TopExp_Explorer sx(result, TopAbs_SOLID); sx.More(); sx.Next())
+            ++nsolids;
+        GProp_GProps gpR, gpO;
+        BRepGProp::VolumeProperties(result, gpR);
+        BRepGProp::VolumeProperties(m_previousShape, gpO);
+        if (nsolids < 1 || gpR.Mass() < gpO.Mass() * 0.001) {
+            MZLOG("[Resize] result collapsed (solids=%d vol=%.3f) — "
+                  "refusing\n", nsolids, gpR.Mass());
+            return false;
         }
 
         doc.updateBody(m_bodyId, result);

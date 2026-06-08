@@ -27,6 +27,7 @@ bool History::pushOperation(std::unique_ptr<Operation> op, Document& doc) {
                                  "LAST — delete the Thread step, make this "
                                  "change, then re-apply the thread.\n",
                          op->name().c_str());
+            if (m_threadsLastDecline) m_threadsLastDecline();
             return false;
         }
     }
@@ -329,6 +330,25 @@ void History::clear() {
 
 const std::vector<std::unique_ptr<Operation>>& History::operations() const {
     return m_operations;
+}
+
+bool History::isBodyThreaded(int bodyId) const {
+    if (bodyId < 0) return false;
+    int limit = m_currentIndex;
+    for (int i = 0; i <= limit && i < static_cast<int>(m_operations.size());
+         ++i) {
+        const Operation* s = m_operations[i].get();
+        if (!s || s->typeId() != "thread") continue;
+        // ThreadOp doesn't override plannedBodyIds() (returns {}); the body it
+        // modified is recorded in its diff. Mirror reflowInsertionIndex's
+        // touchesPlanned() so the up-front refusal matches the commit-time one.
+        OperationDiff d = s->captureDiff();
+        for (const auto& [id, shp] : d.modifiedBefore)
+            if (id == bodyId) return true;
+        for (int id : d.created)
+            if (id == bodyId) return true;
+    }
+    return false;
 }
 
 int History::reflowInsertionIndex(const Operation& op) const {

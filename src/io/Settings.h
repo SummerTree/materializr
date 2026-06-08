@@ -14,6 +14,12 @@ struct AppSettings {
     bool autosaveEnabled    = false;
     int  autosaveIntervalSec = 120;
     bool invertCubeDrag     = false; // ViewCube drag-to-orbit direction
+    // Max seconds between two clicks for them to register as a double-click
+    // (ImGui default 0.30). Trackpad users often double-tap slower than a
+    // mouse; raising this stops a slow body double-click from being seen as
+    // two single clicks (which would cycle-select past the body to the sketch
+    // behind it).
+    float doubleClickTimeSec = 0.30f;
 
     // --- Rendering ---
     float lightAmbient   = 0.40f; // 0..1 base illumination; higher = softer shadows

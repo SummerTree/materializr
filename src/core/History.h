@@ -4,6 +4,7 @@
 #include "Operation.h"
 #include "Document.h"
 
+#include <functional>
 namespace materializr { class EventBus; }
 
 class History {
@@ -12,6 +13,11 @@ public:
     ~History() = default;
 
     void setEventBus(materializr::EventBus* bus) { m_eventBus = bus; }
+    // Called when a pushOperation is declined because the target body has
+    // a Thread step (threads-last discipline). The app shows a toast.
+    void setThreadsLastDeclineCallback(std::function<void()> cb) {
+        m_threadsLastDecline = std::move(cb);
+    }
 
     // Add a new operation (executes it and pushes to stack)
     bool pushOperation(std::unique_ptr<Operation> op, Document& doc);
@@ -37,6 +43,12 @@ public:
     // trailing Thread steps modified, returns the index those threads start
     // at (where the op should be inserted); -1 = no reflow needed.
     int reflowInsertionIndex(const Operation& op) const;
+    // True if a Thread step in the applied history modified this body.
+    // Interactive ops (push/pull, resize, …) check this at BEGIN to refuse
+    // up front — their per-frame preview would otherwise run a boolean
+    // against the thread's thousands of faces every frame and freeze,
+    // never reaching the commit-time refusal in pushOperation.
+    bool isBodyThreaded(int bodyId) const;
     // Insert `op` at `index`, executing it against the state rolled back to
     // just before `index`, then replay the displaced steps (the threads
     // re-cut parametrically on the new geometry). Returns false only if the
@@ -84,4 +96,5 @@ private:
     // cleared by manual undo, by a successful retry, or by clear().
     int m_failedReplayAt = -1;
     materializr::EventBus* m_eventBus = nullptr;
+    std::function<void()> m_threadsLastDecline;
 };

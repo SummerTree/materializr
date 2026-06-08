@@ -2704,9 +2704,17 @@ void Application::renderViewport() {
                         bool sameSpot =
                             std::abs(mpNow.x - m_pickCyclePos.x) < 6.0f &&
                             std::abs(mpNow.y - m_pickCyclePos.y) < 6.0f;
+                        // Double-click is two same-spot clicks; without
+                        // this guard its SECOND click triggers depth
+                        // cycling and tunnels to the sketch behind a body
+                        // instead of selecting the body. Double-click has
+                        // one job — select the whole body — so it's immune
+                        // to cycling.
+                        const bool dbl =
+                            ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
                         int forced = -1; // -1 none, 0 face, 1 region
-                        if (sameSpot && m_pickCycleLast == 0) forced = 1;
-                        else if (sameSpot && m_pickCycleLast == 1) forced = 0;
+                        if (!dbl && sameSpot && m_pickCycleLast == 0) forced = 1;
+                        else if (!dbl && sameSpot && m_pickCycleLast == 1) forced = 0;
                         // DEFAULT = the ORIGINAL pre-saga semantics:
                         // region wins on ties / when nearer, face wins only
                         // when the body surface is CLEARLY in front. Every
@@ -2918,6 +2926,14 @@ void Application::renderViewport() {
                         } else {
                             m_selection->select(entry);
                         }
+                        // A double-click is a deliberate "select the whole
+                        // body". Its FIRST click already ran the face branch
+                        // and left the cycle state at face (m_pickCycleLast=0)
+                        // on this spot. Clear it so the next HOVER frame here
+                        // doesn't think it's mid-cycle and highlight the sketch
+                        // region hidden behind the body (purely visual — a
+                        // click never selected it, but it looked clickable).
+                        m_pickCycleLast = -1;
                     } else if (clickSelectionAllowed && !regionConsumedClick &&
                                ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
                         int ownerStep = -1; // fillet/chamfer step to open in the editor

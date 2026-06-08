@@ -593,7 +593,15 @@ void Application::cancelThread() {
 
 void Application::beginResizeCylindrical() {
     cancelActiveIops();
+    m_resizeCylPreviewFailed = false;
     if (m_resizeCylBodyId < 0) return;
+    if (m_history->isBodyThreaded(m_resizeCylBodyId)) {
+        std::fprintf(stderr, "[Resize] declined: body has a Thread step "
+                             "(threads must be applied last)\n");
+        showThreadsLastToast();
+        m_resizeCylBodyId = -1;
+        return;
+    }
     try {
         m_resizeCylPreviousShape = m_document->getBody(m_resizeCylBodyId);
     } catch (...) { return; }
@@ -632,10 +640,18 @@ void Application::updateResizeCylindrical() {
         op->setOldRadii(m_resizeCylOriginalBottomR, m_resizeCylOriginalTopR);
         op->setNewRadii(newBot, newTop);
         op->setIsHole(m_resizeCylIsHole);
-        if (op->execute(*m_document)) m_meshesDirty = true;
-        else m_document->updateBody(m_resizeCylBodyId, m_resizeCylPreviousShape);
+        if (op->execute(*m_document)) {
+            m_resizeCylPreviewFailed = false;
+            m_meshesDirty = true;
+        } else {
+            // Invalid diameter (e.g. a hole grown past the outer wall) —
+            // keep the body at its original shape and flag the panel.
+            m_document->updateBody(m_resizeCylBodyId, m_resizeCylPreviousShape);
+            m_resizeCylPreviewFailed = true;
+        }
     } catch (...) {
         m_document->updateBody(m_resizeCylBodyId, m_resizeCylPreviousShape);
+        m_resizeCylPreviewFailed = true;
     }
 }
 
@@ -703,6 +719,16 @@ void Application::beginInteractiveExtrude(const TopoDS_Shape& profile,
                                           ExtrudeMode mode, int targetBody,
                                           int sourceSketchId) {
     cancelActiveIops();
+    // Subtract/Union into a threaded body would boolean against the
+    // thread's thousands of faces every preview frame — refuse up front
+    // (NewBody doesn't touch an existing body, so it's always fine).
+    if (mode != ExtrudeMode::NewBody && targetBody >= 0 &&
+        m_history->isBodyThreaded(targetBody)) {
+        std::fprintf(stderr, "[Extrude] declined: target body has a Thread "
+                             "step (threads must be applied last)\n");
+        showThreadsLastToast();
+        return;
+    }
     m_extrudeProfile = profile;
     m_extruding = true;
     m_extrudeMode = mode;
@@ -1102,6 +1128,24 @@ void Application::beginPushPull() {
     if (m_pushPullTargets.empty()) {
         std::fprintf(stderr, "Push/Pull: select a sketch region or a body face first\n");
         return;
+    }
+
+    // THREADS ARE A FINISHING PASS. A boolean push/pull against a threaded
+    // body runs the cut over the thread's thousands of faces — and the
+    // interactive preview would do that EVERY frame, freezing the app long
+    // before it reached the commit-time refusal in History::pushOperation.
+    // Refuse up front with guidance instead. (Steve: it "just went
+    // unresponsive".)
+    for (const auto& t : m_pushPullTargets) {
+        if (t.sourceBodyId >= 0 && m_history->isBodyThreaded(t.sourceBodyId)) {
+            std::fprintf(stderr, "[Push/Pull] declined: this body has a "
+                                 "Thread step. Threads must be applied LAST "
+                                 "— delete the Thread, make this change, "
+                                 "then re-thread.\n");
+            m_pushPullTargets.clear();
+            showThreadsLastToast();
+            return;
+        }
     }
 
     // Arrow direction at the first target's centre.

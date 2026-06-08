@@ -85,6 +85,12 @@ private:
     // layouts; "" when missing. Used by the UI font load + the Text tool.
     std::string resolveBundledFont(const std::string& fname) const;
     void renderTextToolPanel(); // sketch Text tool settings (floating)
+    // Transient centered toast (threads-last guidance etc.) — shown for a
+    // few seconds, doesn't fight the per-frame status-bar message.
+    void showThreadsLastToast();
+    void renderTransientToast();
+    std::string m_toastText;
+    double m_toastExpiry = 0.0;
     void renderSvgToolPanel();  // SVG placement settings (floating)
     // Camera-upright default rotation for Text/SVG placement.
     void seedUprightPlacementAngle();
@@ -395,6 +401,10 @@ private:
     // Invert the cube-drag → orbit direction (Settings).
     bool m_invertCubeDrag = false;
 
+    // Double-click window (s), applied to ImGuiIO::MouseDoubleClickTime. Higher
+    // suits trackpads (slower double-taps). Persisted; default = ImGui's 0.30.
+    float m_doubleClickTime = 0.30f;
+
     // Rendering preferences (File > Settings → Rendering). Persisted.
     float m_lightAmbient = 0.40f;   // base illumination; higher = softer shadows
     bool  m_lightHeadlight = false; // key light tracks the camera
@@ -595,6 +605,7 @@ private:
     // path always builds a CONE primitive at the two end radii — for the
     // face-edit case they're equal.
     bool m_resizeCylActive = false;
+    bool m_resizeCylPreviewFailed = false; // last preview produced no valid body
     int  m_resizeCylBodyId = -1;
     bool m_resizeCylIsHole = true; // true: hole (normal toward axis), false: solid boundary
     // Axis anchored at the V_min end of the affected cylindrical region.

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(Materializr VERSION 0.9.3 LANGUAGES CXX)
+project(Materializr VERSION 0.9.4 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -265,6 +265,14 @@ if(WIN32)
     message(STATUS "OpenCASCADE libraries: ${OpenCASCADE_LIBRARIES}")
     target_link_libraries(materializr PRIVATE ${OpenCASCADE_LIBRARIES})
 else()
+    # OCCT 7.8 renamed the data-exchange toolkits (TKSTEP -> TKDESTEP, etc.).
+    # Pick names by version so we link on both pre- and post-refactor system
+    # OCCT (Linux distros are now shipping 7.9+).
+    if(OpenCASCADE_VERSION VERSION_GREATER_EQUAL 7.8)
+        set(OCCT_DATAEXCHANGE_LIBS TKDESTEP TKDEIGES TKDESTL)
+    else()
+        set(OCCT_DATAEXCHANGE_LIBS TKSTEP TKIGES TKSTL)
+    endif()
     target_link_libraries(materializr PRIVATE
         TKernel
         TKMath
@@ -280,10 +288,8 @@ else()
         TKOffset
         TKShHealing
         TKMesh
-        TKSTEP
         TKXSBase
-        TKIGES
-        TKSTL
+        ${OCCT_DATAEXCHANGE_LIBS}
         # TKBin: BinTools::Write / Read (binary BREP, used by the v3
         # .materializr format — smaller + faster than BRepTools' ASCII).
         TKBin

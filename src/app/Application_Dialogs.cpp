@@ -235,6 +235,22 @@ void Application::renderSettings() {
                     ImGui::TextDisabled("Orbit/Pan buttons take effect on Apply.");
 
                     ImGui::Spacing();
+                    ImGui::SeparatorText("Double-click");
+                    // Trackpads double-tap slower than a mouse; a too-short
+                    // window splits a slow body double-click into two single
+                    // clicks, which cycle-selects past the body. Applied live.
+                    if (ImGui::SliderFloat("Double-click speed", &m_doubleClickTime,
+                                           0.20f, 0.75f, "%.2f s")) {
+                        if (m_doubleClickTime < 0.20f) m_doubleClickTime = 0.20f;
+                        if (m_doubleClickTime > 0.75f) m_doubleClickTime = 0.75f;
+                        ImGui::GetIO().MouseDoubleClickTime = m_doubleClickTime;
+                        changed = true;
+                    }
+                    ImGui::SetItemTooltip("Max time between two clicks to count as a double-click. "
+                                          "Raise it if double-clicking to select a body feels too fast "
+                                          "on a trackpad. Default 0.30 s.");
+
+                    ImGui::Spacing();
                     ImGui::SeparatorText("Orbit behaviour");
                     // Level (turntable) orbit toggle — applied live.
                     bool level = m_viewport->getCamera().isLevelOrbit();
@@ -683,8 +699,16 @@ void Application::renderResizeCylindricalPanel() {
     ImGui::SameLine();
     ImGui::Text("mm");
 
+    if (m_resizeCylPreviewFailed) {
+        ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.35f, 1.0f),
+                           "Invalid diameter for this feature —\n"
+                           "a hole can't exceed the surrounding wall.");
+    }
+
     ImGui::Spacing();
+    ImGui::BeginDisabled(m_resizeCylPreviewFailed);
     if (ImGui::Button("Confirm (Enter)", ImVec2(115, 0))) commitResizeCylindrical();
+    ImGui::EndDisabled();
     ImGui::SameLine();
     if (ImGui::Button("Cancel (Esc)",    ImVec2(115, 0))) cancelResizeCylindrical();
 

@@ -189,6 +189,7 @@ Application::Application(bool safeMode) : m_safeMode(safeMode) {
     m_toolbar->setSelectionManager(m_selection.get());
     m_toolbar->setHistory(m_history.get());
     m_toolbar->setPluginContext(m_pluginContext.get());
+    m_history->setThreadsLastDeclineCallback([this]{ showThreadsLastToast(); });
     m_historyPanel->setHistory(m_history.get());
     m_historyPanel->setDocument(m_document.get());
     m_historyPanel->setEventBus(m_eventBus.get());
@@ -400,6 +401,10 @@ void Application::initImGui() {
     io.IniFilename = iniPath;
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    // loadAppSettings() ran before the ImGui context existed, so its
+    // applyAppSettings couldn't reach io yet — push the loaded double-click
+    // window now that there's a context.
+    io.MouseDoubleClickTime = m_doubleClickTime;
 
     ImGui::StyleColorsDark();
 
@@ -513,6 +518,36 @@ void Application::initRenderers() {
 
 void Application::setupCommands() {
     // Commands are now registered by plugins via PluginRegistry.
+}
+
+void Application::showThreadsLastToast() {
+    m_toastText = "Threads are applied LAST. Delete the Thread step, make "
+                  "this change, then re-thread.";
+    m_toastExpiry = ImGui::GetTime() + 5.0;
+}
+
+void Application::renderTransientToast() {
+    if (m_toastText.empty() || ImGui::GetTime() > m_toastExpiry) return;
+    ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(
+        ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f,
+               vp->WorkPos.y + 80.0f),
+        ImGuiCond_Always, ImVec2(0.5f, 0.0f));
+    ImGui::SetNextWindowBgAlpha(0.92f);
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.35f, 0.18f, 0.10f, 1.0f));
+    if (ImGui::Begin("##toast", nullptr,
+                     ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+                     ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
+                     ImGuiWindowFlags_AlwaysAutoResize |
+                     ImGuiWindowFlags_NoFocusOnAppearing |
+                     ImGuiWindowFlags_NoInputs)) {
+        ImGui::PushTextWrapPos(420.0f);
+        ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.6f, 1.0f), "%s",
+                           m_toastText.c_str());
+        ImGui::PopTextWrapPos();
+    }
+    ImGui::End();
+    ImGui::PopStyleColor();
 }
 
 materializr::IopContext Application::iopContext() {
@@ -872,6 +907,7 @@ AppSettings Application::currentSettings() const {
     s.autosaveEnabled = m_autosaveEnabled;
     s.autosaveIntervalSec = static_cast<int>(m_autosaveIntervalSec);
     s.invertCubeDrag = m_invertCubeDrag;
+    s.doubleClickTimeSec = m_doubleClickTime;
     s.lightAmbient = m_lightAmbient;
     s.lightHeadlight = m_lightHeadlight;
     s.lightFill = m_lightFill;
@@ -903,6 +939,9 @@ void Application::applyAppSettings(const AppSettings& s) {
     m_autosaveEnabled = s.autosaveEnabled;
     m_autosaveIntervalSec = static_cast<float>(s.autosaveIntervalSec);
     m_invertCubeDrag = s.invertCubeDrag;
+    m_doubleClickTime = s.doubleClickTimeSec;
+    if (ImGui::GetCurrentContext())
+        ImGui::GetIO().MouseDoubleClickTime = m_doubleClickTime;
     m_lightAmbient = s.lightAmbient;
     m_lightHeadlight = s.lightHeadlight;
     m_lightFill = s.lightFill;
@@ -3551,6 +3590,7 @@ void Application::run() {
                 m_statusBar->setMessage("");
             }
             m_statusBar->render();
+            renderTransientToast();
             FileDialogs::render();
             renderSavePrompt();
 
