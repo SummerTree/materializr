@@ -313,7 +313,33 @@ ToolAction Toolbar::renderSketchTools() {
     tip("Three-point arc: click start, end, then a point on the curve.");
     if (skBtn("Spline",    6))     action = ToolAction::Spline;
     tip("Multi-point spline. Click control points, Enter to finish.");
-    if (skBtn("Polygon",   7))     action = ToolAction::Polygon;
+    // Polygon: a popout to pick the regular-polygon side count by name (like
+    // the Primitives menu), instead of typing it into a dialog. The chosen
+    // count sets the tool's sides and activates polygon placement.
+    {
+        bool active = (m_activeSketchMode == 7);
+        if (active) {
+            ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 2.0f);
+            ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.5f, 0.5f, 0.5f, 1.0f));
+        }
+        if (ImGui::Button("Polygon", ImVec2(-1, 30)))
+            ImGui::OpenPopup("PolygonSidesMenu");
+        if (active) { ImGui::PopStyleColor(); ImGui::PopStyleVar(); }
+        tip("Regular polygon: pick the number of sides, then click the centre "
+            "and drag for size / rotation.");
+        if (ImGui::BeginPopup("PolygonSidesMenu")) {
+            struct PolyChoice { const char* name; int sides; };
+            static const PolyChoice choices[] = {
+                {"Triangle (3)", 3}, {"Square (4)", 4}, {"Pentagon (5)", 5},
+                {"Hexagon (6)", 6}, {"Heptagon (7)", 7}, {"Octagon (8)", 8}};
+            for (const auto& ch : choices)
+                if (ImGui::MenuItem(ch.name)) {
+                    m_requestedPolygonSides = ch.sides;
+                    action = ToolAction::Polygon;
+                }
+            ImGui::EndPopup();
+        }
+    }
     tip("Regular polygon: click centre, drag to size. Side count in properties.");
     if (skBtn("Text",      9))     action = ToolAction::SketchText;
     tip("Insert text as real outline geometry: set string, font and letter "

@@ -1253,7 +1253,11 @@ void Application::handleToolAction(int action) {
             if (m_inSketchMode) m_sketchTool->setMode(SketchToolMode::Spline);
             break;
         case ToolAction::Polygon:
-            if (m_inSketchMode) m_sketchTool->setMode(SketchToolMode::Polygon);
+            if (m_inSketchMode) {
+                // Side count comes from the toolbar's Polygon popout.
+                m_sketchTool->setPolygonSides(m_toolbar->getRequestedPolygonSides());
+                m_sketchTool->setMode(SketchToolMode::Polygon);
+            }
             break;
         case ToolAction::Trim:
             if (m_inSketchMode) m_sketchTool->setMode(SketchToolMode::Trim);
@@ -3793,12 +3797,24 @@ void Application::run() {
                     // tip or push a new op (which discards the tail anyway).
                     if (m_history && m_history->canRedo()) {
                         // hold off — keep checking each interval
-                    } else if (anyInteractivePreviewActive()) {
+                    } else if (anyInteractivePreviewActive() || m_inSketchMode ||
+                               m_edgeOpActive || m_moveFaceActive) {
                         // hold off — an autosave must never cancel (or
-                        // serialize) a live tool preview out from under
-                        // the user; resume once the tool closes.
+                        // serialize) a live tool preview / an in-progress
+                        // sketch out from under the user. anyInteractivePreview
+                        // missed sketch mode + the edge-op / Move Face previews,
+                        // so an autosave could fire mid-sketch and serialize a
+                        // half-baked, uncommitted-sketch state (crash risk).
+                        // Resume once the tool / sketch closes.
                     } else if (now - m_lastAutosaveTime >= m_autosaveIntervalSec) {
-                        saveProjectQuick();
+                        // Defensive: a serialization failure (OCCT throw, bad
+                        // state) must never take the whole app down on a
+                        // background autosave — log and skip, try again next
+                        // interval.
+                        try { saveProjectQuick(); }
+                        catch (...) {
+                            std::fprintf(stderr, "[Autosave] failed - skipped\n");
+                        }
                         m_lastAutosaveTime = now;
                     }
                 } else {

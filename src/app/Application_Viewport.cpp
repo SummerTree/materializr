@@ -4621,12 +4621,9 @@ void Application::renderViewport() {
         switch (mode) {
             case SketchToolMode::Line:      dimLabel = "Length (mm)"; break;
             case SketchToolMode::Circle:    dimLabel = "Diameter (mm)"; break;
-            case SketchToolMode::Polygon:
-                dimLabel = "Sides";
-                dimHint  = "Type sides (≥3) and Enter to preview — radius and "
-                           "rotation come from cursor. Click to commit; the "
-                           "first vertex lands on the (snapped) cursor.";
-                break;
+            // Polygon side count is picked from the toolbar popout now, and
+            // radius/rotation come from the drag — so no typed dialog (it was
+            // the one that clipped). dimLabel stays null → no input window.
             case SketchToolMode::Rectangle:
                 // Two-stage: first Enter sets horizontal side; second Enter
                 // commits with the typed vertical side. Cursor still drives

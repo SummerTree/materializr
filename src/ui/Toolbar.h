@@ -90,6 +90,9 @@ public:
     // SketchTool::InferenceLevel (0=Full, 1=Reduced, 2=Off) to keep Toolbar
     // free of a SketchTool.h dependency.
     void setInferenceLevel(int lvl) { m_inferenceLevel = lvl; }
+    // Side count chosen from the Polygon popout; read by the app when it
+    // handles the resulting ToolAction::Polygon.
+    int  getRequestedPolygonSides() const { return m_requestedPolygonSides; }
     // Live rect/circle draw origin shown on the per-tool toggle. Ints mirror
     // SketchTool::RectMode (0=Corner,1=Center) and CircleMode (0=Center,1=2-Point).
     void setRectMode(int m) { m_rectMode = m; }
@@ -127,6 +130,7 @@ private:
     int  m_sketchSolverState = -1; // -1=none, 0=Fully, 1=Under, 2=Over
     int  m_sketchSolverDof = 0;
     int  m_inferenceLevel = 0; // 0=Full, 1=Reduced, 2=Off (see setInferenceLevel)
+    int  m_requestedPolygonSides = 6; // last pick from the Polygon popout
     int  m_rectMode = 0;       // 0=Corner, 1=Center (see setRectMode)
     int  m_circleMode = 0;     // 0=Center, 1=2-Point (see setCircleMode)
     bool m_showInferenceToggle = true; // see setShowInferenceToggle
