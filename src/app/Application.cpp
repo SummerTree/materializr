@@ -925,6 +925,7 @@ AppSettings Application::currentSettings() const {
     s.showToolbarTooltips = m_showToolbarTooltips;
     s.autoOpenLastProject = m_autoOpenLastProject;
     s.lastProjectPath = m_currentProjectPath; // empty after closeProject()
+    s.lastFileDir = materializr::FileDialogs::getLastDir();
     s.checkForUpdatesOnLaunch = m_checkForUpdatesOnLaunch;
     s.snapToGrid = m_snapToGrid;
     s.sketchGridStep = m_sketchGridStep;
@@ -968,6 +969,7 @@ void Application::applyAppSettings(const AppSettings& s) {
     m_snapToGrid = s.snapToGrid;
     m_sketchGridStep = s.sketchGridStep;
     m_showInferenceToolbarToggle = s.showInferenceToolbarToggle;
+    materializr::FileDialogs::setLastDir(s.lastFileDir);
     if (m_sketchTool) {
         using IL = SketchTool::InferenceLevel;
         IL lvl = (s.inferenceLevel == 1) ? IL::Reduced

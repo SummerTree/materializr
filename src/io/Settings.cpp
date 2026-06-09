@@ -70,6 +70,7 @@ void applyKv(const std::map<std::string, std::string>& kv, AppSettings& s) {
     readBool(kv, "showToolbarTooltips",  s.showToolbarTooltips);
     readBool(kv, "autoOpenLastProject",  s.autoOpenLastProject);
     readString(kv, "lastProjectPath",    s.lastProjectPath);
+    readString(kv, "lastFileDir",        s.lastFileDir);
     readBool(kv, "checkForUpdatesOnLaunch", s.checkForUpdatesOnLaunch);
     readBool(kv, "snapToGrid",           s.snapToGrid);
     readFloat(kv, "sketchGridStep",      s.sketchGridStep);
@@ -226,6 +227,7 @@ bool SettingsIO::save(const std::string& path, const AppSettings& s) {
     ofs << "showToolbarTooltips = " << (s.showToolbarTooltips ? "true" : "false") << "\n";
     ofs << "autoOpenLastProject = " << (s.autoOpenLastProject ? "true" : "false") << "\n";
     ofs << "lastProjectPath = "     << s.lastProjectPath     << "\n";
+    ofs << "lastFileDir = "         << s.lastFileDir         << "\n";
     ofs << "checkForUpdatesOnLaunch = " << (s.checkForUpdatesOnLaunch ? "true" : "false") << "\n";
     ofs << "snapToGrid = "              << (s.snapToGrid ? "true" : "false") << "\n";
     ofs << "sketchGridStep = "          << s.sketchGridStep      << "\n";

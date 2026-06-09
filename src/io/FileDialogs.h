@@ -28,6 +28,13 @@ public:
 
     // Is a dialog currently open?
     static bool isOpen();
+
+    // Last directory the picker landed in. Application syncs this with
+    // AppSettings::lastFileDir at load / save time so the value survives
+    // a relaunch. Updated automatically when a non-empty path comes back
+    // from openFile / saveFile.
+    static void setLastDir(const std::string& dir);
+    static const std::string& getLastDir();
 };
 
 } // namespace materializr

@@ -80,9 +80,39 @@ changes; small fixes can go straight to a PR.
 
 ## Acknowledgments
 
-- [OpenCASCADE Technology](https://dev.opencascade.org/) — geometry kernel
-- [Dear ImGui](https://github.com/ocornut/imgui) — immediate-mode GUI
-- [GLFW](https://www.glfw.org/) — windowing and input
-- [GLM](https://github.com/g-truc/glm) — math library
-- [nanosvg](https://github.com/memononen/nanosvg) — SVG parsing
-- [libcurl](https://curl.se/libcurl/) — update checking
+Materializr is built on a stack of excellent open-source projects — none of
+this would exist without them.
+
+**Geometry & math**
+
+- [OpenCASCADE Technology](https://dev.opencascade.org/) — B-rep solid
+  modelling kernel (LGPL with Open CASCADE exception).
+- [GLM](https://github.com/g-truc/glm) — OpenGL-friendly C++ math (MIT).
+
+**Graphics & windowing**
+
+- [Dear ImGui](https://github.com/ocornut/imgui) — immediate-mode GUI,
+  used for every panel and overlay (MIT).
+- [GLFW](https://www.glfw.org/) — window, input, and OpenGL context
+  creation (zlib).
+
+**File I/O & exchange**
+
+- [nanosvg](https://github.com/memononen/nanosvg) — SVG parser for the
+  sketch SVG-import tool (zlib).
+- [libcurl](https://curl.se/libcurl/) — HTTPS GET for Help → Check for
+  Updates (curl license).
+- [zlib](https://zlib.net/) — gzip stream for the v3 `.materializr`
+  project format (zlib license).
+- [portable-file-dialogs](https://github.com/samhocevar/portable-file-dialogs)
+  — single-header bridge to the host's native Open / Save dialog
+  (WTFPL). Lets you save to SMB / NFS / cloud mounts the OS file manager
+  already knows about.
+
+**Bundled fonts**
+
+- [JetBrains Mono](https://www.jetbrains.com/lp/mono/) — UI font
+  (SIL Open Font License 1.1).
+- [DejaVu Sans](https://dejavu-fonts.github.io/) and DejaVu Serif —
+  shipped as choices for the sketch Text tool (DejaVu Fonts License,
+  derived from Bitstream Vera).

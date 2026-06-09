@@ -1,5 +1,8 @@
 #include "FileDialogs.h"
 #include <imgui.h>
+#include <memory>
+#include <filesystem>
+#include "portable-file-dialogs.h"
 
 #include <cstdio>
 #include <cstring>
@@ -165,24 +168,132 @@ static struct {
     }
 } s_state;
 
+namespace {
+
+// portable-file-dialogs takes filter strings in the form
+//   { "label", "pattern1 pattern2 ...", "label2", "pattern3 ...", ... }
+// flattened into a single vector. Translate FileFilter into that shape.
+std::vector<std::string> pfdFilters(const std::vector<FileFilter>& filters) {
+    std::vector<std::string> v;
+    v.reserve(filters.size() * 2);
+    for (const auto& f : filters) {
+        v.push_back(f.description);
+        v.push_back(f.pattern);
+    }
+    return v;
+}
+
+// Async pfd dialog state. FileDialogs::render() polls .ready(0) every
+// frame — without that the main thread blocks inside .result() until the
+// picker closes and the WM throws a "not responding" warning on top of
+// our window. Polling keeps the frame loop running so the OS keeps
+// seeing input / draw activity. (Steve: "while the file explorer is
+// open I get a 'materializr is not responding' popup".)
+struct AsyncDlgState {
+    std::unique_ptr<pfd::open_file> openH;
+    std::unique_ptr<pfd::save_file> saveH;
+    std::function<void(const std::string&)> callback;
+    bool active() const { return openH != nullptr || saveH != nullptr; }
+    void clear() {
+        openH.reset();
+        saveH.reset();
+        callback = nullptr;
+    }
+};
+static AsyncDlgState s_async;
+// Last directory the picker landed in. Application syncs to/from
+// AppSettings::lastFileDir at load + save time so it survives a relaunch.
+static std::string s_lastDir;
+
+} // namespace
+
+void FileDialogs::setLastDir(const std::string& dir) { s_lastDir = dir; }
+const std::string& FileDialogs::getLastDir() { return s_lastDir; }
+
 void FileDialogs::openFile(const std::string& title,
                             const std::vector<FileFilter>& filters,
                             std::function<void(const std::string&)> callback) {
-    s_state.init(title, false, "", filters, callback);
+    if (s_async.active()) return; // one picker at a time
+    // Seed pfd with the directory the user last picked in so they don't
+    // have to re-navigate from ~ every time. zenity / kdialog interpret
+    // their --filename arg as a FILE path; without a trailing slash,
+    // "/home/kevin/Documents" is read as "filename = Documents in folder
+    // /home/kevin" and the picker lands at $HOME instead of inside
+    // Documents. (Steve: "the dialog returns me to my home directory,
+    // not the last folder".)
+    std::string seed = s_lastDir;
+    if (!seed.empty() && seed.back() != '/' && seed.back() != '\\') {
+        seed += '/';
+    }
+    s_async.openH = std::make_unique<pfd::open_file>(
+        title, seed, pfdFilters(filters));
+    s_async.callback = std::move(callback);
 }
 
 void FileDialogs::saveFile(const std::string& title,
                             const std::string& defaultName,
                             const std::vector<FileFilter>& filters,
                             std::function<void(const std::string&)> callback) {
-    s_state.init(title, true, defaultName, filters, callback);
+    if (s_async.active()) return;
+    // pfd's save_file wants a path-ish default — concat the last-used dir
+    // with the supplied filename so the picker opens IN that folder with
+    // the suggested filename already in the field.
+    std::string seed = defaultName;
+    if (!s_lastDir.empty()) {
+        std::filesystem::path p(s_lastDir);
+        if (!defaultName.empty()) p /= defaultName;
+        seed = p.string();
+    }
+    s_async.saveH = std::make_unique<pfd::save_file>(
+        title, seed, pfdFilters(filters),
+        pfd::opt::force_overwrite);
+    s_async.callback = std::move(callback);
 }
 
 bool FileDialogs::isOpen() {
-    return s_state.open;
+    return s_async.active() || s_state.open;
 }
 
 void FileDialogs::render() {
+    // Native (pfd) path: poll the spawned helper subprocess each frame.
+    // ready(0) is a non-blocking check; when it returns true we fetch the
+    // path and fire the callback exactly once, then clear the state.
+    if (s_async.active()) {
+        bool done = false;
+        std::string result;
+        if (s_async.openH) {
+            if (s_async.openH->ready(0)) {
+                done = true;
+                auto r = s_async.openH->result();
+                if (!r.empty()) result = r.front();
+            }
+        } else if (s_async.saveH) {
+            if (s_async.saveH->ready(0)) {
+                done = true;
+                result = s_async.saveH->result();
+            }
+        }
+        if (done) {
+            // Remember the directory of the successful pick so the next
+            // open / save lands here. Empty result = the user cancelled —
+            // we leave s_lastDir as it was.
+            if (!result.empty()) {
+                try {
+                    std::filesystem::path p(result);
+                    if (p.has_parent_path())
+                        s_lastDir = p.parent_path().string();
+                } catch (...) {}
+            }
+            auto cb = std::move(s_async.callback);
+            s_async.clear();
+            if (cb) cb(result);
+        }
+        return; // legacy in-app dialog stays dormant while pfd owns the picker
+    }
+
+    // Legacy in-app dialog — currently unreachable from openFile/saveFile
+    // above; kept around as a fall-back wire-point if a no-helper Linux
+    // box ever needs it.
     if (!s_state.open) return;
 
     ImGui::SetNextWindowSize(ImVec2(600, 450), ImGuiCond_Appearing);

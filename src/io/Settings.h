@@ -42,6 +42,11 @@ struct AppSettings {
     // project before quitting" produces an empty launch next time, and
     // "I just quit while working" reopens where you left off.
     std::string lastProjectPath;
+    // Directory the file picker last landed in (open OR save). Reused as
+    // pfd's default_path on the next open / save so the user doesn't have
+    // to re-navigate to their projects folder every time. Machine-local
+    // (omitted from JSON import/export, same as lastProjectPath).
+    std::string lastFileDir;
 
     // Hit the GitHub releases API at startup and pop a "newer release
     // available" dialog if the running build is older. Off in --safe-mode
