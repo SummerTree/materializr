@@ -12,6 +12,14 @@ namespace materializr {
 Window::Window(int width, int height, const std::string& title)
     : m_width(width), m_height(height) {
 
+#if defined(__ANDROID__)
+    // Stop SDL from synthesizing mouse events from touch. On Android that
+    // synthesis leaves ImGui's mouse button stuck "down" after a tap (so every
+    // gesture reads as click-and-hold). We feed ImGui clean finger events
+    // ourselves in pollEvents() instead.
+    SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
+#endif
+
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS) != 0) {
         throw std::runtime_error(std::string("Failed to initialize SDL: ") + SDL_GetError());
     }
@@ -82,7 +90,22 @@ void Window::swapBuffers() {
 void Window::pollEvents() {
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
-        // Feed every event to ImGui (handles mouse, touch->mouse, keyboard, text).
+#if defined(__ANDROID__)
+        // Touch -> ImGui mouse, handled directly (SDL's own synthesis is off).
+        // Single-finger touch drives the left mouse button: position first, then
+        // press on down / release on up, so taps and drags both behave correctly.
+        if (e.type == SDL_FINGERDOWN || e.type == SDL_FINGERMOTION || e.type == SDL_FINGERUP) {
+            ImGuiIO& tio = ImGui::GetIO();
+            float x = e.tfinger.x * tio.DisplaySize.x;
+            float y = e.tfinger.y * tio.DisplaySize.y;
+            tio.AddMouseSourceEvent(ImGuiMouseSource_TouchScreen);
+            tio.AddMousePosEvent(x, y);
+            if (e.type == SDL_FINGERDOWN)    tio.AddMouseButtonEvent(0, true);
+            else if (e.type == SDL_FINGERUP) tio.AddMouseButtonEvent(0, false);
+            continue;   // don't also route finger events through the backend
+        }
+#endif
+        // Feed every event to ImGui (handles mouse, keyboard, text).
         ImGui_ImplSDL2_ProcessEvent(&e);
         switch (e.type) {
             case SDL_QUIT:
@@ -111,9 +134,9 @@ float Window::uiScale() const {
     // against a 96-dpi desktop baseline (so a 240-dpi tablet -> 2.5x), clamped.
     float ddpi = 240.0f, hdpi = 0.0f, vdpi = 0.0f;
     if (SDL_GetDisplayDPI(0, &ddpi, &hdpi, &vdpi) != 0 || ddpi <= 0.0f) ddpi = 240.0f;
-    float s = ddpi / 96.0f;
-    if (s < 1.5f) s = 1.5f;     // never smaller than 1.5x on a touch device
-    if (s > 3.0f) s = 3.0f;
+    float s = ddpi / 120.0f;    // 240-dpi tablet -> 2.0x (was 2.5x, a bit too big)
+    if (s < 1.4f) s = 1.4f;     // never smaller than 1.4x on a touch device
+    if (s > 2.5f) s = 2.5f;
     return s;
 #else
     return 1.0f;                 // desktop UI is already correctly sized
