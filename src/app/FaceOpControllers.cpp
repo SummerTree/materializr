@@ -54,7 +54,7 @@ std::unique_ptr<Operation> ShellController::buildOp(const IopContext&) {
 }
 
 void ShellController::panelBody(const IopContext&, bool& changed) {
-    ImGui::TextDisabled("Hollows the body and removes the picked face.");
+    ImGui::TextDisabled("Hollows the body, opening a face.");
 
     if (m_inputFocus) {
         ImGui::SetKeyboardFocusHere();
@@ -80,6 +80,12 @@ void ShellController::panelBody(const IopContext&, bool& changed) {
                            "%.2f mm")) {
         std::snprintf(m_inputBuf, sizeof(m_inputBuf), "%.2f", m_thickness);
         changed = true;
+    }
+
+    if (!previewOk()) {
+        ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.3f, 1.0f),
+                           "Shell failed - try a thinner wall, or\n"
+                           "this body's faces can't be shelled.");
     }
 }
 
@@ -454,8 +460,8 @@ void ProjectSketchController::panelBody(const IopContext& ctx,
 
     if (!previewOk()) {
         ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.3f, 1.0f),
-                           "Projection failed - the sketch must land\n"
-                           "fully inside this face.");
+                           "Projection failed - the selected region(s) couldn't\n"
+                           "be applied (off the face, or too thin/degenerate).");
     }
 }
 

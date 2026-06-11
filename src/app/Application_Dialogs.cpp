@@ -1367,9 +1367,11 @@ void Application::renderThreadPanel() {
             if (ImGui::BeginPopupModal("Cutting thread…", nullptr,
                                        ImGuiWindowFlags_AlwaysAutoResize |
                                        ImGuiWindowFlags_NoMove)) {
-                // Trailing-dots heartbeat so it reads as alive.
                 int dots = static_cast<int>(ImGui::GetTime() * 2.0) % 4;
                 ImGui::Text("Sweeping the helical groove%.*s", dots, "...");
+                ImGui::Spacing();
+                drawIndeterminateBar();
+                ImGui::Spacing();
                 ImGui::TextDisabled("A few seconds for typical threads.");
                 ImGui::EndPopup();
             }

@@ -17,6 +17,12 @@ struct IopContext {
     History& history;
     SelectionManager& selection;
     std::function<void()> markMeshesDirty;
+    // Long-op progress: renders a progress frame, returns true if the user
+    // cancelled. Passed to the op via setProgressReporter on commit.
+    std::function<bool(float, const char*)> progress;
+    // Defer a heavy task to run BETWEEN frames (so the progress reporter can
+    // render its own frames without nesting ImGui frames).
+    std::function<void(std::function<void()>)> deferHeavy;
 };
 
 // Base for "popup with live preview" modeling operations (Shell, Taper,

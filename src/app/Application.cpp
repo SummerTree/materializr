@@ -5,6 +5,26 @@
 #include <map>
 #include <set>
 
+#if defined(__x86_64__) || defined(__i386__) || defined(_M_X64) || defined(_M_IX86)
+#include <xmmintrin.h>
+#include <pmmintrin.h>
+#define MZR_HAS_SSE 1
+#endif
+
+namespace {
+// OCCT's boolean/intersection math assumes the default FPU mode (round-to-
+// nearest, denormals kept). GL drivers flip the SSE flush-to-zero / denormals-
+// are-zero flags during rendering, after which an OCCT boolean that ran clean
+// can silently degenerate. Call this after any GL work that precedes OCCT (the
+// deferred-op progress frames) to put the FPU back the way OCCT expects.
+inline void resetFpuForOcct() {
+#ifdef MZR_HAS_SSE
+    _MM_SET_FLUSH_ZERO_MODE(_MM_FLUSH_ZERO_OFF);
+    _MM_SET_DENORMALS_ZERO_MODE(_MM_DENORMALS_ZERO_OFF);
+#endif
+}
+} // namespace
+
 #ifdef _WIN32
 #include <windows.h>
 #include <shellapi.h>
@@ -599,7 +619,9 @@ void Application::renderTransientToast() {
 materializr::IopContext Application::iopContext() {
     return materializr::IopContext{
         *m_document, *m_history, *m_selection,
-        [this] { m_meshesDirty = true; }};
+        [this] { m_meshesDirty = true; },
+        [this](float f, const char* l) { return renderProgressFrame(f, l); },
+        [this](std::function<void()> t) { m_deferredHeavyTask = std::move(t); }};
 }
 
 // Seed the placement rotation (shared by the Text and SVG tools) so the
@@ -743,6 +765,75 @@ void Application::renderSplashFrame(const char* status) {
     ImGui::PopStyleVar();
     endFrame();
     m_window->swapBuffers();
+}
+
+void Application::drawIndeterminateBar() {
+    // A segment sweeping left → right (marquee), not a bouncing fill. Used for
+    // work with no readable progress (the projection boolean, a thread sweep).
+    ImVec2 p0 = ImGui::GetCursorScreenPos();
+    float fullW = std::max(ImGui::GetContentRegionAvail().x, 260.0f);
+    float barH = ImGui::GetFrameHeight();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(p0, ImVec2(p0.x + fullW, p0.y + barH),
+                      ImGui::GetColorU32(ImGuiCol_FrameBg), 3.0f);
+    float t = static_cast<float>(ImGui::GetTime());
+    float segW = fullW * 0.28f;
+    float x = std::fmod(t * fullW * 0.7f, fullW + segW) - segW; // wraps L→R
+    float xa = std::max(0.0f, x);
+    float xb = std::min(fullW, x + segW);
+    if (xb > xa)
+        dl->AddRectFilled(ImVec2(p0.x + xa, p0.y), ImVec2(p0.x + xb, p0.y + barH),
+                          ImGui::GetColorU32(ImGuiCol_PlotHistogram), 3.0f);
+    ImGui::Dummy(ImVec2(fullW, barH));
+}
+
+bool Application::renderProgressFrame(float fraction, const char* label) {
+    // Called from inside a long op's execute() via the progress reporter. Must
+    // run BETWEEN main frames (the op is deferred to m_deferredHeavyTask), so a
+    // fresh ImGui frame here is safe. fraction==0 marks a new op → reset the
+    // cancel latch so a prior cancel doesn't carry over. (fraction<0 is the
+    // indeterminate spinner and must NOT reset it.)
+    if (fraction == 0.0f) m_progressCancelled = false;
+    if (m_progressCancelled || !m_window) return m_progressCancelled;
+
+    m_window->pollEvents();
+    int fbw = 0, fbh = 0;
+    m_window->framebufferSize(fbw, fbh);   // SDL backend (upstream used glfw here)
+    glViewport(0, 0, fbw, fbh);
+    glClearColor(0.075f, 0.082f, 0.11f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    beginFrame();
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    const float boxW = 440.0f;
+    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + (vp->WorkSize.x - boxW) * 0.5f,
+                                   vp->WorkPos.y + vp->WorkSize.y * 0.42f));
+    ImGui::SetNextWindowSize(ImVec2(boxW, 0));
+    ImGui::Begin("##progress", nullptr,
+                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings |
+                 ImGuiWindowFlags_NoMove | ImGuiWindowFlags_AlwaysAutoResize);
+    ImGui::TextColored(ImVec4(0.55f, 0.75f, 1.0f, 1.0f), "Working\xE2\x80\xA6");
+    ImGui::Spacing();
+    if (label && label[0]) ImGui::TextWrapped("%s", label);
+    ImGui::Spacing();
+    if (fraction < 0.0f) {
+        drawIndeterminateBar();
+    } else {
+        char pct[16];
+        std::snprintf(pct, sizeof(pct), "%d%%", static_cast<int>(fraction * 100.0f + 0.5f));
+        ImGui::ProgressBar(fraction, ImVec2(-1, 0), pct);
+    }
+    ImGui::Spacing();
+    if (ImGui::Button("Cancel", ImVec2(110, 0)) ||
+        ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        m_progressCancelled = true;
+    }
+    ImGui::End();
+    endFrame();
+    m_window->swapBuffers();
+    // GL just ran — restore the FPU mode before control returns to the OCCT op.
+    resetFpuForOcct();
+    return m_progressCancelled;
 }
 
 void Application::renderDockspace() {
@@ -2859,6 +2950,19 @@ void Application::enterSketchOnPlane(const gp_Pln& plane) {
 }
 
 void Application::enterSketchOnFace(const TopoDS_Face& face, int sourceBodyId) {
+    // Sketching needs a FLAT face. A curved face (cylinder / sphere / fillet)
+    // has no single plane — we'd otherwise drop the sketch onto a tangent plane
+    // at an arbitrary point on the curve, which isn't useful and a construction
+    // plane (Add Plane…) covers properly. Refuse with guidance.
+    {
+        Handle(Geom_Surface) s = BRep_Tool::Surface(face);
+        if (s.IsNull() || !s->IsKind(STANDARD_TYPE(Geom_Plane))) {
+            showToast("Can't sketch on a curved face \xE2\x80\x94 use Add "
+                      "Plane\xE2\x80\xA6 to place a construction plane.");
+            return;
+        }
+    }
+
     m_activeSketch = std::make_shared<Sketch>();
     m_sketchSolver = std::make_unique<SketchSolver>();
     m_activeSketchId = -1;
@@ -3654,6 +3758,23 @@ void Application::run() {
 
     while (true) {
         m_window->pollEvents();
+
+        // Last frame's GL (driver/ImGui render) can leave the SSE FPU in
+        // flush-to-zero / denormals-are-zero mode, which makes OCCT geometry —
+        // including SVG import tessellation and wire-building done mid-frame —
+        // come out subtly different run to run (a different region degenerates
+        // into an uncuttable sliver each re-import). Put the FPU back to OCCT's
+        // expected mode at the top of EVERY frame so all geometry is stable.
+        resetFpuForOcct();
+
+        // Run a heavy op deferred from last frame's commit HERE, between frames,
+        // so its progress reporter (renderProgressFrame) can pump its own frames
+        // without nesting ImGui frames.
+        if (m_deferredHeavyTask) {
+            auto task = std::move(m_deferredHeavyTask);
+            m_deferredHeavyTask = nullptr;
+            task();
+        }
 
         // Keep the in-progress sketch crash-recoverable.
         writeSketchDraftIfDue();

@@ -15,7 +15,7 @@ protected:
     std::unique_ptr<Operation> buildOp(const IopContext& ctx) override;
     void panelBody(const IopContext& ctx, bool& changed) override;
     void onCleanup() override;
-    float panelWidth() const override { return 240.0f; }
+    float panelWidth() const override { return 300.0f; }
 
 private:
     TopoDS_Face m_face;

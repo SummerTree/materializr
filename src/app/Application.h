@@ -103,6 +103,17 @@ private:
     void beginFrame();
     void endFrame();
     void renderSplashFrame(const char* status);
+    // Self-contained progress frame for long operations, rendered between main
+    // frames (via m_deferredHeavyTask). Returns true if the user hit Cancel.
+    // fraction<0 = indeterminate; fraction<=0 also resets the cancel latch.
+    bool renderProgressFrame(float fraction, const char* label);
+    // A left→right sweeping marquee bar at the current ImGui cursor (shared by
+    // the projection progress overlay and the thread-cutting modal).
+    void drawIndeterminateBar();
+    bool m_progressCancelled = false;
+    // A heavy op deferred from a controller commit to run between frames, where
+    // renderProgressFrame can pump its own frames without nesting ImGui frames.
+    std::function<void()> m_deferredHeavyTask;
     void renderDockspace();
     void renderViewport();
     void renderMenuBar();

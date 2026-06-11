@@ -4,6 +4,9 @@
 #include <cstdlib>
 #include <vector>
 #include <BRepOffsetAPI_MakeThickSolid.hxx>
+#include <BRepOffset_Mode.hxx>
+#include <BRepCheck_Analyzer.hxx>
+#include <GeomAbs_JoinType.hxx>
 #include <TopoDS.hxx>
 #include <imgui.h>
 
@@ -34,19 +37,38 @@ bool ShellOp::execute(Document& doc) {
         // Store previous shape for undo
         m_previousShape = doc.getBody(m_bodyId);
 
-        BRepOffsetAPI_MakeThickSolid shellMaker;
-        shellMaker.MakeThickSolidByJoin(
-            m_previousShape,
-            m_facesToRemove,
-            -m_thickness,     // negative = inward shell
-            1.0e-3            // tolerance
-        );
-        shellMaker.Build();
-        if (!shellMaker.IsDone()) {
+        // The default arc-join offset is fragile on lofted / BSpline side walls
+        // (e.g. a Scale-Face frustum), where it silently produced nothing. Try
+        // the arc join first, then an intersection-join retry that survives more
+        // of those cases. Validate the result before accepting it.
+        auto tryShell = [&](Standard_Boolean inter, GeomAbs_JoinType join,
+                            TopoDS_Shape& out) -> bool {
+            try {
+                BRepOffsetAPI_MakeThickSolid mk;
+                mk.MakeThickSolidByJoin(m_previousShape, m_facesToRemove,
+                                        -m_thickness, 1.0e-3, BRepOffset_Skin,
+                                        inter, Standard_False, join);
+                mk.Build();
+                if (mk.IsDone() && !mk.Shape().IsNull() &&
+                    BRepCheck_Analyzer(mk.Shape()).IsValid()) {
+                    out = mk.Shape();
+                    return true;
+                }
+            } catch (...) {}
+            return false;
+        };
+
+        TopoDS_Shape result;
+        if (!tryShell(Standard_False, GeomAbs_Arc, result) &&
+            !tryShell(Standard_True, GeomAbs_Intersection, result)) {
+            std::fprintf(stderr,
+                "[Shell] failed at thickness %.3f mm — the wall may be too thick, "
+                "or the body has lofted/complex faces the offset can't shell.\n",
+                m_thickness);
             return false;
         }
 
-        doc.updateBody(m_bodyId, shellMaker.Shape());
+        doc.updateBody(m_bodyId, result);
         return true;
     } catch (...) {
         return false;

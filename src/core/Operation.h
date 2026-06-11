@@ -4,6 +4,7 @@
 #include <memory>
 #include <vector>
 #include <utility>
+#include <functional>
 #include <TopoDS_Shape.hxx>
 
 class Document; // forward declare
@@ -120,8 +121,25 @@ public:
     std::chrono::system_clock::time_point timestamp() const { return m_timestamp; }
     void setTimestamp(std::chrono::system_clock::time_point t) { m_timestamp = t; }
 
+    // Optional progress sink for long operations (thread cutting, dense
+    // projection). The app sets it before execute(); the op calls
+    // reportProgress() at natural milestones (per turn / per region). The sink
+    // renders a progress frame and pumps the event loop, so the window stays
+    // alive on slow machines. Returns true if the user asked to cancel.
+    void setProgressReporter(std::function<bool(float, const char*)> r) {
+        m_progress = std::move(r);
+    }
+
 protected:
+    // Call from inside a long execute() loop. Returns true if the user
+    // cancelled, so the op can bail and report failure. No-op (returns false)
+    // when no reporter is set — ops work exactly as before.
+    bool reportProgress(float fraction, const char* label) {
+        return m_progress ? m_progress(fraction, label) : false;
+    }
+
     bool m_enabled = true;
     std::string m_lastGoodParams; // see lastGoodParams()
     std::chrono::system_clock::time_point m_timestamp = std::chrono::system_clock::now();
+    std::function<bool(float, const char*)> m_progress;
 };

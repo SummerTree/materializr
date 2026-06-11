@@ -4,6 +4,7 @@
 #include "../core/SelectionManager.h"
 #include "../core/Operation.h"
 #include <imgui.h>
+#include <cstdio>
 
 namespace materializr {
 
@@ -61,7 +62,26 @@ void InteractiveOpController::commit(const IopContext& ctx) {
         return;
     }
     std::unique_ptr<Operation> op = buildOp(ctx);
-    if (op) ctx.history.pushOperation(std::move(op), ctx.doc);
+    if (op) {
+        if (!wantsLivePreview(ctx) && ctx.progress && ctx.deferHeavy) {
+            // Heavy op (live preview was off): defer it to run BETWEEN frames
+            // with a progress reporter so the window stays alive and the user
+            // can cancel. A cancel makes execute() fail → pushOperation refuses
+            // → body stays at the snapshot (clean no-op).
+            op->setProgressReporter(ctx.progress);
+            History* hist = &ctx.history;
+            Document* doc = &ctx.doc;
+            auto markDirty = ctx.markMeshesDirty;
+            Operation* raw = op.release();
+            ctx.deferHeavy([hist, doc, raw, markDirty]() {
+                std::unique_ptr<Operation> o(raw);
+                hist->pushOperation(std::move(o), *doc);
+                if (markDirty) markDirty();
+            });
+        } else {
+            ctx.history.pushOperation(std::move(op), ctx.doc);
+        }
+    }
     ctx.selection.clear();
     ctx.markMeshesDirty();
     cleanup();

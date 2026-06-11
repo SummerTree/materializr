@@ -24,6 +24,8 @@ Window::Window(int width, int height, const std::string& title)
     SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
 #endif
 
+    // NOTE: the port uses SDL2 on every platform, so upstream's GLFW-only X11/
+    // Wayland drag-and-drop workaround doesn't apply here (kept the SDL init).
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS) != 0) {
         throw std::runtime_error(std::string("Failed to initialize SDL: ") + SDL_GetError());
     }

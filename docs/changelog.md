@@ -3,6 +3,43 @@
 All notable changes to Materializr are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow SemVer.
 
+## [0.9.8] — 2026-06-11
+
+### Added
+
+- **Face transforms respect feature boundaries.** Move / Scale / Rotate Face
+  used to loft to the opposite end of the body and rebuild the whole solid, so
+  on a multi-feature part it erased everything in between (scale a funnel's
+  spout and the funnel collapsed into a cone). They now find where the adjacent
+  feature actually ends and loft only within it, booleaning the result back so
+  every other feature survives — funnels, stepped boxes, and chained transforms.
+- **SVG import, much more tolerant.** Line-art icons (stroke-only paths) are
+  offset into closed ribbons; `<text>` renders to glyph outlines in your
+  installed fonts; `<style>` class fills are inlined before parsing. More of
+  what you grab off the web "just imports."
+- **Wrap a logo around a cylinder.** Engrave/emboss onto a curved face now maps
+  the sketch around the surface (no silhouette limit, correct orientation,
+  hollow counters), with a click-to-toggle region picker plus Select all, Clear,
+  and "Cycle loops/islands" to choose what stamps.
+- **Progress bars for long operations.** Dense projections run off the main
+  thread with a live, cancelable bar instead of freezing; thread cutting shows
+  the same indicator.
+
+### Fixed
+
+- **Drag-and-drop crash on Wayland** — dragging a file over the window crashed
+  the app (a GLFW Wayland bug); it now runs under X11/XWayland where that path
+  is safe. A backtrace is printed on any fatal signal now.
+- **Non-deterministic geometry** — GL rendering left the FPU in flush-to-zero
+  mode, so imports and booleans came out subtly different run to run; the FPU is
+  now restored every frame.
+- **Shell on scaled/lofted faces** silently did nothing; it now retries with an
+  intersection-join offset and reports failure instead of no-op-ing.
+- **Sketching on a curved face** dropped onto a random tangent plane; it now
+  refuses and points you at Add Plane….
+- Dense-logo projection survives a stray bad region (one-shot → batched →
+  per-tool) instead of failing wholesale; counter holes detect deterministically.
+
 ## [0.9.3] — 2026-06-07
 
 ### Added

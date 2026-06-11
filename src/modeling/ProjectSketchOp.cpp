@@ -24,6 +24,9 @@
 #include <algorithm>
 #include <vector>
 #include <cmath>
+#include <thread>
+#include <atomic>
+#include <chrono>
 #include <BRepPrimAPI_MakePrism.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
@@ -33,6 +36,7 @@
 #include <GProp_GProps.hxx>
 #include <ShapeFix_Face.hxx>
 #include <TopTools_ListOfShape.hxx>
+#include <TopTools_ListIteratorOfListOfShape.hxx>
 #include <TopoDS.hxx>
 #include <gp_Pln.hxx>
 #include <imgui.h>
@@ -288,6 +292,7 @@ bool ProjectSketchOp::execute(Document& doc) {
         TopTools_ListOfShape tools;
         double toolVolume = 0.0;
         int skipped = 0;
+        reportProgress(0.0f, "Projecting sketch onto face\xE2\x80\xA6");
         for (size_t ri = 0; ri < regions.size(); ++ri) {
             if (!m_regionFilter.empty()) {
                 bool wanted = false;
@@ -295,6 +300,10 @@ bool ProjectSketchOp::execute(Document& doc) {
                     if (idx == static_cast<int>(ri)) { wanted = true; break; }
                 if (!wanted) continue;
             }
+            // 0..0.9 over the regions; the final boolean owns the last tenth.
+            if (reportProgress(0.9f * static_cast<float>(ri) / regions.size(),
+                               "Projecting sketch onto face\xE2\x80\xA6"))
+                return false; // user cancelled
             const auto& reg = regions[ri];
             std::fprintf(stderr,
                 "[ProjectSketch] region %zu: projecting outer wire onto face.\n",
@@ -344,29 +353,94 @@ bool ProjectSketchOp::execute(Document& doc) {
                          "[ProjectSketch] %d region(s) skipped (projected "
                          "off the face)\n", skipped);
         }
+        // The final boolean is one monolithic OCCT call (can't report mid-call);
+        // base ± a list of tools, returning the validated result or a null
+        // shape on failure.
+        auto applyTools = [&](const TopoDS_Shape& base,
+                              const TopTools_ListOfShape& tls,
+                              double fuzzy = 0.0) -> TopoDS_Shape {
+            TopTools_ListOfShape a;
+            a.Append(base);
+            TopoDS_Shape r;
+            try {
+                if (m_mode == Mode::Engrave) {
+                    BRepAlgoAPI_Cut op;
+                    op.SetArguments(a); op.SetTools(tls);
+                    if (fuzzy > 0.0) op.SetFuzzyValue(fuzzy);
+                    op.SetRunParallel(Standard_True); op.Build();
+                    if (op.IsDone()) r = op.Shape();
+                } else {
+                    BRepAlgoAPI_Fuse op;
+                    op.SetArguments(a); op.SetTools(tls);
+                    if (fuzzy > 0.0) op.SetFuzzyValue(fuzzy);
+                    op.SetRunParallel(Standard_True); op.Build();
+                    if (op.IsDone()) r = op.Shape();
+                }
+            } catch (...) {}
+            if (r.IsNull() || !BRepCheck_Analyzer(r).IsValid()) return TopoDS_Shape();
+            return r;
+        };
 
-        TopTools_ListOfShape args;
-        args.Append(m_previousShape);
+        // Run the boolean(s) on a WORKER thread — the combined cut is one
+        // monolithic OCCT call that can't report mid-run, so running it on the
+        // main thread froze the UI ("not responding"). The main thread pumps an
+        // INDETERMINATE bar + events while the worker computes. The worker has
+        // its own FPU state too, so the main thread's GL can't corrupt the
+        // boolean. No reportProgress inside the worker — rendering is main-only.
         TopoDS_Shape result;
-        if (m_mode == Mode::Engrave) {
-            BRepAlgoAPI_Cut cut;
-            cut.SetArguments(args);
-            cut.SetTools(tools);
-            cut.SetRunParallel(Standard_True);
-            cut.Build();
-            if (!cut.IsDone()) return false;
-            result = cut.Shape();
-        } else {
-            BRepAlgoAPI_Fuse fuse;
-            fuse.SetArguments(args);
-            fuse.SetTools(tools);
-            fuse.SetRunParallel(Standard_True);
-            fuse.Build();
-            if (!fuse.IsDone()) return false;
-            result = fuse.Shape();
+        std::atomic<bool> done{false};
+        std::thread worker([&]() {
+            try {
+                // One boolean first — cleanest and fastest when every tool's good.
+                result = applyTools(m_previousShape, tools);
+                if (result.IsNull()) {
+                    // A single bad tool sinks one combined boolean. Fall back to
+                    // batches, then per-tool, so only the genuinely-degenerate
+                    // tools drop — "Select all" survives a few bad regions.
+                    std::fprintf(stderr,
+                        "[ProjectSketch] combined boolean failed — batching\n");
+                    std::vector<TopoDS_Shape> tv;
+                    for (TopTools_ListIteratorOfListOfShape it(tools); it.More(); it.Next())
+                        tv.push_back(it.Value());
+                    TopoDS_Shape acc = m_previousShape;
+                    size_t applied = 0;
+                    const size_t kBatch = 8;
+                    for (size_t s = 0; s < tv.size(); s += kBatch) {
+                        TopTools_ListOfShape batch;
+                        for (size_t k = s; k < std::min(s + kBatch, tv.size()); ++k)
+                            batch.Append(tv[k]);
+                        TopoDS_Shape next = applyTools(acc, batch);
+                        if (!next.IsNull()) { acc = next; applied += batch.Extent(); }
+                        else for (size_t k = s; k < std::min(s + kBatch, tv.size()); ++k) {
+                            TopTools_ListOfShape one;
+                            one.Append(tv[k]);
+                            // No fuzzy retry: a fuzzy-tolerance boolean "rescued"
+                            // a sliver region but silently merged/omitted faces on
+                            // its neighbours and left the body invalid. Cleanly
+                            // dropping the one bad tool beats corrupting adjacent
+                            // ones.
+                            TopoDS_Shape r1 = applyTools(acc, one);
+                            if (!r1.IsNull()) { acc = r1; ++applied; }
+                            else std::fprintf(stderr,
+                                "[ProjectSketch] tool %zu dropped (degenerate)\n", k);
+                        }
+                    }
+                    if (applied > 0) result = acc;
+                }
+            } catch (...) {}
+            done.store(true);
+        });
+        bool cancelled = false;
+        while (!done.load()) {
+            if (reportProgress(-1.0f, "Applying to body\xE2\x80\xA6")) cancelled = true;
+            std::this_thread::sleep_for(std::chrono::milliseconds(16));
         }
-        if (result.IsNull() || !BRepCheck_Analyzer(result).IsValid())
+        worker.join();
+        if (cancelled) return false;
+        if (result.IsNull()) {
+            std::fprintf(stderr, "[ProjectSketch] nothing applied\n");
             return false;
+        }
 
         // The volume must move the right way, by no more than the tools.
         double v0 = shapeVolume(m_previousShape);

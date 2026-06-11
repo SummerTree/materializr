@@ -13,7 +13,18 @@
 #include <gp_GTrsf.hxx>
 #include <BRepOffsetAPI_ThruSections.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
+#include <BRepAlgoAPI_Fuse.hxx>
+#include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepCheck_Analyzer.hxx>
+#include <TopExp.hxx>
+#include <TopTools_IndexedMapOfShape.hxx>
+#include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
+#include <TopTools_DataMapOfShapeInteger.hxx>
+#include <TopTools_ListOfShape.hxx>
+#include <TopTools_ListIteratorOfListOfShape.hxx>
+#include <TopTools_HSequenceOfShape.hxx>
+#include <ShapeAnalysis_FreeBounds.hxx>
+#include <vector>
 #include <BRepGProp_Face.hxx>
 #include <BRepGProp.hxx>
 #include <GProp_GProps.hxx>
@@ -31,6 +42,68 @@
 #include <Standard_ErrorHandler.hxx>
 #include <Standard_Failure.hxx>
 #include <algorithm>
+
+namespace {
+// The far cross-section of the feature attached to `face`: the edge LOOPS where
+// the side-wall faces sharing `face`'s boundary end (meet a step / other
+// geometry). On a plain prism that's the opposite cap; on a funnel→step→spout,
+// from the spout cap it's the spout-top — which is an ANNULUS (outer + inner
+// ring) when the spout is hollow, so this returns a SET of loops. Empty if it
+// can't assemble clean closed loops (caller falls back to the opposite cap).
+std::vector<TopoDS_Wire> featureFarLoops(const TopoDS_Shape& body,
+                                         const TopoDS_Face& face) {
+    std::vector<TopoDS_Wire> loops;
+    try {
+        TopTools_IndexedMapOfShape nearEdges;
+        TopExp::MapShapes(face, TopAbs_EDGE, nearEdges);
+        if (nearEdges.IsEmpty()) return loops;
+
+        TopTools_IndexedDataMapOfShapeListOfShape edgeFaces;
+        TopExp::MapShapesAndAncestors(body, TopAbs_EDGE, TopAbs_FACE, edgeFaces);
+
+        // tube faces = faces (other than `face`) sharing a near edge.
+        TopTools_IndexedMapOfShape tubeFaces;
+        for (int i = 1; i <= nearEdges.Extent(); ++i) {
+            const TopoDS_Shape& e = nearEdges(i);
+            if (!edgeFaces.Contains(e)) continue;
+            for (TopTools_ListIteratorOfListOfShape it(edgeFaces.FindFromKey(e));
+                 it.More(); it.Next())
+                if (!it.Value().IsSame(face)) tubeFaces.Add(it.Value());
+        }
+        if (tubeFaces.IsEmpty()) return loops;
+
+        // Count tube faces per edge (the seam of a periodic wall is shared by
+        // its own face twice → count 2 → excluded, same as a box-corner edge).
+        TopTools_DataMapOfShapeInteger cnt;
+        for (int i = 1; i <= tubeFaces.Extent(); ++i)
+            for (TopExp_Explorer ex(tubeFaces(i), TopAbs_EDGE); ex.More(); ex.Next()) {
+                const TopoDS_Shape& e = ex.Current();
+                if (cnt.IsBound(e)) cnt.ChangeFind(e)++;
+                else cnt.Bind(e, 1);
+            }
+
+        // Far edges: on exactly ONE tube face and NOT a near edge.
+        Handle(TopTools_HSequenceOfShape) farEdges = new TopTools_HSequenceOfShape();
+        for (TopTools_DataMapIteratorOfDataMapOfShapeInteger it(cnt); it.More(); it.Next()) {
+            if (it.Value() != 1) continue;
+            if (nearEdges.Contains(it.Key())) continue;
+            farEdges->Append(it.Key());
+        }
+        if (farEdges->IsEmpty()) return loops;
+
+        // Group the far edges into connected closed loops (outer + any holes).
+        Handle(TopTools_HSequenceOfShape) wires;
+        ShapeAnalysis_FreeBounds::ConnectEdgesToWires(farEdges, 1e-5,
+                                                      Standard_False, wires);
+        if (wires.IsNull()) return loops;
+        for (int i = 1; i <= wires->Length(); ++i) {
+            TopoDS_Wire w = TopoDS::Wire(wires->Value(i));
+            if (BRep_Tool::IsClosed(w)) loops.push_back(w);
+        }
+    } catch (...) {}
+    return loops;
+}
+} // namespace
 
 bool MoveFaceOp::execute(Document& doc) {
     if (m_bodyId < 0 || m_face.IsNull()) return false;
@@ -161,10 +234,33 @@ bool MoveFaceOp::execute(Document& doc) {
             return gp_Pnt(acc);
         };
 
+        // The feature's far cross-section: the spout-top loops on a funnel, or
+        // the opposite cap on a plain prism. If it's a genuine SUB-feature (ends
+        // before the opposite cap), loft only within it and boolean it back into
+        // the body so the rest survives; otherwise fall back to the cap (old
+        // "the loft IS the new body" path).
+        std::vector<TopoDS_Wire> farLoops = featureFarLoops(m_previousShape, m_face);
         TopoDS_Wire topOuter, baseOuter;
         std::vector<TopoDS_Wire> topInners, baseInners;
         collect(m_face, topOuter, topInners);
-        collect(baseFace, baseOuter, baseInners);
+
+        bool subFeature = false;
+        if (!farLoops.empty()) {
+            double maxPerim = -1; size_t oi = 0;
+            for (size_t i = 0; i < farLoops.size(); ++i) {
+                GProp_GProps lp; BRepGProp::LinearProperties(farLoops[i], lp);
+                if (lp.Mass() > maxPerim) { maxPerim = lp.Mass(); oi = i; }
+            }
+            GProp_GProps bp; BRepGProp::LinearProperties(baseFace, bp);
+            // Far loop NOT at the opposite cap => the feature is a sub-section.
+            if (centroid(farLoops[oi]).Distance(bp.CentreOfMass()) > 1e-3) {
+                subFeature = true;
+                baseOuter = farLoops[oi];
+                for (size_t i = 0; i < farLoops.size(); ++i)
+                    if (i != oi) baseInners.push_back(farLoops[i]);
+            }
+        }
+        if (!subFeature) collect(baseFace, baseOuter, baseInners);
         if (topOuter.IsNull() || baseOuter.IsNull()) return false;
 
         auto moved = [&](const TopoDS_Wire& w) {
@@ -179,54 +275,86 @@ bool MoveFaceOp::execute(Document& doc) {
             out = ts.Shape();
             return !out.IsNull();
         };
-
-        // A wire's lofted end is the MOVED one only if that ring slides.
         auto endFor = [&](const TopoDS_Wire& w, bool slides) {
             return slides ? moved(w) : w;
         };
 
-        // Outer prism: base outer (reversed to match orientation) -> top
-        // (moved iff the outline slides).
-        TopoDS_Wire bO = baseOuter; bO.Reverse();
-        TopoDS_Shape result;
-        if (!loftSolid(bO, endFor(topOuter, m_moveOuter), result)) {
-            std::fprintf(stderr, "[MoveFace] outer loft failed — refusing\n");
+        // Build the feature solid base→top. applyMove OFF reconstructs the
+        // ORIGINAL feature (the cut tool); ON builds the transformed one. The
+        // hole rings ride/stay per the three-state flags (TILT must ride, else
+        // the face can't close — the "half cover" bug).
+        auto buildFeature = [&](bool applyMove) -> TopoDS_Shape {
+            TopoDS_Wire bOuter = baseOuter; bOuter.Reverse();
+            TopoDS_Shape feat;
+            TopoDS_Wire topO = applyMove ? endFor(topOuter, m_moveOuter) : topOuter;
+            if (!loftSolid(bOuter, topO, feat)) return TopoDS_Shape();
+            for (size_t hi = 0; hi < topInners.size(); ++hi) {
+                const TopoDS_Wire& tw = topInners[hi];
+                bool slant    = (hi < m_holeSlant.size())    && m_holeSlant[hi];
+                bool vertical = (hi < m_holeVertical.size()) && m_holeVertical[hi];
+                bool topRidesFace = m_moveOuter && m_kind == Kind::Rotate;
+                bool topSlides = applyMove && (topRidesFace || slant || vertical);
+                bool botSlides = applyMove && vertical;
+                gp_Pnt tc = centroid(tw);
+                int best = -1; double bd = 1e300;
+                for (size_t i = 0; i < baseInners.size(); ++i) {
+                    gp_Pnt bc = centroid(baseInners[i]);
+                    gp_Vec dv(bc.X() - tc.X(), bc.Y() - tc.Y(), bc.Z() - tc.Z());
+                    double d = (dv - N * dv.Dot(N)).Magnitude(); // in-plane only
+                    if (d < bd) { bd = d; best = static_cast<int>(i); }
+                }
+                if (best < 0) continue;
+                TopoDS_Wire bi = baseInners[best]; bi.Reverse();
+                TopoDS_Shape holeSolid;
+                if (!loftSolid(endFor(bi, botSlides), endFor(tw, topSlides), holeSolid))
+                    continue;
+                BRepAlgoAPI_Cut cut(feat, holeSolid);
+                if (cut.IsDone() && !cut.Shape().IsNull()) feat = cut.Shape();
+            }
+            return feat;
+        };
+
+        TopoDS_Shape newFeature = buildFeature(true);
+        if (newFeature.IsNull()) {
+            std::fprintf(stderr, "[MoveFace] feature loft failed — refusing\n");
             return false;
         }
 
-        // Subtract a loft for each hole. Its TOP ring rides the face (moves when
-        // the outline moves) OR moves on its own when the hole is vertical; its
-        // BOTTOM ring moves only when the hole is vertical (a straight tube).
-        for (size_t hi = 0; hi < topInners.size(); ++hi) {
-            const TopoDS_Wire& tw = topInners[hi];
-            bool slant    = (hi < m_holeSlant.size())    && m_holeSlant[hi];
-            bool vertical = (hi < m_holeVertical.size()) && m_holeVertical[hi];
-            // On a TILT the top ring is part of the rotating face — it must ride
-            // it (stay coplanar) or the face can't close (the "half cover" bug);
-            // the hole then continues as a slanted tube. On Move/Scale the ring
-            // can stay put (three-state), so opt-in only.
-            bool topRidesFace = m_moveOuter && m_kind == Kind::Rotate;
-            bool topSlides = topRidesFace || slant || vertical;
-            bool botSlides = vertical;
-            gp_Pnt tc = centroid(tw);
-            int best = -1; double bd = 1e300;
-            for (size_t i = 0; i < baseInners.size(); ++i) {
-                gp_Pnt bc = centroid(baseInners[i]);
-                gp_Vec dv(bc.X() - tc.X(), bc.Y() - tc.Y(), bc.Z() - tc.Z());
-                double d = (dv - N * dv.Dot(N)).Magnitude(); // in-plane only
-                if (d < bd) { bd = d; best = static_cast<int>(i); }
+        TopoDS_Shape result;
+        if (!subFeature) {
+            result = newFeature; // the loft IS the new body (plain prism)
+        } else {
+            // Cut the ORIGINAL feature out of the body, fuse the transformed one
+            // back — keeps every other feature (the funnel above the spout).
+            TopoDS_Shape oldFeature = buildFeature(false);
+            if (oldFeature.IsNull()) {
+                std::fprintf(stderr, "[MoveFace] original-feature loft failed\n");
+                return false;
             }
-            if (best < 0) continue;
-            TopoDS_Wire bi = baseInners[best]; bi.Reverse();
-            TopoDS_Shape holeSolid;
-            if (!loftSolid(endFor(bi, botSlides), endFor(tw, topSlides), holeSolid))
-                continue;
-            BRepAlgoAPI_Cut cut(result, holeSolid);
-            if (cut.IsDone() && !cut.Shape().IsNull()) result = cut.Shape();
+            TopoDS_Shape rest;
+            try {
+                BRepAlgoAPI_Cut c(m_previousShape, oldFeature);
+                c.Build(); if (c.IsDone()) rest = c.Shape();
+            } catch (...) {}
+            int restSolids = 0;
+            if (!rest.IsNull())
+                for (TopExp_Explorer sx(rest, TopAbs_SOLID); sx.More(); sx.Next()) ++restSolids;
+            if (restSolids < 1) {
+                result = newFeature; // the feature was the whole body after all
+            } else {
+                try {
+                    BRepAlgoAPI_Fuse f(rest, newFeature);
+                    f.Build(); if (f.IsDone()) result = f.Shape();
+                } catch (...) {}
+                if (result.IsNull()) {
+                    std::fprintf(stderr, "[MoveFace] feature fuse failed — refusing\n");
+                    return false;
+                }
+            }
         }
 
         if (result.IsNull() || !BRepCheck_Analyzer(result).IsValid()) {
-            std::fprintf(stderr, "[MoveFace] lofted result invalid — refusing\n");
+            std::fprintf(stderr, "[MoveFace] result invalid — refusing\n");
             return false;
         }
         int nsolids = 0;

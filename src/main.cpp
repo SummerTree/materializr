@@ -7,7 +7,42 @@
 #include <cstring>
 #include <iostream>
 
+#if defined(__linux__)
+#include <execinfo.h>
+#include <signal.h>
+#include <unistd.h>
+#endif
+
 namespace {
+
+#if defined(__linux__)
+// Print a backtrace on a fatal signal, THEN chain to whatever handler was
+// already installed (OCCT's, from OSD::SetSignal) so its signal→exception
+// conversion still runs. Diagnostic for the drag-over-window crash.
+struct sigaction g_prevSegv;
+void crashBacktrace(int sig, siginfo_t* info, void* ctx) {
+    const char* msg = "\n*** crash backtrace ***\n";
+    write(2, msg, std::strlen(msg));
+    void* frames[40];
+    int n = backtrace(frames, 40);
+    backtrace_symbols_fd(frames, n, 2); // async-signal-safe, fd 2 = stderr
+    if (g_prevSegv.sa_flags & SA_SIGINFO) {
+        if (g_prevSegv.sa_sigaction) g_prevSegv.sa_sigaction(sig, info, ctx);
+    } else if (g_prevSegv.sa_handler && g_prevSegv.sa_handler != SIG_DFL &&
+               g_prevSegv.sa_handler != SIG_IGN) {
+        g_prevSegv.sa_handler(sig);
+    } else {
+        _exit(139);
+    }
+}
+void installCrashBacktrace() {
+    struct sigaction sa;
+    std::memset(&sa, 0, sizeof(sa));
+    sa.sa_sigaction = crashBacktrace;
+    sa.sa_flags = SA_SIGINFO;
+    sigaction(SIGSEGV, &sa, &g_prevSegv);
+}
+#endif
 
 struct CliOptions {
     bool safeMode = false;
@@ -95,6 +130,9 @@ int main(int argc, char* argv[]) {
     // exceptions, so an op's try/catch (with OCC_CATCH_SIGNALS) refuses the
     // operation instead of taking the whole app down.
     OSD::SetSignal(Standard_False);
+#if defined(__linux__)
+    installCrashBacktrace(); // print a stack trace before OCCT's handler runs
+#endif
 
     try {
         materializr::Application app(opts.safeMode);
