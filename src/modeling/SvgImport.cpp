@@ -17,6 +17,9 @@
 #include <TCollection_AsciiString.hxx>
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepTools_WireExplorer.hxx>
+#include <BRepOffsetAPI_MakeOffset.hxx>
+#include <BRepBuilderAPI_MakePolygon.hxx>
+#include <GeomAbs_JoinType.hxx>
 #include <GCPnts_QuasiUniformDeflection.hxx>
 #include <Bnd_Box.hxx>
 #include <BRepBndLib.hxx>
@@ -557,6 +560,69 @@ void expandSvgText(std::string& svg) {
     }
 }
 
+// ─── stroke → outline ────────────────────────────────────────────────────────
+// Modern "line icons" (Feather / Lucide / Heroicons-outline, etc.) are drawn as
+// STROKES with no fill — so there's no closed area to emboss/engrave. Offset the
+// centerline by half the stroke width into a closed ribbon. OCCT's wire offsetter
+// (arc joins) handles the corners robustly (no miter spikes). Closed paths give
+// concentric outer+inner loops (a ring); open paths get both sides + butt caps.
+// Returns false (caller keeps the centerline) if the offset can't be built.
+
+void sampleOffsetWire(const TopoDS_Shape& shp, double defl, std::vector<glm::vec2>& loop) {
+    for (TopExp_Explorer wx(shp, TopAbs_WIRE); wx.More(); wx.Next()) {
+        for (BRepTools_WireExplorer ed(TopoDS::Wire(wx.Current())); ed.More(); ed.Next()) {
+            BRepAdaptor_Curve cu(ed.Current());
+            GCPnts_QuasiUniformDeflection s(cu, defl);
+            if (!s.IsDone() || s.NbPoints() < 2) continue;
+            std::vector<glm::vec2> seg;
+            for (int i = 1; i <= s.NbPoints(); ++i) {
+                gp_Pnt p = s.Value(i);
+                seg.emplace_back((float)p.X(), (float)p.Y());
+            }
+            if (ed.Current().Orientation() == TopAbs_REVERSED)
+                std::reverse(seg.begin(), seg.end());
+            for (size_t i = loop.empty() ? 0 : 1; i < seg.size(); ++i) loop.push_back(seg[i]);
+        }
+        break; // first wire only (a single offset side)
+    }
+}
+
+bool strokeToOutline(const std::vector<glm::vec2>& center, bool closed,
+                     float halfW, double defl,
+                     std::vector<std::vector<glm::vec2>>& out) {
+    if (center.size() < 2 || halfW < 1e-6f) return false;
+    try {
+        BRepBuilderAPI_MakePolygon poly;
+        for (const auto& q : center) poly.Add(gp_Pnt(q.x, q.y, 0.0));
+        if (closed) poly.Close();
+        if (!poly.IsDone()) return false;
+        TopoDS_Wire wire = poly.Wire();
+
+        if (closed) {
+            for (float sign : {1.0f, -1.0f}) {
+                BRepOffsetAPI_MakeOffset mk(wire, GeomAbs_Arc);
+                mk.Perform(sign * halfW);
+                if (!mk.IsDone() || mk.Shape().IsNull()) continue;
+                std::vector<glm::vec2> loop;
+                sampleOffsetWire(mk.Shape(), defl, loop);
+                if (loop.size() >= 3) out.push_back(std::move(loop));
+            }
+            return !out.empty();
+        }
+        // Open: offset both sides, stitch into one ribbon (butt caps).
+        std::vector<glm::vec2> a, b;
+        { BRepOffsetAPI_MakeOffset mk(wire, GeomAbs_Arc); mk.Perform(halfW);
+          if (mk.IsDone() && !mk.Shape().IsNull()) sampleOffsetWire(mk.Shape(), defl, a); }
+        { BRepOffsetAPI_MakeOffset mk(wire, GeomAbs_Arc); mk.Perform(-halfW);
+          if (mk.IsDone() && !mk.Shape().IsNull()) sampleOffsetWire(mk.Shape(), defl, b); }
+        if (a.size() < 2 || b.size() < 2) return false;
+        std::vector<glm::vec2> loop = a;
+        for (auto it = b.rbegin(); it != b.rend(); ++it) loop.push_back(*it);
+        out.push_back(std::move(loop));
+        return true;
+    } catch (...) { return false; }
+}
+
 } // namespace
 
 bool SvgImport::load(const std::string& path, SvgPaths& out) {
@@ -613,19 +679,34 @@ bool SvgImport::load(const std::string& path, SvgPaths& out) {
             if (pts.size() > 2 &&
                 glm::length(pts.front() - pts.back()) < 1e-4f * ref)
                 pts.pop_back();
-            const bool closed = (p->closed != 0) || filled;
-            if (pts.size() < (closed ? 3u : 2u)) continue;
-            for (const auto& q : pts) {
-                if (!haveBB) {
-                    out.bbMin = out.bbMax = q;
-                    haveBB = true;
-                } else {
-                    out.bbMin = glm::min(out.bbMin, q);
-                    out.bbMax = glm::max(out.bbMax, q);
+            auto emit = [&](std::vector<glm::vec2> loop, bool isClosed) {
+                if (loop.size() < (isClosed ? 3u : 2u)) return;
+                for (const auto& q : loop) {
+                    if (!haveBB) { out.bbMin = out.bbMax = q; haveBB = true; }
+                    else { out.bbMin = glm::min(out.bbMin, q);
+                           out.bbMax = glm::max(out.bbMax, q); }
                 }
+                out.loops.push_back(std::move(loop));
+                out.closed.push_back(isClosed);
+            };
+
+            // Stroke-only path (a "line icon"): no fill area to emboss — offset
+            // the centerline into a closed ribbon. Fall back to the centerline if
+            // the offset can't be built.
+            const bool strokeOnly = !filled &&
+                sh->stroke.type != NSVG_PAINT_NONE && sh->strokeWidth > 1e-4f;
+            if (strokeOnly) {
+                std::vector<std::vector<glm::vec2>> ribbon;
+                if (strokeToOutline(pts, p->closed != 0, sh->strokeWidth * 0.5f,
+                                    std::max(0.005 * ref, 1e-3), ribbon) &&
+                    !ribbon.empty()) {
+                    for (auto& r : ribbon) emit(std::move(r), true);
+                } else {
+                    emit(std::move(pts), p->closed != 0);
+                }
+            } else {
+                emit(std::move(pts), (p->closed != 0) || filled);
             }
-            out.loops.push_back(std::move(pts));
-            out.closed.push_back(closed);
         }
     }
     nsvgDelete(img);
