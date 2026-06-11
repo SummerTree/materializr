@@ -1,5 +1,6 @@
 #include "ViewCube.h"
 #include "Camera.h"
+#include "../touch_mode.h"
 
 #include <imgui.h>
 #include <glm/glm.hpp>
@@ -34,12 +35,12 @@ ViewCubeAction ViewCube::render(Camera& camera, bool invertDrag)
     const float cubeR   = 19.0f;   // half-extent of cube projection (px)
     const float widgetR = 38.0f;   // accessory placement radius
     float topOffset = 42.0f;       // push below the window title bar
-#if defined(__ANDROID__)
-    // The docked "Viewport" tab bar is ~2x tall on touch, so the Home button
-    // (60 px above the cube centre) hid behind it. Drop the whole widget so the
-    // top accessories clear it.
-    topOffset = 74.0f;
-#endif
+    if (materializr::touchMode()) {
+        // The docked "Viewport" tab bar is ~2x tall in touch mode, so the Home
+        // button (60 px above the cube centre) hid behind it. Drop the whole
+        // widget so the top accessories clear it.
+        topOffset = 74.0f;
+    }
     ImVec2 center(wp.x + ws.x - pad - widgetR - 26.0f,
                   wp.y + pad + widgetR + topOffset);
 

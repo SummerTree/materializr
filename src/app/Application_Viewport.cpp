@@ -1,4 +1,5 @@
 #include "ui_scale.h"
+#include "touch_mode.h"
 #include "gl_common.h"
 
 #include <cstdlib>
@@ -1885,18 +1886,18 @@ void Application::renderViewport() {
         }
 
         bool viewportHovered = ImGui::IsItemHovered();
-#if defined(__ANDROID__)
-        // ImGui drops IsItemHovered() a couple of frames into a press-drag — the
-        // window-move grab claims the ActiveId, so the plain Image stops reading
-        // as hovered and this whole input block (incl. the live sketch preview's
-        // onMouseMove) would freeze until release. Latch it: once a left press
-        // begins over the viewport, keep the block alive until the button lifts.
-        if (viewportHovered && ImGui::IsMouseDown(ImGuiMouseButton_Left))
-            m_viewportInputLatch = true;
-        if (!ImGui::IsMouseDown(ImGuiMouseButton_Left))
-            m_viewportInputLatch = false;
-        if (m_viewportInputLatch) viewportHovered = true;
-#endif
+        if (materializr::touchMode()) {
+            // ImGui drops IsItemHovered() a couple of frames into a press-drag — the
+            // window-move grab claims the ActiveId, so the plain Image stops reading
+            // as hovered and this whole input block (incl. the live sketch preview's
+            // onMouseMove) would freeze until release. Latch it: once a left press
+            // begins over the viewport, keep the block alive until the button lifts.
+            if (viewportHovered && ImGui::IsMouseDown(ImGuiMouseButton_Left))
+                m_viewportInputLatch = true;
+            if (!ImGui::IsMouseDown(ImGuiMouseButton_Left))
+                m_viewportInputLatch = false;
+            if (m_viewportInputLatch) viewportHovered = true;
+        }
         if (viewportHovered) {
             ImGuiIO& io = ImGui::GetIO();
             // Multi-select toggle = the touch stand-in for holding Ctrl. Force
@@ -1979,24 +1980,24 @@ void Application::renderViewport() {
                                  m_scaleFaceCtl.dragAxis() >= 0 ||
                                  m_edgeOpDragging ||
                                  m_pushPullSticky;
-#if defined(__ANDROID__)
-            // A one-finger press-and-hold drives box-select, not orbit/pan — so
-            // suppress the camera drag (and the two-finger consume below) while
-            // it's engaged.
-            if (m_window && m_window->isTouchHoldSelect()) gizmoOwnsDrag = true;
-#endif
+            if (materializr::touchMode()) {
+                // A one-finger press-and-hold drives box-select, not orbit/pan — so
+                // suppress the camera drag (and the two-finger consume below) while
+                // it's engaged.
+                if (m_window && m_window->isTouchHoldSelect()) gizmoOwnsDrag = true;
+            }
             // Camera-drag suppression for the one-finger orbit only. In sketch
-            // mode on Android a one-finger drag drives the sketch rubber-band
-            // preview (touch has no hover), so don't orbit. Two-finger pan/zoom
-            // still works — it's gated on gizmoOwnsDrag, not this local.
+            // mode (touch) a one-finger drag drives the sketch rubber-band preview
+            // (touch has no hover), so don't orbit. Two-finger pan/zoom still
+            // works — it's gated on gizmoOwnsDrag, not this local.
             bool suppressCamDrag = gizmoOwnsDrag;
-#if defined(__ANDROID__)
-            // In sketch mode a one-finger drag previews the rubber-band instead
-            // of orbiting — unless Move (navigation lock) is on, where it orbits.
-            if (m_inSketchMode && !m_moveModeToggle) suppressCamDrag = true;
-            // Move mode never draws: a one-finger drag orbits even in sketch.
-            if (m_moveModeToggle) suppressCamDrag = gizmoOwnsDrag;
-#endif
+            if (materializr::touchMode()) {
+                // In sketch mode a one-finger drag previews the rubber-band instead
+                // of orbiting — unless Move (navigation lock) is on, where it orbits.
+                if (m_inSketchMode && !m_moveModeToggle) suppressCamDrag = true;
+                // Move mode never draws: a one-finger drag orbits even in sketch.
+                if (m_moveModeToggle) suppressCamDrag = gizmoOwnsDrag;
+            }
             if (!suppressCamDrag && ImGui::IsMouseDragging(m_orbitButton)) {
                 ImVec2 delta = io.MouseDelta;
                 if (io.KeyShift) cam.pan(delta.x, delta.y);
@@ -2007,11 +2008,10 @@ void Application::renderViewport() {
                 cam.pan(io.MouseDelta.x, io.MouseDelta.y);
             }
 
-#if defined(__ANDROID__)
-            // Two-finger touch gestures (recognised in Window::pollEvents):
-            // centroid movement pans, pinch zooms. Applied here so they share the
-            // viewport-hovered gate and gizmo-ownership suppression above.
-            if (m_window) {
+            if (materializr::touchMode() && m_window) {
+                // Two-finger touch gestures (recognised in Window::pollEvents):
+                // centroid movement pans, pinch zooms. Applied here so they share
+                // the viewport-hovered gate and gizmo-ownership suppression above.
                 float tdx = 0.0f, tdy = 0.0f, tdz = 0.0f;
                 // Pan: damped, with a small deadzone so two-finger jitter doesn't
                 // creep the view.
@@ -2026,7 +2026,6 @@ void Application::renderViewport() {
                     if (std::fabs(tdz) > 1.5f) cam.zoom(tdz * 0.006f);
                 }
             }
-#endif
 
             // Pause interactive operations while a camera button is also being
             // dragged — otherwise the changing view matrix re-projects the same
@@ -3506,14 +3505,12 @@ void Application::renderViewport() {
                     // Axis / plane hits don't have a body to escalate to, so
                     // the double-click falls through to the single-click
                     // handler below (which builds the right Selection entry).
-                    bool allowDoubleClickBody = true;
-#if defined(__ANDROID__)
                     // On touch, a long-press right after a tap reads as a
                     // double-click and would select the whole body unintentionally.
                     // Body selection on touch goes through the long-press menu's
-                    // Body branch instead, so disable double-tap-to-body here.
-                    allowDoubleClickBody = false;
-#endif
+                    // Body branch (and Multi-Select tap) instead, so disable
+                    // double-tap-to-body in touch mode.
+                    bool allowDoubleClickBody = !materializr::touchMode();
                     if (allowDoubleClickBody && clickSelectionAllowed && !regionConsumedClick &&
                         ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) &&
                         result.hit && result.bodyId >= 0) {
@@ -3537,23 +3534,21 @@ void Application::renderViewport() {
                     } else if (clickSelectionAllowed && !regionConsumedClick &&
                                ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
                         int ownerStep = -1; // fillet/chamfer step to open in the editor
-#if defined(__ANDROID__)
                         // Multi-Select on touch gathers whole BODIES: with the
                         // toggle on, a tap adds/removes the body it hits. Touch has
                         // no double-tap-to-body (it clashed with the long-press),
                         // and bodies — not faces — are the usual multi-select
-                        // target. Toggle off → falls through to normal face/edge
-                        // picking; a tap that misses a body still branches to
-                        // axis/plane below.
-                        if (m_multiSelectToggle && result.hit && result.bodyId >= 0) {
+                        // target. Toggle off / desktop mode → falls through to
+                        // normal face/edge picking; a tap that misses a body still
+                        // branches to axis/plane below.
+                        if (materializr::touchMode() && m_multiSelectToggle &&
+                            result.hit && result.bodyId >= 0) {
                             SelectionEntry entry;
                             entry.type = SelectionType::Body;
                             entry.bodyId = result.bodyId;
                             try { entry.shape = m_document->getBody(result.bodyId); } catch (...) {}
                             m_selection->toggleSelection(entry);
-                        } else
-#endif
-                        if (result.hit && result.axisId >= 0) {
+                        } else if (result.hit && result.axisId >= 0) {
                             // Construction-axis hit — own selection path,
                             // skip body/face/edge branching.
                             SelectionEntry entry;
@@ -3636,15 +3631,11 @@ void Application::renderViewport() {
                                 // click to one of its own boundary edges (every interior pixel
                                 // is within 8 px of an edge when the face is itself only 16 px
                                 // across).
-#if defined(__ANDROID__)
-                                // A fingertip is far less precise than a cursor,
-                                // so widen the edge-promotion radius (8 px ~ 0.85 mm
-                                // at 240 dpi is unhittable). Still clamped to ¼ of
-                                // the face so small faces keep their interior.
-                                const float edgeBase = 24.0f;
-#else
-                                const float edgeBase = 8.0f;
-#endif
+                                // A fingertip is far less precise than a cursor, so
+                                // widen the edge-promotion radius in touch mode (8 px
+                                // ~ 0.85 mm at 240 dpi is unhittable). Still clamped
+                                // to ¼ of the face so small faces keep their interior.
+                                const float edgeBase = materializr::touchMode() ? 24.0f : 8.0f;
                                 float edgeThresh = std::min(edgeBase, result.faceScreenSize * 0.25f);
                                 if (result.edgeScreenDist < edgeThresh && !result.nearestEdge.IsNull()) {
                                     entry.type = SelectionType::Edge;
@@ -3712,18 +3703,18 @@ void Application::renderViewport() {
                         m_historyPanel->setEditingStep(ownerStep);
                     }
 
-#if defined(__ANDROID__)
-                    // Touch press-and-hold begins a box-select at the held point
-                    // (trackpad mode reserves left-drag for orbit, so the desktop
-                    // empty-space path never fires on Android).
-                    if (m_window && m_window->isTouchHoldSelect() && m_boxSelect &&
-                        !m_boxSelect->isActive() && !m_inSketchMode && !m_extruding &&
-                        !m_pushPullActive && !m_edgeOpActive && !m_gizmoDragging) {
-                        ImVec2 mp = ImGui::GetMousePos();
-                        ImVec2 wp = ImGui::GetItemRectMin();
-                        m_boxSelect->begin(glm::vec2(mp.x - wp.x, mp.y - wp.y));
+                    if (materializr::touchMode()) {
+                        // Touch press-and-hold begins a box-select at the held point
+                        // (trackpad mode reserves left-drag for orbit, so the desktop
+                        // empty-space path never fires under touch).
+                        if (m_window && m_window->isTouchHoldSelect() && m_boxSelect &&
+                            !m_boxSelect->isActive() && !m_inSketchMode && !m_extruding &&
+                            !m_pushPullActive && !m_edgeOpActive && !m_gizmoDragging) {
+                            ImVec2 mp = ImGui::GetMousePos();
+                            ImVec2 wp = ImGui::GetItemRectMin();
+                            m_boxSelect->begin(glm::vec2(mp.x - wp.x, mp.y - wp.y));
+                        }
                     }
-#endif
 
                     // Box-select drag + release. Update while LEFT is held; on
                     // release, intersect bodies' screen-space bboxes with the
@@ -4407,11 +4398,10 @@ void Application::renderViewport() {
                         // it. Snapshot manually for the drag-commit on mouse-up.
                         m_sketchDragBefore = std::make_shared<Sketch>(*m_activeSketch);
                         recordSketchMutation([&]{ m_sketchTool->onMouseDown(sketchCoord, io.KeyCtrl); });
-                    } else {
-                        // Drawing tool.
-#if defined(__ANDROID__)
-                        // Press-drag-release. The point normally lands on release
-                        // so the drag can preview the radius / bulge / segment.
+                    } else if (materializr::touchMode()) {
+                        // Drawing tool, touch: press-drag-release. The point normally
+                        // lands on release so the drag can preview the radius / bulge
+                        // / segment (touch has no hover to preview between taps).
                         m_sketchPressActive = true;
                         m_sketchDownX = io.MousePos.x;
                         m_sketchDownY = io.MousePos.y;
@@ -4427,9 +4417,9 @@ void Application::renderViewport() {
                             recordSketchMutation([&]{ m_sketchTool->onMouseDown(sketchCoord, io.KeyCtrl); });
                             m_sketchDragCenterPlaced = true;
                         }
-#else
+                    } else {
+                        // Drawing tool, desktop: place on press; hover previews.
                         recordSketchMutation([&]{ m_sketchTool->onMouseDown(sketchCoord, io.KeyCtrl); });
-#endif
                     }
                 }
 
@@ -4498,7 +4488,7 @@ void Application::renderViewport() {
 
                 if (ImGui::IsMouseReleased(ImGuiMouseButton_Left) && !m_sketchBoxSelectActive) {
                     m_sketchTool->onMouseUp(sketchCoord);
-#if defined(__ANDROID__)
+                    if (materializr::touchMode()) {
                     // Press-drag-release: place the drawing tool's point now, at
                     // the release position (the preview followed the drag here).
                     // Skip if the release was a two-finger gesture taking over,
@@ -4526,7 +4516,7 @@ void Application::renderViewport() {
                     }
                     m_sketchPressActive = false;
                     m_sketchDragCenterPlaced = false;
-#endif
+                    }
                     if (m_sketchDragBefore) {
                         // Compare point positions; commit a SketchEditOp if any moved.
                         const auto& before = m_sketchDragBefore->getPoints();
@@ -4568,12 +4558,11 @@ void Application::renderViewport() {
     // changes save immediately.
     renderSnapWidget();
 
-    // Context action bars overlaid on the viewport (Android). Each is a SEPARATE
-    // window so a tap on — or a few px around — a button is captured by ImGui and
-    // can't fall through to the canvas and drop a stray vertex. The window
-    // padding is that surrounding hit-target margin.
-#if defined(__ANDROID__)
-    {
+    // Context action bars overlaid on the viewport (touch mode). Each is a
+    // SEPARATE window so a tap on — or a few px around — a button is captured by
+    // ImGui and can't fall through to the canvas and drop a stray vertex. The
+    // window padding is that surrounding hit-target margin.
+    if (materializr::touchMode()) {
         const ImVec2 vpMin = ImGui::GetWindowPos();
         const ImVec2 vpSize = ImGui::GetWindowSize();
         const float pad = ImGui::GetStyle().FramePadding.x;
@@ -4677,7 +4666,6 @@ void Application::renderViewport() {
             m_moveModeToggle = false;
         }
     }
-#endif // __ANDROID__
 
     // Right-click face context menu
     if (m_contextMenuPending) {
@@ -4868,9 +4856,8 @@ void Application::renderViewport() {
         ImGui::Separator();
 
         if (m_extrudeInputFocus) {
-#if !defined(__ANDROID__)
-            ImGui::SetKeyboardFocusHere();  // touch: drag to set distance, or tap the field to type
-#endif
+            if (!materializr::touchMode())
+                ImGui::SetKeyboardFocusHere();  // touch: drag to set distance, or tap the field to type
             m_extrudeInputFocus = false;
         }
 
@@ -4931,9 +4918,8 @@ void Application::renderViewport() {
         ImGui::Separator();
 
         if (m_pushPullInputFocus) {
-#if !defined(__ANDROID__)
-            ImGui::SetKeyboardFocusHere();  // touch: drag to set distance, or tap the field to type
-#endif
+            if (!materializr::touchMode())
+                ImGui::SetKeyboardFocusHere();  // touch: drag to set distance, or tap the field to type
             m_pushPullInputFocus = false;
         }
 
@@ -5025,9 +5011,8 @@ void Application::renderViewport() {
         ImGui::Separator();
 
         if (m_edgeOpInputFocus) {
-#if !defined(__ANDROID__)
-            ImGui::SetKeyboardFocusHere();  // touch: drag the handle, or tap the field to type
-#endif
+            if (!materializr::touchMode())
+                ImGui::SetKeyboardFocusHere();  // touch: drag the handle, or tap the field to type
             m_edgeOpInputFocus = false;
         }
 
@@ -5269,9 +5254,8 @@ void Application::renderViewport() {
             // still shows; the user taps it when they actually want to type a
             // dimension, and taps the viewport to dismiss the keyboard.
             if (!m_sketchDimWasShown) {
-#if !defined(__ANDROID__)
-                ImGui::SetKeyboardFocusHere();
-#endif
+                if (!materializr::touchMode())
+                    ImGui::SetKeyboardFocusHere();
                 m_sketchDimWasShown = true;
             }
 

@@ -8,6 +8,14 @@ namespace materializr {
 // key is missing or unreadable in the settings file.
 struct AppSettings {
     int  theme              = 0;    // 0 = Dark, 1 = Light
+    // Touch mode: large UI + touch-gesture interaction. Defaults on for Android,
+    // off elsewhere; a saved setting so a tablet with a mouse/keyboard can run
+    // the desktop model. Drives materializr::setTouchMode() at startup.
+#if defined(__ANDROID__)
+    bool touchMode          = true;
+#else
+    bool touchMode          = false;
+#endif
 #if defined(__ANDROID__)
     // Touch-first default: trackpad mode (one-finger drag = orbit, two-finger
     // pan/zoom). Just the first-run default — the Settings dialog can rebind to

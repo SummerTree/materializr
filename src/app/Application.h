@@ -514,6 +514,16 @@ private:
     int m_settingsOrbitButton = 2; // staged value in the Settings dialog
     int m_settingsPanButton = 1;
 
+    // Touch mode (large UI + touch gestures) staged value for the Settings
+    // dialog. The live state lives in the materializr::touchMode() global; this
+    // mirrors the saved setting and is written back on save. Default tracks the
+    // platform (see AppSettings::touchMode); applyAppSettings keeps it in sync.
+#if defined(__ANDROID__)
+    bool m_touchMode = true;
+#else
+    bool m_touchMode = false;
+#endif
+
     // Autosave: once the project has been saved at least once (has a path on
     // disk), periodically re-save dirty changes. Toggled in File > Settings.
     bool m_autosaveEnabled = false;

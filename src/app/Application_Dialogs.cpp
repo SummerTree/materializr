@@ -1,4 +1,5 @@
 #include "ui_scale.h"
+#include "touch_mode.h"
 #include "gl_common.h"
 
 #include <cstdlib>
@@ -120,6 +121,23 @@ void Application::renderSettings() {
 
                 // ── General ───────────────────────────────────────────────
                 if (ImGui::BeginTabItem("General")) {
+                    ImGui::SeparatorText("Interaction");
+                    // Touch mode: large UI + touch-gesture input. The whole UI
+                    // scale and input model branch on this, baked at startup, so
+                    // it takes full effect on the next launch.
+                    if (ImGui::Checkbox("Touch mode (large UI + touch gestures)", &m_touchMode)) {
+                        changed = true;
+                    }
+                    ImGui::TextWrapped("On: finger-sized UI, long-press menus, on-screen "
+                                       "toggles, trackpad navigation. Off: the desktop "
+                                       "mouse/keyboard layout — use it with an attached "
+                                       "mouse/keyboard. Takes full effect on restart.");
+                    if (materializr::touchMode() != m_touchMode) {
+                        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f),
+                            "Restart Materializr to apply the new mode.");
+                    }
+
+                    ImGui::Spacing();
                     ImGui::SeparatorText("Appearance");
                     // Theme selector (the View menu mirrors this).
                     if (m_themeManager->renderSelector()) {
@@ -995,11 +1013,11 @@ void Application::renderInteractionsPanel() {
         ImGui::SameLine(120.0f);
         ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "%s", keys);
     };
-#if defined(__ANDROID__)
-    // Touch gesture reference. The mouse/keyboard legend below is nonsense on a
-    // bare tablet ("Scroll wheel", "Ctrl+Click", "W/E/R"), so show the actual
-    // finger gestures. These match trackpad mode (the Android default); with a
-    // mouse/keyboard attached the desktop bindings in Settings apply instead.
+    if (materializr::touchMode()) {
+    // Touch gesture reference. The mouse/keyboard legend is nonsense on a bare
+    // tablet ("Scroll wheel", "Ctrl+Click", "W/E/R"), so show the actual finger
+    // gestures. With a mouse/keyboard attached, turn off touch mode and the
+    // desktop bindings below apply instead.
     ImGui::SeparatorText("Camera");
     row("Orbit", "One-finger drag");
     row("Pan", "Two-finger drag");
@@ -1017,7 +1035,7 @@ void Application::renderInteractionsPanel() {
     ImGui::SeparatorText("General");
     row("Move (nav lock)", "Bottom-right toggle");
     row("Undo / Redo", "On-screen buttons");
-#else
+    } else {
     char orbitKeys[32], panKeys[32];
     std::snprintf(orbitKeys, sizeof(orbitKeys), "%s-drag", mouseButtonName(m_orbitButton));
     std::snprintf(panKeys, sizeof(panKeys), "%s-drag", mouseButtonName(m_panButton));
@@ -1039,7 +1057,7 @@ void Application::renderInteractionsPanel() {
     row("Dimension", "Type value + Enter");
     ImGui::SeparatorText("General");
     row("Undo / Redo", "Ctrl+Z / Ctrl+Y");
-#endif
+    }
     ImGui::End();
 }
 

@@ -1,6 +1,7 @@
 #include "app/Window.h"
 
 #include "gl_common.h"   // GLEW (Windows) must be included before other GL users
+#include "touch_mode.h"
 #include <SDL.h>
 #include <imgui_impl_sdl2.h>
 #include <stdexcept>
@@ -284,7 +285,9 @@ void Window::framebufferSize(int& w, int& h) const {
 }
 
 float Window::uiScale() const {
-#if defined(__ANDROID__)
+    // Only the touch UI scales up; in desktop mode the UI is already sized right
+    // (this is what lets a tablet with a mouse/keyboard run the desktop layout).
+    if (!materializr::touchMode()) return 1.0f;
     // Scale the desktop-density UI up for a touch screen. Use the physical DPI
     // against a 96-dpi desktop baseline (so a 240-dpi tablet -> 2.5x), clamped.
     float ddpi = 240.0f, hdpi = 0.0f, vdpi = 0.0f;
@@ -293,9 +296,6 @@ float Window::uiScale() const {
     if (s < 1.4f) s = 1.4f;     // never smaller than 1.4x on a touch device
     if (s > 2.5f) s = 2.5f;
     return s;
-#else
-    return 1.0f;                 // desktop UI is already correctly sized
-#endif
 }
 
 bool Window::isCtrlDown() {

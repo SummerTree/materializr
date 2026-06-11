@@ -13,6 +13,7 @@
 #include "app/Application.h"
 #include "app/Window.h"
 #include "ui_scale.h"
+#include "touch_mode.h"
 #include "viewport/Viewport.h"
 #include "viewport/Grid.h"
 #include "viewport/ShapeRenderer.h"
@@ -192,8 +193,17 @@ Application::Application(bool safeMode) : m_safeMode(safeMode) {
     m_toolbar->setSelectionManager(m_selection.get());
     m_toolbar->setHistory(m_history.get());
     m_toolbar->setPluginContext(m_pluginContext.get());
-    // Scale the Tools-panel button heights to match the HiDPI font (Android),
-    // otherwise 30px buttons under a 2x font overlap. 1.0 on desktop.
+    // Touch mode gates the UI scale and the whole input/UX model, and it must be
+    // known before fonts and widget sizes are baked below. Resolve it from the
+    // saved settings up front (loadAppSettings() re-reads everything once the
+    // ImGui context exists); falls back to the platform default if there's no
+    // settings file yet.
+    {
+        AppSettings early = SettingsIO::load(SettingsIO::defaultPath());
+        materializr::setTouchMode(early.touchMode);
+    }
+    // Scale the Tools-panel button heights to match the HiDPI font (touch mode),
+    // otherwise 30px buttons under a 2x font overlap. 1.0 in desktop mode.
     if (m_window) {
         m_toolbar->setUiScale(m_window->uiScale());
         // Global scale for fixed-size dialogs/popups (uiSz/uiW), so their
@@ -434,14 +444,14 @@ void Application::initImGui() {
     // loaded at the matching size below so text stays crisp (not just upscaled).
     const float uiScale = m_window ? m_window->uiScale() : 1.0f;
     if (uiScale != 1.0f) style.ScaleAllSizes(uiScale);  // scales padding/spacing/scrollbar/grab
-#if defined(__ANDROID__)
-    // Touch has no hover; a tooltip can only appear while a finger is held on a
-    // widget. Drop the stationary gate (a fingertip is already stationary) and
-    // shorten the delays so a brief press-and-hold reveals it.
-    style.HoverStationaryDelay = 0.0f;
-    style.HoverDelayShort = 0.15f;
-    style.HoverDelayNormal = 0.30f;
-#endif
+    if (materializr::touchMode()) {
+        // Touch has no hover; a tooltip can only appear while a finger is held on
+        // a widget. Drop the stationary gate (a fingertip is already stationary)
+        // and shorten the delays so a brief press-and-hold reveals it.
+        style.HoverStationaryDelay = 0.0f;
+        style.HoverDelayShort = 0.15f;
+        style.HoverDelayNormal = 0.30f;
+    }
 
     // Swap ImGui's default ProggyClean for JetBrains Mono — slashed zero,
     // distinct 0/8/B/6, designed for engineering UIs. Resolved from a small
@@ -656,12 +666,11 @@ void Application::beginFrame() {
 }
 
 void Application::endFrame() {
-#if defined(__ANDROID__)
     // Long-press feedback ring: a circle that fills as a stationary one-finger
     // press approaches the context-menu threshold, so the gesture is discoverable
     // and the user knows when to lift. Drawn over everything via the foreground
     // list; vanishes the moment the press moves (it became a drag) or lifts.
-    if (m_window) {
+    if (materializr::touchMode() && m_window) {
         float hx = 0.0f, hy = 0.0f;
         float hp = m_window->holdProgress(hx, hy);
         if (hp > 0.0f) {
@@ -676,7 +685,6 @@ void Application::endFrame() {
                 dl->AddCircleFilled(ImVec2(hx, hy), 4.0f * s, IM_COL32(120, 180, 255, 235));
         }
     }
-#endif
     ImGui::Render();
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
     // Raise/dismiss the Android soft keyboard to match the focused text field.
@@ -967,6 +975,7 @@ void Application::meshQualityParams(float& deflection, float& angularDeflection)
 AppSettings Application::currentSettings() const {
     AppSettings s;
     s.theme = (m_themeManager->getTheme() == Theme::Light) ? 1 : 0;
+    s.touchMode = m_touchMode;
     s.orbitButton = m_orbitButton;
     s.panButton = m_panButton;
     s.levelOrbit = m_viewport->getCamera().isLevelOrbit();
@@ -1004,6 +1013,12 @@ AppSettings Application::currentSettings() const {
 // and the Settings-dialog "staged" copies so an import takes effect at once.
 void Application::applyAppSettings(const AppSettings& s) {
     m_themeManager->setTheme(s.theme == 1 ? Theme::Light : Theme::Dark);
+    // Touch mode drives the UI scale and input/UX model. The scale + fonts are
+    // baked at startup (resolved early in the ctor), so a change here fully
+    // applies on the next launch; keeping the global in sync means everything
+    // reads a consistent value within the run.
+    materializr::setTouchMode(s.touchMode);
+    m_touchMode = s.touchMode;   // staged value for the Settings dialog
     // Camera button bindings are honoured on every platform. Android defaults to
     // trackpad mode (AppSettings sets orbit/pan = Left there) so one-finger touch
     // orbits out of the box, but an attached mouse/trackpad can be rebound via the

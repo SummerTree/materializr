@@ -1,4 +1,5 @@
 #include "StatusBar.h"
+#include "../touch_mode.h"
 #include "../core/Document.h"
 #include "../core/SelectionManager.h"
 #include <imgui.h>
@@ -32,11 +33,11 @@ void StatusBar::render() {
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
 
     float height = 24.0f;
-#if defined(__ANDROID__)
-    // The touch UI renders the font at ~2x, but a fixed 24 px bar clipped the
-    // bottom of those glyphs. Size the bar to the actual font so descenders fit.
-    height = ImGui::GetFontSize() + 12.0f;
-#endif
+    if (materializr::touchMode()) {
+        // The touch UI renders the font at ~2x, but a fixed 24 px bar clipped the
+        // bottom of those glyphs. Size the bar to the actual font so descenders fit.
+        height = ImGui::GetFontSize() + 12.0f;
+    }
     ImVec2 pos(viewport->WorkPos.x, viewport->WorkPos.y + viewport->WorkSize.y - height);
     ImVec2 size(viewport->WorkSize.x, height);
 

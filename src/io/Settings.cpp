@@ -53,6 +53,7 @@ void readBool(const std::map<std::string, std::string>& kv, const char* key, boo
 // rules (unknown keys ignored, missing keys keep their defaults).
 void applyKv(const std::map<std::string, std::string>& kv, AppSettings& s) {
     readInt (kv, "theme",                s.theme);
+    readBool(kv, "touchMode",            s.touchMode);
     readInt (kv, "orbitButton",          s.orbitButton);
     readInt (kv, "panButton",            s.panButton);
     readBool(kv, "levelOrbit",           s.levelOrbit);
@@ -210,6 +211,7 @@ bool SettingsIO::save(const std::string& path, const AppSettings& s) {
     ofs << "# Materializr settings. Unknown keys are ignored; missing keys use\n"
            "# defaults. Safe to edit by hand or to carry across versions.\n";
     ofs << "theme = "               << s.theme               << "\n";
+    ofs << "touchMode = "           << (s.touchMode ? "true" : "false") << "\n";
     ofs << "orbitButton = "         << s.orbitButton         << "\n";
     ofs << "panButton = "           << s.panButton           << "\n";
     ofs << "levelOrbit = "          << (s.levelOrbit ? "true" : "false") << "\n";
@@ -252,6 +254,7 @@ bool SettingsIO::exportJson(const std::string& path, const AppSettings& s) {
     // loader and applyKv, so files round-trip through either path.
     ofs << "{\n";
     ofs << "  \"theme\": "                   << s.theme                 << ",\n";
+    ofs << "  \"touchMode\": "               << (s.touchMode ? "true" : "false") << ",\n";
     ofs << "  \"orbitButton\": "             << s.orbitButton           << ",\n";
     ofs << "  \"panButton\": "               << s.panButton             << ",\n";
     ofs << "  \"levelOrbit\": "              << b(s.levelOrbit)         << ",\n";
