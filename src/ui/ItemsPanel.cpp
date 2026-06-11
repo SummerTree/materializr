@@ -1,4 +1,5 @@
 #include "ItemsPanel.h"
+#include "../touch_mode.h"
 #include "../core/Document.h"
 #include "../core/History.h"
 #include "../core/SelectionManager.h"
@@ -43,6 +44,10 @@ bool ItemsPanel::render() {
     ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "Filter");
     ImGui::Separator();
 
+    // Touch mode wraps the third toggle to a second row so the filter strip needs
+    // only the width of two buttons (the 2x font otherwise pushes the whole right
+    // panel wide). Desktop keeps all three on one line.
+    const bool filterWrap = materializr::touchMode();
     if (ImGui::Button(m_showBodies ? "[Bodies]" : " Bodies ")) {
         m_showBodies = !m_showBodies;
     }
@@ -50,7 +55,7 @@ bool ItemsPanel::render() {
     if (ImGui::Button(m_showSketches ? "[Sketches]" : " Sketches ")) {
         m_showSketches = !m_showSketches;
     }
-    ImGui::SameLine();
+    if (!filterWrap) ImGui::SameLine();
     if (ImGui::Button(m_showPlanes ? "[Construction]" : " Construction ")) {
         m_showPlanes = !m_showPlanes;
     }

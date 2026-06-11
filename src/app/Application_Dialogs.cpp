@@ -1008,33 +1008,40 @@ void Application::renderInteractionsPanel() {
     // Action label in a fixed left column, keys to its right. Keeping the action
     // first (it's short) means a long key string extends rightward instead of
     // overlapping the label.
-    auto row = [](const char* action, const char* keys) {
+    // Action label, then the binding. Desktop aligns the binding in a fixed
+    // column (120 px); touch lays it out ragged (binding right after the label
+    // with default spacing) because the 2x font makes a fixed column either
+    // overlap the label or force the panel wide — ragged never overlaps and
+    // needs the least width.
+    const bool touchRagged = materializr::touchMode();
+    auto row = [touchRagged](const char* action, const char* keys) {
         ImGui::TextUnformatted(action);
-        ImGui::SameLine(120.0f);
+        if (touchRagged) ImGui::SameLine();
+        else             ImGui::SameLine(120.0f);
         ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "%s", keys);
     };
     if (materializr::touchMode()) {
     // Touch gesture reference. The mouse/keyboard legend is nonsense on a bare
     // tablet ("Scroll wheel", "Ctrl+Click", "W/E/R"), so show the actual finger
-    // gestures. With a mouse/keyboard attached, turn off touch mode and the
-    // desktop bindings below apply instead.
+    // gestures. Labels/values kept short so the panel can stay narrow. With a
+    // mouse/keyboard attached, turn off touch mode for the desktop bindings.
     ImGui::SeparatorText("Camera");
-    row("Orbit", "One-finger drag");
-    row("Pan", "Two-finger drag");
+    row("Orbit", "1-finger drag");
+    row("Pan", "2-finger drag");
     row("Zoom", "Pinch");
-    row("Reset view", "View ▸ Reset Camera");
+    row("Reset view", "View menu");
     ImGui::SeparatorText("Select");
-    row("Select face", "Tap");
+    row("Face", "Tap");
     row("Context menu", "Long-press");
-    row("Select body", "Long-press ▸ Body");
-    row("Add to selection", "Multi-Select toggle");
+    row("Body", "Hold ▸ Body");
+    row("Add to sel.", "Multi-Select");
     ImGui::SeparatorText("Sketch");
-    row("Draw", "Tap, or press-drag");
-    row("Finish / Cancel", "On-screen buttons");
-    row("Dimension", "Type value (keyboard)");
+    row("Draw", "Tap or drag");
+    row("Finish / cancel", "Buttons");
+    row("Dimension", "Tap + type");
     ImGui::SeparatorText("General");
-    row("Move (nav lock)", "Bottom-right toggle");
-    row("Undo / Redo", "On-screen buttons");
+    row("Nav lock", "Move toggle");
+    row("Undo / redo", "Buttons");
     } else {
     char orbitKeys[32], panKeys[32];
     std::snprintf(orbitKeys, sizeof(orbitKeys), "%s-drag", mouseButtonName(m_orbitButton));
