@@ -1898,6 +1898,9 @@ void Application::renderViewport() {
                 m_viewportInputLatch = false;
             if (m_viewportInputLatch) viewportHovered = true;
         }
+        // Tell the input layer whether this touch is on the 3D canvas, so the
+        // long-press only arms here (not on a slider/panel — that popped the ring).
+        if (m_window) m_window->setTouchOverViewport(viewportHovered);
         if (viewportHovered) {
             ImGuiIO& io = ImGui::GetIO();
             // Multi-select toggle = the touch stand-in for holding Ctrl. Force

@@ -220,6 +220,9 @@ void Window::handleFingerEvent(unsigned type, std::int64_t id, float nx, float n
 
 void Window::updateHoldSelect() {
     if (m_holdSelect) return;
+    // Only arm over the 3D canvas — a press on a slider/panel must never become a
+    // long-press (slow slider drags were popping the context-menu ring).
+    if (!m_touchOverViewport) return;
     if (m_fingers.size() != 1 || m_movedBeyondHold || m_suppressLeft || m_twoFinger) return;
     if (SDL_GetTicks() - m_downTicks > 450u) m_holdSelect = true;  // long-press armed
 }
@@ -241,7 +244,8 @@ void Window::pumpSyntheticRightClick() {
 }
 
 float Window::holdProgress(float& x, float& y) const {
-    if (m_fingers.size() != 1 || m_movedBeyondHold || m_suppressLeft || m_twoFinger)
+    if (m_fingers.size() != 1 || m_movedBeyondHold || m_suppressLeft || m_twoFinger ||
+        !m_touchOverViewport)
         return 0.0f;
     x = m_downX; y = m_downY;
     if (m_holdSelect) return 1.0f;                 // armed: ring full while held

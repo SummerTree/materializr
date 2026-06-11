@@ -70,6 +70,12 @@ public:
     // (1.0 once armed and still held). Drawn by the app each frame on Android.
     float holdProgress(float& x, float& y) const;
 
+    // The app reports each frame whether the current touch is over the 3D
+    // viewport canvas (vs a panel/slider/overlay). The long-press only arms over
+    // the canvas — otherwise slowly dragging a slider popped the context-menu
+    // ring + a stray right-click.
+    void setTouchOverViewport(bool v) { m_touchOverViewport = v; }
+
 private:
     SDL_Window* m_window = nullptr;
     void* m_glContext = nullptr;
@@ -94,6 +100,7 @@ private:
     bool  m_holdSelect = false;           // hold threshold passed; select-drag mode
     bool  m_textInputActive = false;      // soft keyboard currently raised
     bool  m_leftReleaseWasGesture = false; // last left-up was a 2-finger takeover
+    bool  m_touchOverViewport = false;    // current touch is over the 3D canvas
 
     // Synthetic right-click queued by a long-press (touch context menu). Played
     // back over two frames (button down, then up) at the held point so ImGui's
