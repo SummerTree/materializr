@@ -1,5 +1,26 @@
 apply plugin: 'com.android.application'
 
+// Release signing. Two ways to supply the key + password, both per
+// RELEASE-SIGNING.md (env wins if both are set):
+//   1. Environment variables (nothing stored at rest — export them via
+//      `read -s` right before assembleRelease):
+//        MATERIALIZR_KEYSTORE, MATERIALIZR_STORE_PASSWORD,
+//        MATERIALIZR_KEY_ALIAS (default "materializr"), MATERIALIZR_KEY_PASSWORD
+//        (defaults to the store password — PKCS12 uses one password).
+//   2. The gitignored android/keystore.properties file.
+// When neither is provided (CI, fresh clone, debug work) release builds go
+// unsigned; assembleDebug is never affected.
+def keystorePropsFile = rootProject.file('keystore.properties')
+def keystoreProps = new Properties()
+if (keystorePropsFile.exists()) {
+    keystoreProps.load(new FileInputStream(keystorePropsFile))
+}
+def signStore   = System.getenv('MATERIALIZR_KEYSTORE')       ?: keystoreProps['storeFile']
+def signStorePw = System.getenv('MATERIALIZR_STORE_PASSWORD') ?: keystoreProps['storePassword']
+def signAlias   = System.getenv('MATERIALIZR_KEY_ALIAS')      ?: keystoreProps['keyAlias'] ?: 'materializr'
+def signKeyPw   = System.getenv('MATERIALIZR_KEY_PASSWORD')   ?: keystoreProps['keyPassword'] ?: signStorePw
+def hasReleaseSigning = signStore?.trim() && signStorePw?.trim()
+
 android {
     namespace 'com.materializr.app'
     compileSdkVersion 34
@@ -49,10 +70,28 @@ android {
         jniLibs.useLegacyPackaging true
     }
 
+    signingConfigs {
+        release {
+            if (hasReleaseSigning) {
+                storeFile     file(signStore)
+                storePassword signStorePw
+                keyAlias      signAlias
+                keyPassword   signKeyPw
+            }
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            // Sign the release with the real key only when it's configured;
+            // otherwise assembleRelease produces an unsigned APK (no debug-key
+            // fallback, so an unsigned build is obvious rather than silently
+            // shipped with the wrong signature).
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.release
+            }
         }
     }
     lint { abortOnError false }

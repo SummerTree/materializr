@@ -12,3 +12,8 @@ app/src/main/jniLibs/
 
 # SDL2 source is symlinked/placed locally by setup-deps.sh, not committed.
 app/jni/SDL
+
+# Release-signing secrets — NEVER commit. See RELEASE-SIGNING.md.
+keystore.properties
+*.jks
+*.keystore
