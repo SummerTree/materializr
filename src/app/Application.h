@@ -576,6 +576,12 @@ private:
     int   m_meshQuality = 1;        // tessellation density: 0=Low..3=Ultra
     float m_selectionLineWidth = 3.0f; // px width of highlighted edges/body outlines
     float m_sketchLineWidth = 2.5f;    // px width of sketch geometry over the grid
+
+    // Touch tooltip-timeout state (see beginFrame): blank a parked pointer after
+    // 15 s so a stuck tooltip clears.
+    float  m_tipLastMouseX = -1e9f;
+    float  m_tipLastMouseY = -1e9f;
+    double m_tipStationarySince = 0.0;
     bool  m_showToolbarTooltips = true; // hover description on each toolbar button
     // Toggle for the sketch toolbar's live Full/Reduced/Off inference cycle
     // button. Off hides the button so users who set the level once in

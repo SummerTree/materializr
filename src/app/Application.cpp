@@ -684,6 +684,23 @@ void Application::beginIop(materializr::InteractiveOpController& ctl) {
 void Application::beginFrame() {
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplSDL2_NewFrame();
+    // Touch tooltip timeout. A finger lift leaves io.MousePos parked on the last
+    // tapped widget, so its tooltip hangs forever (no hover-out on touch). If the
+    // pointer hasn't moved for 15 s with no button down, blank MousePos for this
+    // frame so nothing is hovered and the tip clears; the next touch restores it.
+    if (materializr::touchMode()) {
+        ImGuiIO& io = ImGui::GetIO();
+        bool buttonDown = io.MouseDown[0] || io.MouseDown[1] || io.MouseDown[2];
+        bool moved = std::abs(io.MousePos.x - m_tipLastMouseX) > 0.5f ||
+                     std::abs(io.MousePos.y - m_tipLastMouseY) > 0.5f;
+        if (moved || buttonDown) {
+            m_tipLastMouseX = io.MousePos.x;
+            m_tipLastMouseY = io.MousePos.y;
+            m_tipStationarySince = ImGui::GetTime();
+        } else if (ImGui::GetTime() - m_tipStationarySince > 15.0) {
+            io.MousePos = ImVec2(-FLT_MAX, -FLT_MAX); // ImGui "no mouse" sentinel
+        }
+    }
     ImGui::NewFrame();
 }
 

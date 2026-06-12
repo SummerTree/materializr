@@ -4466,9 +4466,13 @@ void Application::renderViewport() {
                         // further segment just previews from there and commits its
                         // point on release. Tap-tap still works as a fallback, and
                         // polyline chaining / auto-close are untouched.
+                        //
+                        // Arc rides the same path for its first two points: press
+                        // drops the start, the drag previews the chord, release
+                        // sets the end — then a second tap sets the bulge/angle.
                         SketchToolMode m = m_sketchTool->getMode();
                         if ((m == SketchToolMode::Circle || m == SketchToolMode::Rectangle ||
-                             m == SketchToolMode::Line) &&
+                             m == SketchToolMode::Line || m == SketchToolMode::Arc) &&
                             !m_sketchTool->isPlacing()) {
                             recordSketchMutation([&]{ m_sketchTool->onMouseDown(sketchCoord, io.KeyCtrl); });
                             m_sketchDragCenterPlaced = true;

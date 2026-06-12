@@ -510,50 +510,58 @@ void SketchRenderer::drawPreview(const Sketch* sketch, const SketchTool* tool,
         }
         uploadAndDraw(verts, GL_LINES, color, vp, 1.5f);
     } else if (mode == SketchToolMode::Arc) {
-        // Arc needs 3 clicks. After click 1: rubber-band line from start to cursor.
-        // After click 2: dashed-style preview of the arc through (start, cursor, second).
+        // Arc needs 3 clicks. After click 1: the chord (start->cursor) PLUS a
+        // curved hint so it doesn't read as a plain line. After click 2: the
+        // live arc through (start, cursor, second).
         int clicks = tool->getClickCount();
+        // Append the circumcircle arc s -> through m -> e to `v` (chord fallback
+        // if the three points are collinear).
+        auto pushArc = [&](std::vector<float>& v, glm::vec2 s, glm::vec2 m, glm::vec2 e) {
+            float ax = s.x, ay = s.y, bx = m.x, by = m.y, cx = e.x, cy = e.y;
+            float D = 2.0f * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by));
+            if (std::abs(D) < 1e-10f) { pushPt(v, pw(s)); pushPt(v, pw(e)); return; }
+            float ux = ((ax*ax+ay*ay)*(by-cy) + (bx*bx+by*by)*(cy-ay) + (cx*cx+cy*cy)*(ay-by)) / D;
+            float uy = ((ax*ax+ay*ay)*(cx-bx) + (bx*bx+by*by)*(ax-cx) + (cx*cx+cy*cy)*(bx-ax)) / D;
+            glm::vec2 c(ux, uy);
+            float r = glm::length(s - c);
+            float sA = std::atan2(s.y - c.y, s.x - c.x);
+            float mA = std::atan2(m.y - c.y, m.x - c.x);
+            float eA = std::atan2(e.y - c.y, e.x - c.x);
+            auto norm = [](float a){ const float T = 2.0f * (float)M_PI;
+                                     while (a < 0) a += T; while (a >= T) a -= T; return a; };
+            float ds = norm(eA - sA), dm = norm(mA - sA);
+            float sweep = (dm < ds) ? ds : (ds - 2.0f * (float)M_PI);
+            const int segs = 48;
+            for (int i = 0; i < segs; ++i) {
+                float a1 = sA + sweep * float(i) / segs;
+                float a2 = sA + sweep * float(i + 1) / segs;
+                pushPt(v, pw(glm::vec2(c.x + r*std::cos(a1), c.y + r*std::sin(a1))));
+                pushPt(v, pw(glm::vec2(c.x + r*std::cos(a2), c.y + r*std::sin(a2))));
+            }
+        };
         if (clicks == 1) {
+            // Solid yellow chord: the endpoints + the live chord-length readout.
             pushPt(verts, pw(start));
             pushPt(verts, pw(end));
             uploadAndDraw(verts, GL_LINES, color, vp, 1.5f);
-        } else if (clicks == 2) {
-            glm::vec2 second = tool->getSecondClick();
-            glm::vec2 mid = end;
-            float ax = start.x, ay = start.y;
-            float bx = mid.x, by = mid.y;
-            float cx = second.x, cy = second.y;
-            float D = 2.0f * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by));
-            if (std::abs(D) > 1e-10f) {
-                float ux = ((ax*ax+ay*ay)*(by-cy) + (bx*bx+by*by)*(cy-ay) + (cx*cx+cy*cy)*(ay-by)) / D;
-                float uy = ((ax*ax+ay*ay)*(cx-bx) + (bx*bx+by*by)*(ax-cx) + (cx*cx+cy*cy)*(bx-ax)) / D;
-                glm::vec2 center(ux, uy);
-                float r = glm::length(start - center);
-                float sA = std::atan2(start.y - center.y, start.x - center.x);
-                float mA = std::atan2(mid.y - center.y, mid.x - center.x);
-                float eA = std::atan2(second.y - center.y, second.x - center.x);
-                // Sweep from sA to eA in whichever direction passes through mA.
-                auto norm = [](float a){ const float TWO_PI = 2.0f * (float)M_PI;
-                                          while (a < 0) a += TWO_PI; while (a >= TWO_PI) a -= TWO_PI; return a; };
-                float ds = norm(eA - sA);
-                float dm = norm(mA - sA);
-                float sweep = (dm < ds) ? ds : (ds - 2.0f * (float)M_PI); // CCW or CW
-                const int segs = 48;
-                for (int i = 0; i < segs; ++i) {
-                    float t1 = float(i) / segs;
-                    float t2 = float(i + 1) / segs;
-                    float a1 = sA + sweep * t1;
-                    float a2 = sA + sweep * t2;
-                    pushPt(verts, pw(glm::vec2(center.x + r*std::cos(a1), center.y + r*std::sin(a1))));
-                    pushPt(verts, pw(glm::vec2(center.x + r*std::cos(a2), center.y + r*std::sin(a2))));
-                }
-                uploadAndDraw(verts, GL_LINES, color, vp, 1.5f);
-            } else {
-                // Collinear: fall back to chord
-                pushPt(verts, pw(start));
-                pushPt(verts, pw(second));
-                uploadAndDraw(verts, GL_LINES, color, vp, 1.5f);
+            // Curved cyan hint bulging off the chord — signals "this is an arc,
+            // not a line." It's only a placeholder default; the next tap sets the
+            // real bulge. Sagitta = 28% of the chord, perpendicular to it.
+            glm::vec2 chord = end - start;
+            float clen = glm::length(chord);
+            if (clen > 1e-4f) {
+                glm::vec2 d = chord / clen;
+                glm::vec2 nrm(-d.y, d.x);
+                glm::vec2 hintMid = 0.5f * (start + end) + nrm * (clen * 0.28f);
+                std::vector<float> hint;
+                pushArc(hint, start, hintMid, end);
+                uploadAndDraw(hint, GL_LINES, glm::vec3(0.35f, 0.80f, 0.85f), vp, 1.2f);
             }
+        } else if (clicks == 2) {
+            // start, cursor (= the bulge being chosen), second (= committed end).
+            std::vector<float> v;
+            pushArc(v, start, end, tool->getSecondClick());
+            uploadAndDraw(v, GL_LINES, color, vp, 1.5f);
         }
     }
 }
