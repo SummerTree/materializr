@@ -1906,7 +1906,12 @@ void Application::renderViewport() {
         // interactive op's arrow owns the one-finger drag. Select mode keeps
         // it: hold-still = context menu, hold-then-drag = box select.
         {
-            bool allowLongPress = viewportHovered;
+            // Viewport OR the Items panel (its rows have context menus and it has
+            // no sliders, so it's safe). Items hover is from last frame — it
+            // renders after the viewport — but a stationary long-press is stable
+            // across frames, so the lag is harmless.
+            bool allowLongPress = viewportHovered ||
+                                  (m_itemsPanel && m_itemsPanel->isHovered());
             if (m_inSketchMode && m_sketchTool &&
                 m_sketchTool->getMode() != SketchToolMode::Select)
                 allowLongPress = false;

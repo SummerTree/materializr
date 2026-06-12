@@ -16,6 +16,11 @@ public:
     void setDocument(Document* doc);
     void setSelectionManager(SelectionManager* sel);
     void setHistory(History* hist);
+
+    // True if the panel was hovered last frame — the touch input layer uses this
+    // to arm long-press (right-click) over the panel's rows for their context
+    // menus, the same way it does over the viewport.
+    bool isHovered() const { return m_hovered; }
     // Called whenever a rename / non-history mutation happens so the
     // Application can mark the project dirty (otherwise closing without a
     // manual Save silently drops the change).
@@ -57,6 +62,7 @@ private:
     bool m_showSketches = true;
     bool m_showPlanes = true;
     bool m_bodyDeleted = false;
+    bool m_hovered = false;   // panel hovered last frame (for touch long-press arming)
     // Auto-scroll: when the selected body / sketch changes (e.g. a viewport
     // pick), scroll its row into view. -1 = no pending scroll.
     int m_lastSelectedBodyId = -1;

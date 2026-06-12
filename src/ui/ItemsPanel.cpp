@@ -31,6 +31,11 @@ void ItemsPanel::setHistory(History* hist) {
 bool ItemsPanel::render() {
     m_bodyDeleted = false;
     ImGui::Begin("Items");
+    // AllowWhenBlockedByActiveItem: a held body row is the "active item", which
+    // would otherwise make IsWindowHovered() report false — exactly during the
+    // long-press we need to detect to arm its context menu.
+    m_hovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows |
+                                       ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
 
     if (!m_document) {
         ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "No document loaded.");

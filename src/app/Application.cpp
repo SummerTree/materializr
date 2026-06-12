@@ -2844,6 +2844,20 @@ void Application::exportBodyAsStl(int bodyId) {
         return;
     }
 
+#if defined(__ANDROID__)
+    // Touch: offer Share (to Drive/email/3D apps) or Save-to-device. Both context
+    // menus (viewport long-press + Items panel) route here.
+    FileDialogs::androidExportShareOrSave(defaultFile, "application/octet-stream",
+        [shape](const std::string& path) {
+            auto result = StlExport::exportShape(path, shape);
+            if (result.success)
+                std::fprintf(stdout, "Exported %d triangles to %s\n",
+                             result.triangleCount, path.c_str());
+            else
+                std::fprintf(stderr, "STL export failed: %s\n", result.errorMessage.c_str());
+            return result.success;
+        });
+#else
     FileDialogs::saveFile("Export Body to STL", defaultFile,
         {{"STL Files", "*.stl"}},
         [shape](const std::string& path) {
@@ -2857,6 +2871,7 @@ void Application::exportBodyAsStl(int bodyId) {
                              result.errorMessage.c_str());
             }
         });
+#endif
 }
 
 void Application::combineSketches(const std::vector<int>& ids) {

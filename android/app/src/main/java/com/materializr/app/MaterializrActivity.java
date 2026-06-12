@@ -88,7 +88,7 @@ public class MaterializrActivity extends SDLActivity {
     // <cache>/share (served by MaterializrFileProvider) and fires ACTION_SEND.
     public static void nativeShareFile(String path, String mime) {
         final MaterializrActivity a = sInstance;
-        if (a == null) return;
+        if (a == null) { android.util.Log.e("MZSHARE", "no activity"); return; }
         a.runOnUiThread(() -> {
             try {
                 File src = new File(path);
@@ -101,9 +101,14 @@ public class MaterializrActivity extends SDLActivity {
                 Intent send = new Intent(Intent.ACTION_SEND);
                 send.setType((mime == null || mime.isEmpty()) ? "application/octet-stream" : mime);
                 send.putExtra(Intent.EXTRA_STREAM, uri);
+                // ClipData + flag make the read grant propagate to the chosen app.
+                send.setClipData(android.content.ClipData.newRawUri(dst.getName(), uri));
                 send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                a.startActivity(Intent.createChooser(send, "Share " + dst.getName()));
-            } catch (Exception ignored) {}
+                a.startActivity(Intent.createChooser(send, "Share " + dst.getName())
+                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION));
+            } catch (Exception e) {
+                android.util.Log.e("MZSHARE", "share failed", e);
+            }
         });
     }
 
