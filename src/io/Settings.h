@@ -49,6 +49,7 @@ struct AppSettings {
     int   meshQuality    = 1;     // tessellation density: 0=Low,1=Medium,2=High,3=Ultra
     float selectionLineWidth = 3.0f; // px width of highlighted edges/body outlines (1..10)
     float sketchLineWidth = 2.5f;    // px width of sketch geometry — thicker reads better over the grid (1..6)
+    bool  smallScreenWarned = false; // user dismissed the "designed for larger screens" notice
     bool  showToolbarTooltips = true; // hover-tip describing each toolbar button
 
     // --- Session ---

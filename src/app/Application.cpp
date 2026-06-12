@@ -1019,6 +1019,39 @@ void Application::renderMenuBar() {
     }
 }
 
+void Application::renderSmallScreenWarning() {
+    if (m_smallScreenWarned || m_smallScreenAck) return;
+    ImGuiIO& io = ImGui::GetIO();
+    // Effective UI canvas in logical points (HiDPI / touch scale is already baked
+    // into DisplaySize). The reference tablet sits around 893x558 and is roomy;
+    // phones land well under, especially in height. Tunable constants.
+    const bool small = io.DisplaySize.x < 640.0f || io.DisplaySize.y < 470.0f;
+    if (!small) return;
+
+    if (!ImGui::IsPopupOpen("Small screen")) ImGui::OpenPopup("Small screen");
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(),
+                            ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (ImGui::BeginPopupModal("Small screen", nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::PushTextWrapPos(uiW(440));
+        ImGui::TextWrapped(
+            "Materializr is designed for tablets and larger displays. On a small "
+            "screen the panels and toolbars are cramped and some controls may be "
+            "hard to reach — a tablet or larger is strongly recommended.");
+        ImGui::PopTextWrapPos();
+        ImGui::Spacing();
+        static bool dontShow = false;
+        ImGui::Checkbox("Don't show this again", &dontShow);
+        ImGui::Spacing();
+        if (ImGui::Button("OK", uiSz(140, 0))) {
+            m_smallScreenAck = true;                 // gone for this run
+            if (dontShow) { m_smallScreenWarned = true; saveAppSettings(); }
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+}
+
 void Application::loadAppSettings() {
     AppSettings s = SettingsIO::load(SettingsIO::defaultPath());
     applyAppSettings(s);
@@ -1116,6 +1149,7 @@ AppSettings Application::currentSettings() const {
     s.meshQuality = m_meshQuality;
     s.selectionLineWidth = m_selectionLineWidth;
     s.sketchLineWidth = m_sketchLineWidth;
+    s.smallScreenWarned = m_smallScreenWarned;
     s.showToolbarTooltips = m_showToolbarTooltips;
     s.autoOpenLastProject = m_autoOpenLastProject;
     s.lastProjectPath = m_currentProjectPath; // empty after closeProject()
@@ -1169,6 +1203,7 @@ void Application::applyAppSettings(const AppSettings& s) {
     m_meshQuality = s.meshQuality;
     m_selectionLineWidth = s.selectionLineWidth;
     m_sketchLineWidth = s.sketchLineWidth;
+    m_smallScreenWarned = s.smallScreenWarned;
     m_showToolbarTooltips = s.showToolbarTooltips;
     m_autoOpenLastProject = s.autoOpenLastProject;
     m_checkForUpdatesOnLaunch = s.checkForUpdatesOnLaunch;
@@ -3899,6 +3934,7 @@ void Application::run() {
         beginFrame();
         renderDockspace();
         renderMenuBar();
+        renderSmallScreenWarning();
 
         if (m_renderersReady) {
             renderViewport();

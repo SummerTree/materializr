@@ -576,6 +576,10 @@ private:
     int   m_meshQuality = 1;        // tessellation density: 0=Low..3=Ultra
     float m_selectionLineWidth = 3.0f; // px width of highlighted edges/body outlines
     float m_sketchLineWidth = 2.5f;    // px width of sketch geometry over the grid
+    bool  m_smallScreenWarned = false; // persisted: user ticked "don't show again"
+    bool  m_smallScreenAck = false;    // dismissed for this run only
+    // One-time notice on phone-sized screens (the UI is built for tablets+).
+    void renderSmallScreenWarning();
 
     // Touch tooltip-timeout state (see beginFrame): blank a parked pointer after
     // 15 s so a stuck tooltip clears.
