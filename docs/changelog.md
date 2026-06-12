@@ -3,6 +3,16 @@
 All notable changes to Materializr are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow SemVer.
 
+## [0.9.8.1] — 2026-06-11
+
+### Fixed
+
+- **Rippled curved surfaces in exported STL / glTF.** The mesh used a 0.5-radian
+  (~28°) angular tolerance, so small fillets came out as a few flat steps — a
+  90° fillet got ~3 facets. Export now tessellates at a print-quality 0.01mm
+  chord / ~5.7° (STL) and a finer chord / ~11° (glTF), so blends come out
+  smooth. Files are somewhat larger, which is the right trade for printing.
+
 ## [0.9.8] — 2026-06-11
 
 ### Added

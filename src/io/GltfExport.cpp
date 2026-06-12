@@ -31,7 +31,9 @@ struct MeshBufferData {
 };
 
 static void tessellateMesh(const TopoDS_Shape& shape, MeshBufferData& out, float deflection) {
-    BRepMesh_IncrementalMesh meshGen(shape, deflection);
+    // Pass an angular deflection too — the single-arg ctor defaults it to 0.5rad
+    // (~28°), which left small fillets visibly faceted/rippled.
+    BRepMesh_IncrementalMesh meshGen(shape, deflection, false, 0.2);
     meshGen.Perform();
 
     for (TopExp_Explorer explorer(shape, TopAbs_FACE); explorer.More(); explorer.Next()) {
@@ -154,7 +156,7 @@ GltfExportResult GltfExport::exportFile(const std::string& filePath, const Docum
         MeshBufferData md;
         md.name = doc.getBodyName(id);
         md.color = ShapeRenderer::bodyColor(colorIndex);
-        tessellateMesh(shape, md, 0.1f);
+        tessellateMesh(shape, md, 0.02f);
 
         if (!md.positions.empty()) {
             meshes.push_back(std::move(md));
