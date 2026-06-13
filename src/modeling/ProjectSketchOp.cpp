@@ -36,7 +36,8 @@
 #include <GProp_GProps.hxx>
 #include <ShapeFix_Face.hxx>
 #include <TopTools_ListOfShape.hxx>
-#include <TopTools_ListIteratorOfListOfShape.hxx>
+// The TopTools_ListIteratorOfListOfShape typedef is provided by
+// TopTools_ListOfShape.hxx; the standalone shim header was dropped in OCCT 8.0.
 #include <TopoDS.hxx>
 #include <gp_Pln.hxx>
 #include <imgui.h>

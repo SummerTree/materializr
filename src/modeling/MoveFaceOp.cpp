@@ -21,7 +21,9 @@
 #include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
 #include <TopTools_DataMapOfShapeInteger.hxx>
 #include <TopTools_ListOfShape.hxx>
-#include <TopTools_ListIteratorOfListOfShape.hxx>
+// TopTools_ListIteratorOfListOfShape typedef comes from TopTools_ListOfShape.hxx
+// above. The standalone <...ListIteratorOfListOfShape.hxx> shim was removed in
+// OCCT 8.0, so we no longer include it (vcpkg ships 8.0; system OCCT is 7.9).
 #include <TopTools_HSequenceOfShape.hxx>
 #include <ShapeAnalysis_FreeBounds.hxx>
 #include <vector>
