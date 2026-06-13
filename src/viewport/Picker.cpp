@@ -19,6 +19,8 @@
 #include <GCPnts_TangentialDeflection.hxx>
 #include <BRepGProp_Face.hxx>
 #include <gp_Vec.hxx>
+#include <Geom_Surface.hxx>
+#include <GeomAPI_ProjectPointOnSurf.hxx>
 
 #include <cmath>
 #include <limits>
@@ -351,10 +353,33 @@ PickResult Picker::pick(float screenX, float screenY,
             try {
                 TopoDS_Face f = TopoDS::Face(faceShape);
                 BRepGProp_Face prop(f);
-                double u1, u2, v1, v2;
-                prop.Bounds(u1, u2, v1, v2);
+                // Evaluate the normal AT THE HIT POINT, not the face's parametric
+                // centre. On a curved face (cylinder, fillet, sphere) the centre
+                // normal tilts the occlusion plane away from where the user
+                // clicked, so far-side edges slip past it and get selected
+                // "through" the surface. Projecting the hit point back onto the
+                // surface gives the (u,v) there, and the normal at that (u,v) is
+                // the correct local tangent plane. Flat faces are unaffected
+                // (their normal is constant). Falls back to the centre if the
+                // projection fails.
+                double un, vn;
+                bool haveUV = false;
+                Handle(Geom_Surface) surf = BRep_Tool::Surface(f);
+                if (!surf.IsNull()) {
+                    GeomAPI_ProjectPointOnSurf proj(
+                        gp_Pnt(faceHitPt.x, faceHitPt.y, faceHitPt.z), surf);
+                    if (proj.NbPoints() > 0) {
+                        proj.LowerDistanceParameters(un, vn);
+                        haveUV = true;
+                    }
+                }
+                if (!haveUV) {
+                    double u1, u2, v1, v2;
+                    prop.Bounds(u1, u2, v1, v2);
+                    un = (u1 + u2) * 0.5; vn = (v1 + v2) * 0.5;
+                }
                 gp_Pnt fp; gp_Vec fn;
-                prop.Normal((u1 + u2) * 0.5, (v1 + v2) * 0.5, fp, fn);
+                prop.Normal(un, vn, fp, fn);
                 if (fn.Magnitude() > 1e-10) {
                     fn.Normalize();
                     facePlaneN = glm::vec3(fn.X(), fn.Y(), fn.Z());
