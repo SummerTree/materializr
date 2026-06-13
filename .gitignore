@@ -31,3 +31,4 @@ dist/
 
 # User project files (test artifacts, user data)
 *.materializr
+build-desktop/

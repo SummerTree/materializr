@@ -118,6 +118,14 @@ void Application::renderViewport() {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     ImGui::Begin("Viewport");
 
+    // Cache the viewport window's screen rect so the touch collapse handles can
+    // anchor to the panel/viewport boundaries (which move as panels collapse).
+    {
+        ImVec2 wp = ImGui::GetWindowPos(), ws = ImGui::GetWindowSize();
+        m_viewportWinX = wp.x; m_viewportWinY = wp.y;
+        m_viewportWinW = ws.x; m_viewportWinH = ws.y;
+    }
+
     ImVec2 contentSize = ImGui::GetContentRegionAvail();
     int w = static_cast<int>(contentSize.x);
     int h = static_cast<int>(contentSize.y);
@@ -1920,6 +1928,10 @@ void Application::renderViewport() {
                 m_resizeCylActive || anyIopActive())
                 allowLongPress = false;
             if (m_window) m_window->setTouchOverViewport(allowLongPress);
+            // Strict canvas hover (excludes the Items panel) gates touch
+            // drag-to-scroll: a vertical drag over any panel scrolls it, but
+            // over the 3D canvas the one-finger drag stays an orbit.
+            if (m_window) m_window->setTouchOnCanvas(viewportHovered);
         }
         if (viewportHovered) {
             ImGuiIO& io = ImGui::GetIO();

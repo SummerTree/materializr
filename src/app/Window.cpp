@@ -9,6 +9,7 @@
 #include <string>
 #include <algorithm>
 #include <cmath>
+#include <cfloat>
 #include <cstdint>
 
 namespace materializr {
@@ -185,8 +186,8 @@ void Window::handleFingerEvent(unsigned type, std::int64_t id, float nx, float n
         // buttons stay clickable; Move mode is enforced at the viewport level
         // (it gates drawing/selection there, not the raw input here).
         io.AddMouseSourceEvent(ImGuiMouseSource_TouchScreen);
-        io.AddMousePosEvent(m_fingers[0].x, m_fingers[0].y);
         if (type == SDL_FINGERDOWN && !m_leftDown) {
+            io.AddMousePosEvent(m_fingers[0].x, m_fingers[0].y);
             io.AddMouseButtonEvent(0, true);
             m_leftDown = true;
             m_leftReleaseWasGesture = false; // a genuine new press
@@ -194,11 +195,60 @@ void Window::handleFingerEvent(unsigned type, std::int64_t id, float nx, float n
             m_downX = m_fingers[0].x; m_downY = m_fingers[0].y;
             m_movedBeyondHold = false;
             m_holdSelect = false;
+            m_panelScroll = false;
+            m_lastScrollY = m_fingers[0].y;
         } else if (type == SDL_FINGERMOTION) {
             // Track movement even after the hold arms: a hold that then drags is
             // a box-select; a hold that never moves is a long-press (menu).
             const float dx = m_fingers[0].x - m_downX, dy = m_fingers[0].y - m_downY;
             if (dx * dx + dy * dy > 25.0f * 25.0f) m_movedBeyondHold = true; // a drag
+            // Touch drag-to-scroll: over a panel (anything but the 3D canvas), a
+            // vertical-dominant drag scrolls the window the finger is over, like
+            // a mobile list. Horizontal drags fall through untouched so sliders
+            // still work. The canvas keeps its one-finger orbit.
+            bool justLatched = false;
+            if (materializr::touchMode() && !m_touchOnCanvas && !m_panelScroll &&
+                (dx * dx + dy * dy) > 25.0f * 25.0f && std::fabs(dy) > std::fabs(dx)) {
+                // Switch press -> scroll: release the left button so the row the
+                // finger started on isn't selected/activated by the flick.
+                if (m_leftDown) {
+                    io.AddMouseButtonEvent(0, false);
+                    m_leftDown = false;
+                    m_leftReleaseWasGesture = true;
+                }
+                m_panelScroll = true;
+                // NB: do NOT reset m_lastScrollY here. It carries from the press,
+                // so the latch frame's delta is the (non-zero) threshold distance
+                // already travelled — that fires a wheel event WHILE the mouse is
+                // still over the panel, which is what locks ImGui onto it
+                // (g.WheelingWindow). Zeroing it made inc==0 on the one frame the
+                // mouse was over the panel, so the lock never took and parking the
+                // mouse off-screen afterwards left nothing to scroll.
+                justLatched = true;
+            }
+            if (m_panelScroll) {
+                // Report the finger position ONLY on the frame the scroll latches,
+                // so ImGui picks the window under it as the wheel target and locks
+                // onto it (g.WheelingWindow). After that, park the mouse off-screen:
+                // the wheel keeps scrolling the latched window, but the finger's
+                // path no longer lights up every row's hover highlight / tooltip.
+                if (justLatched) io.AddMousePosEvent(m_fingers[0].x, m_fingers[0].y);
+                else             io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
+                // ImGui scrolls ~5*FontSize px per wheel unit, so dividing the
+                // pixel delta by that tracks the finger roughly 1:1. Finger down
+                // (inc>0) -> positive wheel -> content follows the finger.
+                float step = 5.0f * ImGui::GetFontSize();
+                if (step < 1.0f) step = 60.0f;
+                const float inc = m_fingers[0].y - m_lastScrollY;
+                m_lastScrollY = m_fingers[0].y;
+                if (inc != 0.0f) io.AddMouseWheelEvent(0.0f, inc / step);
+            } else {
+                io.AddMousePosEvent(m_fingers[0].x, m_fingers[0].y);
+            }
+        } else {
+            // Any other single-finger event (e.g. a 2->1 finger transition):
+            // keep ImGui's mouse position current.
+            io.AddMousePosEvent(m_fingers[0].x, m_fingers[0].y);
         }
         return;
     }
@@ -217,6 +267,7 @@ void Window::handleFingerEvent(unsigned type, std::int64_t id, float nx, float n
     m_suppressLeft = false;
     m_holdSelect = false;
     m_movedBeyondHold = false;
+    m_panelScroll = false;
 }
 
 void Window::updateHoldSelect() {

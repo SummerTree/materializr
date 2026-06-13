@@ -984,6 +984,18 @@ void Application::renderMenuBar() {
                 }
             }
             ImGui::Separator();
+            // Collapse the docked side panels to give the 3D view the whole
+            // window — a fallback for small screens (and a quick "maximize
+            // canvas" anywhere). The panels keep their docked widths and snap
+            // back on toggle. F9 on a keyboard; touch gets edge tabs. This menu
+            // item hides/shows BOTH columns at once; the checkmark = both hidden.
+            bool bothHidden = m_leftPanelHidden && m_rightPanelHidden;
+            if (ImGui::MenuItem("Hide Panels", "F9", bothHidden)) {
+                bool hide = !bothHidden;
+                m_leftPanelHidden = m_rightPanelHidden = hide;
+                saveAppSettings();
+            }
+            ImGui::Separator();
             if (m_themeManager->renderSelector()) {
                 m_themeManager->apply();
             }
@@ -1050,6 +1062,63 @@ void Application::renderSmallScreenWarning() {
         }
         ImGui::EndPopup();
     }
+}
+
+void Application::renderPanelCollapseHandles() {
+    // Touch-only edge tabs that collapse/restore each docked side column. They
+    // anchor to the panel/viewport boundary, which slides to the screen edge
+    // once a side is collapsed — so a hidden panel still has a visible pull-tab.
+    // Desktop uses View > Hide Panels / F9 instead, so this is touch-gated.
+    if (!materializr::touchMode()) return;
+    if (m_viewportWinW <= 0.0f || m_viewportWinH <= 0.0f) return;
+
+    const float hw = uiW(22.0f);                          // tab width
+    const float hh = uiW(80.0f);                          // tab height (touch target)
+    const float cy = m_viewportWinY + m_viewportWinH * 0.5f - hh * 0.5f;
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+
+    const ImGuiWindowFlags flags =
+        ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking |
+        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
+        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing |
+        ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoBackground;
+
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+
+    // Left tab — flush against the viewport's left edge, sitting just INSIDE the
+    // viewport (not over the Tools panel, whose space is tight). When the panel
+    // is collapsed the viewport edge is the screen edge, so the tab hugs it.
+    // The arrow points the way the tap moves the panel: '<' collapses it toward
+    // the edge, '>' pulls it back out.
+    {
+        float x = m_viewportWinX;
+        if (x < vp->WorkPos.x) x = vp->WorkPos.x;
+        ImGui::SetNextWindowPos(ImVec2(x, cy));
+        ImGui::SetNextWindowSize(ImVec2(hw, hh));
+        ImGui::Begin("##collapseLeft", nullptr, flags);
+        if (ImGui::Button(m_leftPanelHidden ? ">" : "<", ImVec2(hw, hh))) {
+            m_leftPanelHidden = !m_leftPanelHidden;
+            saveAppSettings();
+        }
+        ImGui::End();
+    }
+    // Right tab — flush against the viewport's right edge, sitting just INSIDE
+    // the viewport (not over the Items/Properties column).
+    {
+        float x = m_viewportWinX + m_viewportWinW - hw;
+        const float maxX = vp->WorkPos.x + vp->WorkSize.x - hw;
+        if (x > maxX) x = maxX;
+        ImGui::SetNextWindowPos(ImVec2(x, cy));
+        ImGui::SetNextWindowSize(ImVec2(hw, hh));
+        ImGui::Begin("##collapseRight", nullptr, flags);
+        if (ImGui::Button(m_rightPanelHidden ? "<" : ">", ImVec2(hw, hh))) {
+            m_rightPanelHidden = !m_rightPanelHidden;
+            saveAppSettings();
+        }
+        ImGui::End();
+    }
+
+    ImGui::PopStyleVar();
 }
 
 void Application::loadAppSettings() {
@@ -1150,6 +1219,8 @@ AppSettings Application::currentSettings() const {
     s.selectionLineWidth = m_selectionLineWidth;
     s.sketchLineWidth = m_sketchLineWidth;
     s.smallScreenWarned = m_smallScreenWarned;
+    s.leftPanelHidden = m_leftPanelHidden;
+    s.rightPanelHidden = m_rightPanelHidden;
     s.showToolbarTooltips = m_showToolbarTooltips;
     s.autoOpenLastProject = m_autoOpenLastProject;
     s.lastProjectPath = m_currentProjectPath; // empty after closeProject()
@@ -1204,6 +1275,8 @@ void Application::applyAppSettings(const AppSettings& s) {
     m_selectionLineWidth = s.selectionLineWidth;
     m_sketchLineWidth = s.sketchLineWidth;
     m_smallScreenWarned = s.smallScreenWarned;
+    m_leftPanelHidden = s.leftPanelHidden;
+    m_rightPanelHidden = s.rightPanelHidden;
     m_showToolbarTooltips = s.showToolbarTooltips;
     m_autoOpenLastProject = s.autoOpenLastProject;
     m_checkForUpdatesOnLaunch = s.checkForUpdatesOnLaunch;
@@ -2195,6 +2268,13 @@ void Application::handleShortcuts() {
     }
     if (ImGui::IsKeyPressed(ImGuiKey_Home)) {
         m_viewport->getCamera().reset();
+    }
+    // F9 = collapse/restore BOTH docked side columns (max-viewport toggle).
+    // Guarded against text fields so it doesn't fire mid-typing.
+    if (!io.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F9)) {
+        bool hide = !(m_leftPanelHidden && m_rightPanelHidden);
+        m_leftPanelHidden = m_rightPanelHidden = hide;
+        saveAppSettings();
     }
     // F = Frame: zoom-fit to the current selection, or to visible bodies if
     // nothing's selected. The whole point is the user can hide everything
@@ -3991,12 +4071,18 @@ void Application::run() {
                 m_toolbar->setSketchSolverState(-1);
                 m_toolbar->setSketchSolverDof(0);
             }
-            ToolAction action = m_toolbar->render();
-            m_sketchGridStep = m_toolbar->getGridStep();
-            m_snapToGrid = m_toolbar->getSnapToGrid();
-            if (m_sketchTool) {
-                m_sketchTool->setGridStep(m_sketchGridStep);
-                m_sketchTool->setSnapToGridEnabled(m_snapToGrid);
+            // The Tools palette is the LEFT docked column; it collapses with the
+            // left edge handle (or Hide Panels). All the setters above are
+            // harmless no-ops on an unsubmitted window.
+            ToolAction action = ToolAction::None;
+            if (!m_leftPanelHidden) {
+                action = m_toolbar->render();
+                m_sketchGridStep = m_toolbar->getGridStep();
+                m_snapToGrid = m_toolbar->getSnapToGrid();
+                if (m_sketchTool) {
+                    m_sketchTool->setGridStep(m_sketchGridStep);
+                    m_sketchTool->setSnapToGridEnabled(m_snapToGrid);
+                }
             }
             if (action != ToolAction::None) {
                 handleToolAction(static_cast<int>(action));
@@ -4047,7 +4133,9 @@ void Application::run() {
                 }
             }
 
-            renderInteractionsPanel();
+            // The Interactions reference is docked in the RIGHT column (above
+            // Items), so it collapses with the right edge handle too.
+            if (!m_rightPanelHidden) renderInteractionsPanel();
             renderSettings();
             renderMirrorPopup();
 
@@ -4139,18 +4227,25 @@ void Application::run() {
                 m_measureTool->renderPanel();
             }
 
-            m_historyPanel->setHistoryLocked(anyInteractivePreviewActive());
-            if (m_historyPanel->render()) {
-                m_meshesDirty = true;
-            }
+            // History / Items / Properties are the RIGHT docked column; they
+            // collapse with the right edge handle (or Hide Panels).
+            if (!m_rightPanelHidden) {
+                m_historyPanel->setHistoryLocked(anyInteractivePreviewActive());
+                if (m_historyPanel->render()) {
+                    m_meshesDirty = true;
+                }
 
-            if (m_itemsPanel->render()) {
-                m_hoveredBodyId = -1;
-                m_meshesDirty = true;
+                if (m_itemsPanel->render()) {
+                    m_hoveredBodyId = -1;
+                    m_meshesDirty = true;
+                }
+                if (m_propertiesPanel->render()) {
+                    m_meshesDirty = true;
+                }
             }
-            if (m_propertiesPanel->render()) {
-                m_meshesDirty = true;
-            }
+            // Touch edge tabs to collapse/restore each side column (drawn on top
+            // of the panels, and still visible when a side is collapsed).
+            renderPanelCollapseHandles();
             m_statusBar->setSketchMode(m_inSketchMode);
             // Project name = the save file's basename (no extension), or
             // "New project" when unsaved.

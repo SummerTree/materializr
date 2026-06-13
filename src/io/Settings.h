@@ -50,6 +50,8 @@ struct AppSettings {
     float selectionLineWidth = 3.0f; // px width of highlighted edges/body outlines (1..10)
     float sketchLineWidth = 2.5f;    // px width of sketch geometry — thicker reads better over the grid (1..6)
     bool  smallScreenWarned = false; // user dismissed the "designed for larger screens" notice
+    bool  leftPanelHidden   = false; // Tools column collapsed (max-viewport / small-screen fallback)
+    bool  rightPanelHidden  = false; // Items/History/Properties column collapsed
     bool  showToolbarTooltips = true; // hover-tip describing each toolbar button
 
     // --- Session ---

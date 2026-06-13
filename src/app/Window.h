@@ -75,6 +75,11 @@ public:
     // the canvas — otherwise slowly dragging a slider popped the context-menu
     // ring + a stray right-click.
     void setTouchOverViewport(bool v) { m_touchOverViewport = v; }
+    // Strictly the 3D canvas (NOT the Items panel, unlike setTouchOverViewport
+    // which also covers Items so long-press works there). Used to gate touch
+    // drag-to-scroll: a vertical drag over any panel scrolls it, but a drag over
+    // the canvas must stay an orbit.
+    void setTouchOnCanvas(bool v) { m_touchOnCanvas = v; }
 
 private:
     SDL_Window* m_window = nullptr;
@@ -100,7 +105,13 @@ private:
     bool  m_holdSelect = false;           // hold threshold passed; select-drag mode
     bool  m_textInputActive = false;      // soft keyboard currently raised
     bool  m_leftReleaseWasGesture = false; // last left-up was a 2-finger takeover
-    bool  m_touchOverViewport = false;    // current touch is over the 3D canvas
+    bool  m_touchOverViewport = false;    // current touch is over the canvas OR Items panel
+    bool  m_touchOnCanvas = false;        // current touch is strictly over the 3D canvas
+    // One-finger drag-to-scroll over a panel (touch mode). A vertical-dominant
+    // drag converts the press into mobile-style flick scrolling of the hovered
+    // window; a horizontal drag is left to widgets (sliders) untouched.
+    bool  m_panelScroll = false;          // this gesture became a panel scroll
+    float m_lastScrollY = 0.0f;           // finger Y at the last scroll step
 
     // Synthetic right-click queued by a long-press (touch context menu). Played
     // back over two frames (button down, then up) at the held point so ImGui's

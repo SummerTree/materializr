@@ -578,8 +578,14 @@ private:
     float m_sketchLineWidth = 2.5f;    // px width of sketch geometry over the grid
     bool  m_smallScreenWarned = false; // persisted: user ticked "don't show again"
     bool  m_smallScreenAck = false;    // dismissed for this run only
+    bool  m_leftPanelHidden = false;   // persisted: Tools column collapsed
+    bool  m_rightPanelHidden = false;  // persisted: Items/History/Properties column collapsed
+    // "Viewport" window screen rect, captured each frame in renderViewport, used
+    // to anchor the touch collapse handles at the panel/viewport boundaries.
+    float m_viewportWinX = 0, m_viewportWinY = 0, m_viewportWinW = 0, m_viewportWinH = 0;
     // One-time notice on phone-sized screens (the UI is built for tablets+).
     void renderSmallScreenWarning();
+    void renderPanelCollapseHandles();   // touch-mode edge tabs to hide/show each side
 
     // Touch tooltip-timeout state (see beginFrame): blank a parked pointer after
     // 15 s so a stuck tooltip clears.

@@ -32,8 +32,13 @@ ViewCubeAction ViewCube::render(Camera& camera, bool invertDrag)
     ImVec2 wp = ImGui::GetWindowPos();
     ImVec2 ws = ImGui::GetWindowSize();
     const float pad     = 10.0f;
-    const float cubeR   = 19.0f;   // half-extent of cube projection (px)
-    const float widgetR = 38.0f;   // accessory placement radius
+    // Touch: enlarge the whole widget by a modest factor so the small tap
+    // targets (rotation arrows, roll arcs, corner dots, Home) become comfortably
+    // finger-sized. Everything below is sized off `ts`, so the cube, its
+    // accessories and their hit-tests grow together. 1.0 on desktop = unchanged.
+    const float ts      = materializr::touchMode() ? 1.5f : 1.0f;
+    const float cubeR   = 19.0f * ts;   // half-extent of cube projection (px)
+    const float widgetR = 38.0f * ts;   // accessory placement radius
     float topOffset = 42.0f;       // push below the window title bar
     if (materializr::touchMode()) {
         // The docked "Viewport" tab bar is ~2x tall in touch mode, so the Home
@@ -41,7 +46,11 @@ ViewCubeAction ViewCube::render(Camera& camera, bool invertDrag)
         // widget so the top accessories clear it.
         topOffset = 74.0f;
     }
-    ImVec2 center(wp.x + ws.x - pad - widgetR - 26.0f,
+    // Extra left inset in touch mode: the enlarged widget (and its Home button)
+    // overhang further right, so nudge the whole thing ~10 px off the edge.
+    const float rightInset = pad + widgetR + 26.0f +
+                             (materializr::touchMode() ? 10.0f : 0.0f);
+    ImVec2 center(wp.x + ws.x - rightInset,
                   wp.y + pad + widgetR + topOffset);
 
     // --- Camera view-rotation matrix (no translation), so the cube spins with
@@ -157,9 +166,9 @@ ViewCubeAction ViewCube::render(Camera& camera, bool invertDrag)
         ImVec2 cp = sc[i];
         float dist = std::sqrt((mp.x - cp.x) * (mp.x - cp.x) +
                                (mp.y - cp.y) * (mp.y - cp.y));
-        bool hover = dist < 7.0f;
+        bool hover = dist < 7.0f * ts;
         ImU32 col = hover ? IM_COL32(255, 220, 80, 240) : IM_COL32(200, 200, 220, 200);
-        dl->AddCircleFilled(cp, hover ? 6.0f : 4.0f, col);
+        dl->AddCircleFilled(cp, (hover ? 6.0f : 4.0f) * ts, col);
         if (hover && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
             m_pendingClick = kCornerActions[i];
             m_cubeDragging = false;
@@ -171,8 +180,8 @@ ViewCubeAction ViewCube::render(Camera& camera, bool invertDrag)
     // --- Four 90° rotation arrows positioned just outside the cube on each
     //     cardinal side. Clicking emits RotateLeft/Right/Up/Down.
     {
-        const float r = widgetR + 18.0f;        // arrow centre distance
-        const float s = 6.0f;                   // arrow half-size
+        const float r = widgetR + 18.0f * ts;   // arrow centre distance
+        const float s = 6.0f * ts;              // arrow half-size
         struct Arrow { ImVec2 dir; ViewCubeAction act; };
         Arrow arrows[4] = {
             {{-1, 0}, ViewCubeAction::RotateLeft},
@@ -189,7 +198,7 @@ ViewCubeAction ViewCube::render(Camera& camera, bool invertDrag)
             ImVec2 b1(ac.x - ar.dir.x * s + perp.x * s, ac.y - ar.dir.y * s + perp.y * s);
             ImVec2 b2(ac.x - ar.dir.x * s - perp.x * s, ac.y - ar.dir.y * s - perp.y * s);
             float dx = mp.x - ac.x, dy = mp.y - ac.y;
-            bool hover = std::sqrt(dx * dx + dy * dy) < s + 3.0f;
+            bool hover = std::sqrt(dx * dx + dy * dy) < s + 3.0f * ts;
             ImU32 col = hover ? IM_COL32(255, 220, 80, 255) : IM_COL32(200, 200, 220, 220);
             dl->AddTriangleFilled(tip, b1, b2, col);
             if (hover) {
@@ -206,7 +215,7 @@ ViewCubeAction ViewCube::render(Camera& camera, bool invertDrag)
     //     the inward end. Clicking rolls the camera 90° around the view
     //     direction so a snapped ortho view re-orients without un-snapping.
     {
-        const float ringR = widgetR + 14.0f; // arc radius (large sweep)
+        const float ringR = widgetR + 14.0f * ts; // arc radius (large sweep)
         struct Roll { float a0; float a1; ViewCubeAction act; };
         // a0 → a1 sweep direction; angles in radians, 0 = +X (right), going CCW
         // in math convention. We use Y-flipped screen so visually CCW math =
@@ -242,11 +251,11 @@ ViewCubeAction ViewCube::render(Camera& camera, bool invertDrag)
                                     (mp.y - p.y) * (mp.y - p.y));
                 if (d < bestD) bestD = d;
             }
-            bool hover = bestD < 8.0f;
+            bool hover = bestD < 8.0f * ts;
             ImU32 col = hover ? IM_COL32(255, 220, 80, 255) : IM_COL32(210, 210, 230, 235);
             // Polyline body.
             for (int i = 0; i < seg; ++i) {
-                dl->AddLine(pts[i], pts[i + 1], col, 3.0f);
+                dl->AddLine(pts[i], pts[i + 1], col, 3.0f * ts);
             }
             // Arrowhead at the end of the arc, oriented along the tangent.
             ImVec2 tip = pts[seg];
@@ -254,8 +263,8 @@ ViewCubeAction ViewCube::render(Camera& camera, bool invertDrag)
             ImVec2 tan(tip.x - prev.x, tip.y - prev.y);
             float tl = std::sqrt(tan.x * tan.x + tan.y * tan.y);
             if (tl > 1e-4f) { tan.x /= tl; tan.y /= tl; }
-            ImVec2 base(tip.x - tan.x * 8.0f, tip.y - tan.y * 8.0f);
-            ImVec2 perp(-tan.y * 5.0f, tan.x * 5.0f);
+            ImVec2 base(tip.x - tan.x * 8.0f * ts, tip.y - tan.y * 8.0f * ts);
+            ImVec2 perp(-tan.y * 5.0f * ts, tan.x * 5.0f * ts);
             dl->AddTriangleFilled(tip,
                                    ImVec2(base.x + perp.x, base.y + perp.y),
                                    ImVec2(base.x - perp.x, base.y - perp.y),
@@ -272,18 +281,18 @@ ViewCubeAction ViewCube::render(Camera& camera, bool invertDrag)
     // --- Small "Home" reset-view button: a circle at the top-right of the
     //     widget. Clicking snaps to the default FrontTopRight (3/4 iso) view.
     {
-        ImVec2 hc(center.x + widgetR + 22.0f, center.y - widgetR - 22.0f);
+        ImVec2 hc(center.x + widgetR + 22.0f * ts, center.y - widgetR - 22.0f * ts);
         float dx = mp.x - hc.x, dy = mp.y - hc.y;
-        bool hover = std::sqrt(dx * dx + dy * dy) < 10.0f;
+        bool hover = std::sqrt(dx * dx + dy * dy) < 10.0f * ts;
         ImU32 fill = hover ? IM_COL32(255, 220, 80, 255) : IM_COL32(210, 210, 230, 230);
-        dl->AddCircleFilled(hc, 8.0f, fill);
-        dl->AddCircle      (hc, 8.0f, IM_COL32(60, 60, 70, 255), 0, 1.2f);
+        dl->AddCircleFilled(hc, 8.0f * ts, fill);
+        dl->AddCircle      (hc, 8.0f * ts, IM_COL32(60, 60, 70, 255), 0, 1.2f * ts);
         // Simple house glyph: triangle roof + small square body inside the circle.
-        ImVec2 roofL(hc.x - 4.0f, hc.y - 0.5f), roofR(hc.x + 4.0f, hc.y - 0.5f),
-               roofT(hc.x,       hc.y - 4.5f);
+        ImVec2 roofL(hc.x - 4.0f * ts, hc.y - 0.5f * ts), roofR(hc.x + 4.0f * ts, hc.y - 0.5f * ts),
+               roofT(hc.x,             hc.y - 4.5f * ts);
         dl->AddTriangleFilled(roofL, roofT, roofR, IM_COL32(60, 60, 70, 255));
-        dl->AddRectFilled(ImVec2(hc.x - 3.0f, hc.y - 0.5f),
-                          ImVec2(hc.x + 3.0f, hc.y + 3.5f),
+        dl->AddRectFilled(ImVec2(hc.x - 3.0f * ts, hc.y - 0.5f * ts),
+                          ImVec2(hc.x + 3.0f * ts, hc.y + 3.5f * ts),
                           IM_COL32(60, 60, 70, 255));
         if (hover) {
             cubeHover = true;
@@ -299,8 +308,8 @@ ViewCubeAction ViewCube::render(Camera& camera, bool invertDrag)
     //     user X → world X (red), user Y → world Z (green), user Z → world Y
     //     (blue) — matches the rest of the UI.
     {
-        ImVec2 tc(center.x - widgetR - 22.0f, center.y + widgetR + 22.0f);
-        const float armLen = 18.0f;
+        ImVec2 tc(center.x - widgetR - 22.0f * ts, center.y + widgetR + 22.0f * ts);
+        const float armLen = 18.0f * ts;
         // Triad colours match the world grid: X red, Y (world up) green, Z blue.
         // Labels follow the user's Z-up convention (their Z is world Y).
         struct Arm { glm::vec3 world; ImU32 col; const char* lbl; };
