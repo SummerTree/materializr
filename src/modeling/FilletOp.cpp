@@ -84,6 +84,28 @@ bool FilletOp::execute(Document& doc) {
         }
 
         TopoDS_Shape candidate = fillet.Shape();
+        if (candidate.IsNull()) {
+            std::fprintf(stderr, "[Fillet] result shape is null (R=%.2f).\n",
+                         m_radius);
+            return false;
+        }
+
+        // IsDone() is necessary but NOT sufficient: when fillet radii on
+        // adjacent edges overlap (the classic many-edges-at-once case), OCCT
+        // happily returns IsDone()==true with a topologically INVALID solid —
+        // self-intersecting blends or dropped faces — which is exactly the
+        // "faces disappear / garbage geometry" failure. BRepCheck_Analyzer is
+        // the authoritative validity test; reject anything it flags so a
+        // corrupt body never gets committed to the document/history. (The bbox
+        // and volume checks below catch grosser blow-outs but pass plenty of
+        // invalid-but-plausibly-sized results.)
+        if (!BRepCheck_Analyzer(candidate).IsValid()) {
+            std::fprintf(stderr,
+                "[Fillet] result failed BRepCheck_Analyzer (R=%.2f, %zu edges) "
+                "— invalid topology, refusing to commit.\n",
+                m_radius, m_edges.size());
+            return false;
+        }
 
         // OCCT's fillet API is permissive — IsDone() returns true even when
         // the radius exceeds what the geometry can support, and the result

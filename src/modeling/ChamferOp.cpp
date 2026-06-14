@@ -126,6 +126,25 @@ bool ChamferOp::execute(Document& doc) {
         }
 
         TopoDS_Shape candidate = chamfer.Shape();
+        if (candidate.IsNull()) {
+            std::fprintf(stderr, "[Chamfer] result shape is null (d=%.2f).\n",
+                         m_distance);
+            return false;
+        }
+
+        // IsDone() is necessary but NOT sufficient — see FilletOp::execute.
+        // Chamfering many adjacent edges at once can yield a result OCCT
+        // reports as done but is topologically INVALID (self-intersections,
+        // dropped faces): the "faces disappear" bug. BRepCheck_Analyzer is the
+        // authoritative validity test; reject anything it flags so a corrupt
+        // body never reaches the document/history.
+        if (!BRepCheck_Analyzer(candidate).IsValid()) {
+            std::fprintf(stderr,
+                "[Chamfer] result failed BRepCheck_Analyzer (d=%.2f, %zu edges) "
+                "— invalid topology, refusing to commit.\n",
+                m_distance, m_edges.size());
+            return false;
+        }
 
         // Same narrow defence as FilletOp::execute: bbox-must-not-grow
         // and volume must be strictly > 0. The old volume-cap (output ≤

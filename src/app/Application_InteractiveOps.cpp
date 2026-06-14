@@ -391,6 +391,7 @@ void Application::commitInteractiveEdgeOp() {
         return;
     }
 
+    bool committed = true; // false if execute() rejected the result (create mode)
     if (m_edgeOpEditingIndex >= 0) {
         // Update the existing op's parameter and rerun from that point so any
         // downstream ops (cuts, fillets stacked on this one, …) recompute too.
@@ -409,7 +410,7 @@ void Application::commitInteractiveEdgeOp() {
         for (const auto& e : m_edgeOpEdges) typedEdges.push_back(TopoDS::Edge(e));
         op->setEdges(typedEdges);
         op->setRadius(static_cast<double>(m_edgeOpValue));
-        m_history->pushOperation(std::move(op), *m_document);
+        committed = m_history->pushOperation(std::move(op), *m_document);
     } else {
         auto op = std::make_unique<ChamferOp>();
         op->setBody(m_edgeOpBodyId);
@@ -418,13 +419,23 @@ void Application::commitInteractiveEdgeOp() {
         op->setEdges(typedEdges);
         op->setDistance(static_cast<double>(m_edgeOpValue));
         if (m_edgeOpTwoDist) op->setDistance2(static_cast<double>(m_edgeOpValue2));
-        m_history->pushOperation(std::move(op), *m_document);
+        committed = m_history->pushOperation(std::move(op), *m_document);
     }
 
     if (m_edgeOpEditingIndex < 0) {
-        std::fprintf(stdout, "%s %.1f mm committed\n",
-                     m_edgeOpType == EdgeOpType::Fillet ? "Fillet" : "Chamfer",
-                     m_edgeOpValue);
+        if (committed) {
+            std::fprintf(stdout, "%s %.1f mm committed\n",
+                         m_edgeOpType == EdgeOpType::Fillet ? "Fillet" : "Chamfer",
+                         m_edgeOpValue);
+        } else {
+            // execute() rejected the result (invalid topology / unbuildable at
+            // this size) and left the body untouched — tell the user instead of
+            // silently doing nothing.
+            showToast(std::string(m_edgeOpType == EdgeOpType::Fillet
+                                      ? "Fillet" : "Chamfer") +
+                      " couldn't be built on those edges \xE2\x80\x94 the result "
+                      "wasn't valid geometry. Try a smaller size or fewer edges.");
+        }
     }
 
     m_edgeOpActive = false;
