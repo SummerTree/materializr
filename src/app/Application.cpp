@@ -2568,9 +2568,18 @@ void Application::handleViewCubeAction(int action) {
 
 void Application::saveProject() {
     FileDialogs::saveFile("Save Project", "project.materializr",
-        {{"Materializr Project", "*.materializr"}},
-        [this](const std::string& path) {
-            if (path.empty()) return;
+        {{"Materializr Project", "*.materializr"}, {"All Files", "*"}},
+        [this](const std::string& chosenPath) {
+            if (chosenPath.empty()) return;
+            std::string path = chosenPath;
+#if !defined(__ANDROID__)
+            // Keep the .materializr extension. The project file is gzip-
+            // compressed, so without the extension the OS shows it as a generic
+            // "compressed archive" and the open filter can't find it. (On
+            // Android the SAF picker, not this path, names the file.)
+            if (std::filesystem::path(path).extension() != ".materializr")
+                path += ".materializr";
+#endif
             ProjectHistory hist = captureProjectHistory();
             auto result = ProjectIO::save(path, *m_document, &hist);
             if (result.success) {
@@ -2927,7 +2936,7 @@ void Application::openRecentProject(const AppSettings::RecentProject& r) {
 
 void Application::loadProject() {
     FileDialogs::openFile("Open Project",
-        {{"Materializr Project", "*.materializr"}},
+        {{"Materializr Project", "*.materializr"}, {"All Files", "*"}},
         [this](const std::string& path) {
             if (path.empty() || !loadProjectAt(path)) return;
             // Record in Open Recent with a *persistable* ref: the SAF content://
