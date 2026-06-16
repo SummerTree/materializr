@@ -2070,7 +2070,13 @@ void Application::renderViewport() {
                 // and middle/right stay live for orbit/pan DURING the op.
                 const bool leftIsCamera = (m_orbitButton == ImGuiMouseButton_Left ||
                                            m_panButton  == ImGuiMouseButton_Left);
-                if (toolWantsDrag && leftIsCamera) suppressCamDrag = true;
+                // ...EXCEPT keep Shift+Left-drag free for panning. In trackpad
+                // mode (orbit+pan both Left) Shift+drag is the pan gesture, but
+                // a sketch/op claimed Left entirely, so there was no way to pan
+                // while sketching. Shift held → don't suppress → the Shift-pan
+                // below fires and camDragging turns the sketch input off, so it
+                // pans without also drawing.
+                if (toolWantsDrag && leftIsCamera && !io.KeyShift) suppressCamDrag = true;
             }
             if (!suppressCamDrag && ImGui::IsMouseDragging(m_orbitButton)) {
                 ImVec2 delta = io.MouseDelta;
