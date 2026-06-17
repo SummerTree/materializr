@@ -27,6 +27,7 @@ modeling, threads, SVG & text engraving, STL/STEP export.
 ![C++17](https://img.shields.io/badge/C%2B%2B-17-blue)
 ![CMake](https://img.shields.io/badge/CMake-3.20%2B-blue)
 ![License](https://img.shields.io/badge/License-GPLv3-blue)
+[![Discord](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/BRjzbMGZvE)
 
 Built on the [OpenCASCADE](https://dev.opencascade.org/) geometry kernel —
 real B-rep solids, not meshes — with a Dear ImGui interface. Sketch on any
@@ -98,6 +99,8 @@ project is GPLv3 from here on.)
 Contributions welcome — bug reports and missing-workflow notes especially,
 as the road to 1.0 is field testing. Open an issue first for substantial
 changes; small fixes can go straight to a PR.
+
+Join the community on **[Discord](https://discord.gg/BRjzbMGZvE)** for questions, show-and-tell, and development chat.
 
 ## Credits
 
