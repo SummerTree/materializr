@@ -103,6 +103,23 @@ void AboutDialog::render() {
 
         ImGui::Spacing();
 
+        // Community Discord — Discord "blurple" so it reads as its own action,
+        // the same way the coffee button is branded yellow.
+        const char* discordUrl = "https://discord.gg/BRjzbMGZvE";
+        ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.345f, 0.396f, 0.949f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.447f, 0.498f, 1.000f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.275f, 0.318f, 0.796f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_Text,          ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
+        ImGui::SetCursorPosX((ImGui::GetWindowWidth() - btnW) * 0.5f);
+        if (ImGui::Button("Join our Discord", ImVec2(btnW, 0))) {
+            openInBrowser(discordUrl);
+        }
+        ImGui::PopStyleColor(4);
+        ImGui::SetCursorPosX((ImGui::GetWindowWidth() - ImGui::CalcTextSize(discordUrl).x) * 0.5f);
+        ImGui::TextDisabled("%s", discordUrl);
+
+        ImGui::Spacing();
+
         // Buy Me a Coffee — proceeds split between stevebushwa and R4stl1n
         // (stevebushwa just runs the page). Coloured in the BMC brand yellow
         // so it reads as a separate "support" action rather than another
