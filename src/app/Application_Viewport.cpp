@@ -1956,15 +1956,20 @@ void Application::renderViewport() {
             // long-press can't trigger it), and reuses the face the taps already
             // selected — no re-pick. Honors the double-click-time setting.
             if (m_window && m_window->consumeDoubleTap() && m_selection && !m_inSketchMode) {
+                // Escalate the MOST-RECENTLY tapped face (no break → last one wins)
+                // to its body. With Multi-Select on, ADD it so double-tapping
+                // several bodies accumulates them (mirrors Ctrl+double-click on
+                // desktop); otherwise replace the selection.
                 int bid = -1;
                 for (const auto& e : m_selection->getSelection())
-                    if (e.type == SelectionType::Face && e.bodyId >= 0) { bid = e.bodyId; break; }
+                    if (e.type == SelectionType::Face && e.bodyId >= 0) bid = e.bodyId;
                 if (bid >= 0) {
                     SelectionEntry b;
                     b.type = SelectionType::Body;
                     b.bodyId = bid;
                     try { b.shape = m_document->getBody(bid); } catch (...) {}
-                    m_selection->select(b);
+                    if (m_multiSelectToggle) m_selection->addToSelection(b);
+                    else                     m_selection->select(b);
                 }
             }
         }
