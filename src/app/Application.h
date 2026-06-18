@@ -608,6 +608,15 @@ private:
     float  m_tipLastMouseY = -1e9f;
     double m_tipStationarySince = 0.0;
     bool  m_showToolbarTooltips = true; // hover description on each toolbar button
+    // Per-panel visibility (Settings > Panels), persisted. Default all on. These
+    // gate each docked panel's render so it can be hidden to free screen space
+    // and brought back from Settings — independent of the left/right column
+    // collapse. (The viewport is never toggled — no multi-viewport yet.)
+    bool  m_showTools        = true;
+    bool  m_showInteractions = true;
+    bool  m_showHistory      = true;
+    bool  m_showItems        = true;
+    bool  m_showProperties   = true;
     // Toggle for the sketch toolbar's live Full/Reduced/Off inference cycle
     // button. Off hides the button so users who set the level once in
     // Settings can declutter the sketch toolbar.

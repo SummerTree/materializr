@@ -94,6 +94,7 @@ inline void resetFpuForOcct() {
 namespace materializr { namespace force_link { void linkAll(); } }
 
 #include <imgui.h>
+#include <imgui_internal.h> // dock-node tab-bar policy (per-node LocalFlags)
 #include <imgui_impl_sdl2.h>
 #include <imgui_impl_opengl3.h>
 
@@ -893,6 +894,31 @@ void Application::renderDockspace() {
     ImGui::Begin("DockHost", nullptr, hostFlags);
     ImGui::PopStyleVar(3);
     ImGui::DockSpace(0x08BD597Du, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None);
+
+    // Per-node tab-bar policy. The viewport's tab bar is permanently OFF
+    // (NoTabBar = no tab AND no re-show triangle) — it's the whole app, never
+    // something to label or hide. Every panel ALWAYS shows its tab (a label +
+    // drag handle) and loses the "Hide tab bar" menu, so panel visibility is
+    // owned solely by Settings > Panels. Applied to LocalFlags each frame so it
+    // overrides whatever the saved imgui.ini had (e.g. the central node and the
+    // Interactions node both shipped with HiddenTabBar=1).
+    auto setNodeFlags = [](const char* win, ImGuiDockNodeFlags set,
+                           ImGuiDockNodeFlags clear) {
+        if (ImGuiWindow* w = ImGui::FindWindowByName(win))
+            if (w->DockNode) {
+                w->DockNode->LocalFlags |= set;
+                w->DockNode->LocalFlags &= ~clear;
+            }
+    };
+    setNodeFlags("Viewport", ImGuiDockNodeFlags_NoTabBar, 0);
+    const ImGuiDockNodeFlags kPanelSet   = ImGuiDockNodeFlags_NoWindowMenuButton;
+    const ImGuiDockNodeFlags kPanelClear = ImGuiDockNodeFlags_HiddenTabBar |
+                                           ImGuiDockNodeFlags_AutoHideTabBar;
+    setNodeFlags("Tools",        kPanelSet, kPanelClear);
+    setNodeFlags("Interactions", kPanelSet, kPanelClear);
+    setNodeFlags("Items",        kPanelSet, kPanelClear);
+    setNodeFlags("History",      kPanelSet, kPanelClear);
+    setNodeFlags("Properties",   kPanelSet, kPanelClear);
     ImGui::End();
 }
 
@@ -1282,6 +1308,11 @@ AppSettings Application::currentSettings() const {
     s.smallScreenWarned = m_smallScreenWarned;
     s.leftPanelHidden = m_leftPanelHidden;
     s.rightPanelHidden = m_rightPanelHidden;
+    s.showTools = m_showTools;
+    s.showInteractions = m_showInteractions;
+    s.showHistory = m_showHistory;
+    s.showItems = m_showItems;
+    s.showProperties = m_showProperties;
     s.showToolbarTooltips = m_showToolbarTooltips;
     s.autoOpenLastProject = m_autoOpenLastProject;
     s.recentProjects = m_recentProjects;
@@ -1339,6 +1370,11 @@ void Application::applyAppSettings(const AppSettings& s) {
     m_smallScreenWarned = s.smallScreenWarned;
     m_leftPanelHidden = s.leftPanelHidden;
     m_rightPanelHidden = s.rightPanelHidden;
+    m_showTools = s.showTools;
+    m_showInteractions = s.showInteractions;
+    m_showHistory = s.showHistory;
+    m_showItems = s.showItems;
+    m_showProperties = s.showProperties;
     m_showToolbarTooltips = s.showToolbarTooltips;
     m_autoOpenLastProject = s.autoOpenLastProject;
     m_recentProjects = s.recentProjects;
@@ -4326,7 +4362,7 @@ void Application::run() {
             // left edge handle (or Hide Panels). All the setters above are
             // harmless no-ops on an unsubmitted window.
             ToolAction action = ToolAction::None;
-            if (!m_leftPanelHidden) {
+            if (!m_leftPanelHidden && m_showTools) {
                 action = m_toolbar->render();
                 m_sketchGridStep = m_toolbar->getGridStep();
                 m_snapToGrid = m_toolbar->getSnapToGrid();
@@ -4386,7 +4422,7 @@ void Application::run() {
 
             // The Interactions reference is docked in the RIGHT column (above
             // Items), so it collapses with the right edge handle too.
-            if (!m_rightPanelHidden) renderInteractionsPanel();
+            if (!m_rightPanelHidden && m_showInteractions) renderInteractionsPanel();
             renderSettings();
             renderMirrorPopup();
 
@@ -4482,15 +4518,15 @@ void Application::run() {
             // collapse with the right edge handle (or Hide Panels).
             if (!m_rightPanelHidden) {
                 m_historyPanel->setHistoryLocked(anyInteractivePreviewActive());
-                if (m_historyPanel->render()) {
+                if (m_showHistory && m_historyPanel->render()) {
                     m_meshesDirty = true;
                 }
 
-                if (m_itemsPanel->render()) {
+                if (m_showItems && m_itemsPanel->render()) {
                     m_hoveredBodyId = -1;
                     m_meshesDirty = true;
                 }
-                if (m_propertiesPanel->render()) {
+                if (m_showProperties && m_propertiesPanel->render()) {
                     m_meshesDirty = true;
                 }
             }

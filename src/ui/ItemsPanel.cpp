@@ -30,7 +30,7 @@ void ItemsPanel::setHistory(History* hist) {
 
 bool ItemsPanel::render() {
     m_bodyDeleted = false;
-    ImGui::Begin("Items");
+    ImGui::Begin("Items", nullptr, ImGuiWindowFlags_NoCollapse);
     // AllowWhenBlockedByActiveItem: a held body row is the "active item", which
     // would otherwise make IsWindowHovered() report false — exactly during the
     // long-press we need to detect to arm its context menu.

@@ -146,6 +146,16 @@ void Application::renderSettings() {
                     }
 
                     ImGui::Spacing();
+                    ImGui::SeparatorText("Panels");
+                    ImGui::TextWrapped("Show or hide the docked panels to free up "
+                                       "screen space. Re-enable any of them here.");
+                    if (ImGui::Checkbox("Tools",        &m_showTools))        changed = true;
+                    if (ImGui::Checkbox("Interactions", &m_showInteractions)) changed = true;
+                    if (ImGui::Checkbox("History",      &m_showHistory))      changed = true;
+                    if (ImGui::Checkbox("Items",        &m_showItems))        changed = true;
+                    if (ImGui::Checkbox("Properties",   &m_showProperties))   changed = true;
+
+                    ImGui::Spacing();
                     ImGui::SeparatorText("Autosave");
                     if (ImGui::Checkbox("Autosave saved projects", &m_autosaveEnabled)) changed = true;
                     ImGui::TextWrapped("Periodically re-saves the project once it has been "
@@ -1018,7 +1028,9 @@ void Application::renderScalePanel() {
 void Application::renderInteractionsPanel() {
     // A quick-reference of the viewport interactions, docked above Items. The
     // camera rows reflect the live mouse bindings chosen in File > Settings.
-    ImGui::Begin("Interactions");
+    // No collapse handle — Settings > Panels owns show/hide now, so the per-window
+    // minimize is just wasted title-bar space.
+    ImGui::Begin("Interactions", nullptr, ImGuiWindowFlags_NoCollapse);
     // Action label in a fixed left column, keys to its right. Keeping the action
     // first (it's short) means a long key string extends rightward instead of
     // overlapping the label.

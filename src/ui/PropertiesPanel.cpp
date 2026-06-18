@@ -54,7 +54,7 @@ int PropertiesPanel::getEditingStep() const {
 bool PropertiesPanel::render() {
     bool modified = false;
 
-    ImGui::Begin("Properties");
+    ImGui::Begin("Properties", nullptr, ImGuiWindowFlags_NoCollapse);
 
     // Case 1: Editing a history operation
     if (m_history && m_editingStep >= 0 && m_editingStep < m_history->stepCount()) {

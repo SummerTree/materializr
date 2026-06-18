@@ -72,6 +72,11 @@ void applyKv(const std::map<std::string, std::string>& kv, AppSettings& s) {
     readBool (kv, "smallScreenWarned",   s.smallScreenWarned);
     readBool (kv, "leftPanelHidden",     s.leftPanelHidden);
     readBool (kv, "rightPanelHidden",    s.rightPanelHidden);
+    readBool (kv, "showTools",           s.showTools);
+    readBool (kv, "showInteractions",    s.showInteractions);
+    readBool (kv, "showHistory",         s.showHistory);
+    readBool (kv, "showItems",           s.showItems);
+    readBool (kv, "showProperties",      s.showProperties);
     readBool(kv, "showToolbarTooltips",  s.showToolbarTooltips);
     readBool(kv, "autoOpenLastProject",  s.autoOpenLastProject);
     readString(kv, "lastProjectPath",    s.lastProjectPath);
@@ -247,6 +252,11 @@ bool SettingsIO::save(const std::string& path, const AppSettings& s) {
     ofs << "smallScreenWarned = "   << s.smallScreenWarned   << "\n";
     ofs << "leftPanelHidden = "     << s.leftPanelHidden     << "\n";
     ofs << "rightPanelHidden = "    << s.rightPanelHidden    << "\n";
+    ofs << "showTools = "           << s.showTools           << "\n";
+    ofs << "showInteractions = "    << s.showInteractions    << "\n";
+    ofs << "showHistory = "         << s.showHistory         << "\n";
+    ofs << "showItems = "           << s.showItems           << "\n";
+    ofs << "showProperties = "      << s.showProperties      << "\n";
     ofs << "showToolbarTooltips = " << (s.showToolbarTooltips ? "true" : "false") << "\n";
     ofs << "autoOpenLastProject = " << (s.autoOpenLastProject ? "true" : "false") << "\n";
     ofs << "lastProjectPath = "     << s.lastProjectPath     << "\n";

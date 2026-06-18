@@ -27,7 +27,7 @@ void HistoryPanel::setDocument(Document* doc) {
 bool HistoryPanel::render() {
     bool modified = false;
 
-    ImGui::Begin("History");
+    ImGui::Begin("History", nullptr, ImGuiWindowFlags_NoCollapse);
 
     if (!m_history || !m_document) {
         ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "No history available.");

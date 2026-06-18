@@ -41,7 +41,7 @@ void Toolbar::setSelectionManager(const SelectionManager* sel) {
 ToolAction Toolbar::render() {
     ToolAction action = ToolAction::None;
 
-    ImGui::Begin("Tools");
+    ImGui::Begin("Tools", nullptr, ImGuiWindowFlags_NoCollapse);
 
     if (m_sketchMode) {
         action = renderSketchTools();

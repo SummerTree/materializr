@@ -53,6 +53,12 @@ struct AppSettings {
     bool  smallScreenWarned = false; // user dismissed the "designed for larger screens" notice
     bool  leftPanelHidden   = false; // Tools column collapsed (max-viewport / small-screen fallback)
     bool  rightPanelHidden  = false; // Items/History/Properties column collapsed
+    // Per-panel visibility (Settings > Panels). Default all on.
+    bool  showTools         = true;
+    bool  showInteractions  = true;
+    bool  showHistory       = true;
+    bool  showItems         = true;
+    bool  showProperties    = true;
     bool  showToolbarTooltips = true; // hover-tip describing each toolbar button
 
     // --- Session ---
