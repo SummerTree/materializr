@@ -243,9 +243,18 @@ void Window::handleFingerEvent(unsigned type, std::int64_t id, float nx, float n
             // cursor, so onSplitter misses it) — also a real drag, not a scroll.
             ImGuiContext* g = ImGui::GetCurrentContext();
             const bool movingWindow = g && g->MovingWindow != nullptr;
+            // A scrollbar drag (including a CHILD window's — e.g. the Settings
+            // body lives in a BeginChild) is a real interaction; don't release it
+            // for a scroll latch or the bar just twitches and snaps back to top.
+            bool onScrollbar = false;
+            if (g && g->ActiveId != 0 && g->ActiveIdWindow) {
+                onScrollbar =
+                    g->ActiveId == ImGui::GetWindowScrollbarID(g->ActiveIdWindow, ImGuiAxis_Y) ||
+                    g->ActiveId == ImGui::GetWindowScrollbarID(g->ActiveIdWindow, ImGuiAxis_X);
+            }
             const bool wantScroll =
                 materializr::touchMode() && !m_touchOnCanvas && !m_panelScroll &&
-                !onSplitter && !movingWindow &&
+                !onSplitter && !movingWindow && !onScrollbar &&
                 (dx * dx + dy * dy) > 25.0f * 25.0f && std::fabs(dy) > std::fabs(dx);
             bool justLatched = false;
             // Arm on the first frame past the threshold, commit on the next — that
