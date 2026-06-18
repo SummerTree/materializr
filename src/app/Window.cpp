@@ -170,10 +170,29 @@ void Window::handleFingerEvent(unsigned type, std::int64_t id, float nx, float n
             m_movedBeyondHold = false;
             m_lastCentroidX = cx; m_lastCentroidY = cy;
             m_lastPinchDist = dist;
+            m_twoFingerMode = 0;          // undecided until one gesture dominates
+            m_twoFingerPanMag = 0.0f;
+            m_twoFingerZoomMag = 0.0f;
         } else {
-            m_panAccX += cx - m_lastCentroidX;
-            m_panAccY += cy - m_lastCentroidY;
-            m_zoomAcc += dist - m_lastPinchDist;
+            const float dCx = cx - m_lastCentroidX;
+            const float dCy = cy - m_lastCentroidY;
+            const float dZ  = dist - m_lastPinchDist;
+            // Confidence check: accumulate how much the centroid has travelled
+            // (pan intent) vs how much the finger spacing has changed (zoom
+            // intent), both in pixels, and lock to whichever clearly wins. Until
+            // then apply NOTHING, so a two-finger gesture doesn't pan AND zoom at
+            // once (the jitter). Re-decided each fresh two-finger gesture.
+            m_twoFingerPanMag  += std::sqrt(dCx * dCx + dCy * dCy);
+            m_twoFingerZoomMag += std::fabs(dZ);
+            if (m_twoFingerMode == 0) {
+                const float lock = 12.0f; // px of clear intent before committing
+                if (m_twoFingerPanMag > lock && m_twoFingerPanMag > m_twoFingerZoomMag * 1.4f)
+                    m_twoFingerMode = 1; // pan
+                else if (m_twoFingerZoomMag > lock && m_twoFingerZoomMag > m_twoFingerPanMag * 1.4f)
+                    m_twoFingerMode = 2; // zoom
+            }
+            if (m_twoFingerMode == 1) { m_panAccX += dCx; m_panAccY += dCy; }
+            else if (m_twoFingerMode == 2) { m_zoomAcc += dZ; }
             m_lastCentroidX = cx; m_lastCentroidY = cy;
             m_lastPinchDist = dist;
         }
