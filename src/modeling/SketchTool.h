@@ -29,6 +29,7 @@ struct InferenceGuide {
         OnLineExtension,   // cursor is on the infinite extension of an existing line → lavender dashed guide
         TangentToCircle,   // cursor lies on the tangent line touching a circle/arc → orange dashed guide
         PerpToRef,         // cursor is on the perpendicular ray through a hover-charged point → cyan guide
+        Symmetry,          // cursor snapped to the mirror image of an existing point across a centreline / axis-aligned line → purple guide
     };
     Kind kind;
     glm::vec2 from;    // ghost guide line start (sketch-space)

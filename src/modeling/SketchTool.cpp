@@ -812,6 +812,76 @@ glm::vec2 SketchTool::snap(glm::vec2 pos) const {
         return faceCenter;
     }
 
+    // Symmetry: snap to the MIRROR image of an existing point across a candidate
+    // axis, so you can place geometry symmetric to the other side (the 4th
+    // corner hole mirrors the others; an internal feature mirrors across the
+    // centreline). Full / Max only — it's a richer guide, off at Reduced. Axes:
+    //   • the sketch's bounding-box vertical & horizontal centrelines, and
+    //   • any axis-aligned existing line (a centreline the user drew).
+    // Only axis-aligned mirrors, so the snapped point keeps the source's other
+    // coordinate — predictable and low-noise. Runs after the hard point snaps,
+    // so landing exactly on an existing point still wins.
+    if (m_inferenceLevel == InferenceLevel::Full ||
+        m_inferenceLevel == InferenceLevel::Max) {
+        std::vector<const SketchPoint*> pv;
+        float minX = 1e30f, maxX = -1e30f, minY = 1e30f, maxY = -1e30f;
+        for (const auto& pt : points) {
+            if (m_snapExcludePoints.count(pt.id) || pt.fromText) continue;
+            pv.push_back(&pt);
+            minX = std::min(minX, pt.pos.x); maxX = std::max(maxX, pt.pos.x);
+            minY = std::min(minY, pt.pos.y); maxY = std::max(maxY, pt.pos.y);
+        }
+        // Skip pathologically large sketches (text/dense splines) — symmetry
+        // inference there is rarely the intent and the scan would add up.
+        if (pv.size() >= 2 && pv.size() <= 200) {
+            float bestD = pointSnapThreshold;
+            glm::vec2 bestPos = pos, bestSrc(0);
+            int bestSrcId = -1;
+            bool found = false;
+            auto tryVertical = [&](float axisX) {
+                for (const SketchPoint* b : pv) {
+                    if (std::abs(b->pos.x - axisX) < 1e-4f) continue; // on axis
+                    glm::vec2 m(2.0f * axisX - b->pos.x, b->pos.y);
+                    float d = glm::length(pos - m);
+                    if (d < bestD) {
+                        bestD = d; bestPos = m; bestSrc = b->pos;
+                        bestSrcId = b->id; found = true;
+                    }
+                }
+            };
+            auto tryHorizontal = [&](float axisY) {
+                for (const SketchPoint* b : pv) {
+                    if (std::abs(b->pos.y - axisY) < 1e-4f) continue;
+                    glm::vec2 m(b->pos.x, 2.0f * axisY - b->pos.y);
+                    float d = glm::length(pos - m);
+                    if (d < bestD) {
+                        bestD = d; bestPos = m; bestSrc = b->pos;
+                        bestSrcId = b->id; found = true;
+                    }
+                }
+            };
+            // Bounding-box centrelines.
+            tryVertical((minX + maxX) * 0.5f);
+            tryHorizontal((minY + maxY) * 0.5f);
+            // Axis-aligned existing lines as mirror axes.
+            for (const auto& ln : lines) {
+                if (ln.fromText) continue;
+                const SketchPoint* a = m_sketch->getPoint(ln.startPointId);
+                const SketchPoint* b = m_sketch->getPoint(ln.endPointId);
+                if (!a || !b) continue;
+                if (std::abs(a->pos.x - b->pos.x) < 1e-4f) tryVertical(a->pos.x);
+                else if (std::abs(a->pos.y - b->pos.y) < 1e-4f) tryHorizontal(a->pos.y);
+            }
+            if (found) {
+                // Guide pairs the source with its mirror (a dashed line crossing
+                // the axis); the label names it "Symmetry".
+                m_activeInferences.push_back(
+                    {InferenceGuide::Symmetry, bestSrc, bestPos, bestSrcId});
+                return bestPos;
+            }
+        }
+    }
+
     // ─── PHASE 2: Collect line-shaped inference candidates ───────────────────
     // Every inference whose shape is a LINE (not a point) registers itself
     // here rather than snapping immediately. The resolver in phase 3 picks
@@ -927,6 +997,15 @@ glm::vec2 SketchTool::snap(glm::vec2 pos) const {
     // Includes the chain anchor itself — drawing horizontal / vertical FROM
     // the anchor is one of the most common cases. Dragged points are
     // skipped (a guide from a point to itself is meaningless).
+    // Before the FIRST point of an item there's no chain guide to pair with, so
+    // a lone axis-from-point alignment would never fire — yet aligning the start
+    // point to an existing vertex's X/Y is exactly what you want there. Let these
+    // stand alone pre-placement (Full / Max only). During placement they stay
+    // pair-only (standaloneAllowed=false) to avoid the "aligned with someone's
+    // coord on every drift" noise the comment above describes.
+    const bool preStartAxis =
+        !m_isPlacing && (m_inferenceLevel == InferenceLevel::Full ||
+                         m_inferenceLevel == InferenceLevel::Max);
     if (allowDirectional) {
         for (const auto& pt : m_sketch->getPoints()) {
             if (m_snapExcludePoints.count(pt.id)) continue;
@@ -943,12 +1022,12 @@ glm::vec2 SketchTool::snap(glm::vec2 pos) const {
             if (dX < axisThresh) {
                 glm::vec2 proj(pt.pos.x, pos.y);
                 cands.push_back({pt.pos, glm::vec2(0,1), InferenceGuide::AxisVFromPoint,
-                                 pt.id, pt.pos, false, 0.0f, proj, dX, false});
+                                 pt.id, pt.pos, false, 0.0f, proj, dX, preStartAxis});
             }
             if (dY < axisThresh) {
                 glm::vec2 proj(pos.x, pt.pos.y);
                 cands.push_back({pt.pos, glm::vec2(1,0), InferenceGuide::AxisHFromPoint,
-                                 pt.id, pt.pos, false, 0.0f, proj, dY, false});
+                                 pt.id, pt.pos, false, 0.0f, proj, dY, preStartAxis});
             }
         }
         for (const auto& fp : m_sketch->getFaceReferences().points) {
@@ -957,12 +1036,12 @@ glm::vec2 SketchTool::snap(glm::vec2 pos) const {
             if (dX < axisThresh) {
                 glm::vec2 proj(fp.x, pos.y);
                 cands.push_back({fp, glm::vec2(0,1), InferenceGuide::AxisVFromPoint,
-                                 -1, fp, false, 0.0f, proj, dX, false});
+                                 -1, fp, false, 0.0f, proj, dX, preStartAxis});
             }
             if (dY < axisThresh) {
                 glm::vec2 proj(pos.x, fp.y);
                 cands.push_back({fp, glm::vec2(1,0), InferenceGuide::AxisHFromPoint,
-                                 -1, fp, false, 0.0f, proj, dY, false});
+                                 -1, fp, false, 0.0f, proj, dY, preStartAxis});
             }
         }
     }

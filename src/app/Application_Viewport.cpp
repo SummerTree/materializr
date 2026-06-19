@@ -1425,6 +1425,11 @@ void Application::renderViewport() {
                             dashed = true;
                             col = IM_COL32(80, 220, 235, 255);
                             break;
+                        case InferenceGuide::Symmetry:
+                            // Mirror pairing (source ↔ snapped point) — purple.
+                            dashed = true;
+                            col = IM_COL32(200, 100, 255, 255);
+                            break;
                     }
                     ImVec2 sa, sb;
                     if (!toImg(sk2w(g.from), sa)) continue;
@@ -1482,6 +1487,14 @@ void Application::renderViewport() {
                             g.kind == InferenceGuide::PerpToRef) {
                             dl->AddCircleFilled(sa, 5.5f, halo);
                             dl->AddCircleFilled(sa, 4.0f, col);
+                        }
+                        // Symmetry: mark BOTH the source (sa) and the mirrored
+                        // snap target (sb) so the pairing is obvious.
+                        if (g.kind == InferenceGuide::Symmetry) {
+                            dl->AddCircleFilled(sa, 5.0f, halo);
+                            dl->AddCircleFilled(sa, 3.5f, col);
+                            dl->AddCircleFilled(sb, 5.5f, halo);
+                            dl->AddCircleFilled(sb, 4.0f, col);
                         }
                     }
                 }
@@ -1592,6 +1605,7 @@ void Application::renderViewport() {
                             case InferenceGuide::OnLineExtension: return "On Line Extension";
                             case InferenceGuide::TangentToCircle: return "Tangent to Circle";
                             case InferenceGuide::PerpToRef:       return "Perpendicular from Point";
+                            case InferenceGuide::Symmetry:        return "Symmetry";
                         }
                         return "";
                     };
