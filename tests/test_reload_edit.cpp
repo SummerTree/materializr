@@ -18,6 +18,8 @@
 #include "modeling/DeleteOp.h"
 #include "modeling/TransformOp.h"
 #include "modeling/PushPullOp.h"
+#include "modeling/Sketch.h"
+#include "modeling/SketchEditOp.h"
 
 #include <gtest/gtest.h>
 #include <BRepPrimAPI_MakeBox.hxx>
@@ -33,6 +35,8 @@
 #include <GProp_GProps.hxx>
 #include <BRepGProp.hxx>
 #include <cmath>
+#include <functional>
+#include <memory>
 #include <vector>
 
 namespace {
@@ -314,6 +318,31 @@ TEST(ReloadEdit, RigidTrsfReconstruction) {
     // A probe point on `before` maps to the same place under the recovered trsf.
     gp_Pnt p(2.0, 5.0, 1.0);
     EXPECT_LT(p.Transformed(t).Distance(p.Transformed(recovered)), 1e-6);
+}
+
+// Sketch-edit history descriptions name the geometry and its measured size,
+// instead of a generic "Add sketch element".
+TEST(SketchHistory, MeaningfulDescriptions) {
+    using materializr::Sketch;
+    using materializr::SketchEditOp;
+    auto desc = [](std::function<void(Sketch&)> build) {
+        auto before = std::make_shared<Sketch>();
+        auto after  = std::make_shared<Sketch>();
+        build(*after);
+        return SketchEditOp(after, before, after).description();
+    };
+    EXPECT_EQ(desc([](Sketch& s){
+        int p0 = s.addPoint({0,0}),  p1 = s.addPoint({80,0});
+        int p2 = s.addPoint({80,45}), p3 = s.addPoint({0,45});
+        s.addLine(p0,p1); s.addLine(p1,p2); s.addLine(p2,p3); s.addLine(p3,p0);
+    }), "Rectangle 80.0 \xC3\x97 45.0 mm");
+    EXPECT_EQ(desc([](Sketch& s){ int c = s.addPoint({5,5}); s.addCircle(c, 10.0); }),
+              "Circle \xC3\x98""20.0 mm");
+    EXPECT_EQ(desc([](Sketch& s){ int a = s.addPoint({0,0}), b = s.addPoint({30,40});
+                                  s.addLine(a,b); }), "Line 50.0 mm");
+    EXPECT_EQ(desc([](Sketch& s){ int c = s.addPoint({0,0}), a = s.addPoint({8,0}),
+                                  b = s.addPoint({0,8}); s.addArc(c,a,b,8.0); }),
+              "Arc R8.0 mm");
 }
 
 // DeleteOp reloads as a real op: params round-trip and rehydrate recovers the

@@ -1,9 +1,11 @@
 #include "SketchEditOp.h"
 #include "SketchSolver.h"
 #include <imgui.h>
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <sstream>
+#include <vector>
 
 namespace materializr {
 
@@ -115,7 +117,73 @@ std::string SketchEditOp::description() const {
         }
     }
 
-    // No constraint diff — fall back to geometry-count diff (existing behaviour).
+    // No constraint diff — describe the GEOMETRY that was added, measured
+    // directly off the snapshot (no constraint required). Turns the generic
+    // "Add sketch element" into "Rectangle 80 × 45 mm", "Circle Ø20 mm", etc.,
+    // so the history reads meaningfully. (A "reference dimension" for display
+    // only — it drives nothing, so there's no over-constraint risk.)
+    {
+        auto posOf = [](const Sketch& sk, int ptId) -> glm::vec2 {
+            for (const auto& p : sk.getPoints()) if (p.id == ptId) return p.pos;
+            return glm::vec2(0.0f, 0.0f);
+        };
+        auto isNew = [](int id, const auto& beforeVec) {
+            for (const auto& b : beforeVec) if (b.id == id) return false;
+            return true;
+        };
+        std::vector<const SketchLine*> nl;
+        for (const auto& l : m_after->getLines())
+            if (isNew(l.id, m_before->getLines())) nl.push_back(&l);
+        std::vector<const SketchCircle*> nc;
+        for (const auto& c : m_after->getCircles())
+            if (isNew(c.id, m_before->getCircles())) nc.push_back(&c);
+        std::vector<const SketchArc*> na;
+        for (const auto& a : m_after->getArcs())
+            if (isNew(a.id, m_before->getArcs())) na.push_back(&a);
+
+        auto lineLen = [&](const SketchLine* l) {
+            glm::vec2 a = posOf(*m_after, l->startPointId);
+            glm::vec2 b = posOf(*m_after, l->endPointId);
+            double dx = b.x - a.x, dy = b.y - a.y;
+            return std::sqrt(dx * dx + dy * dy);
+        };
+        char buf[96];
+        if (nc.size() == 1 && nl.empty() && na.empty()) {
+            std::snprintf(buf, sizeof(buf), "Circle \xC3\x98%.1f mm", nc[0]->radius * 2.0);
+            return buf;
+        }
+        if (na.size() == 1 && nl.empty() && nc.empty()) {
+            std::snprintf(buf, sizeof(buf), "Arc R%.1f mm", na[0]->radius);
+            return buf;
+        }
+        if (nl.size() == 4 && nc.empty() && na.empty()) {
+            // Rectangle iff the four sides form two equal pairs (W,W,H,H).
+            double L[4]; for (int i = 0; i < 4; ++i) L[i] = lineLen(nl[i]);
+            std::sort(L, L + 4);
+            const double tol = 1e-3 + 0.01 * L[3];   // 1% of the longest side
+            if (std::abs(L[0] - L[1]) < tol && std::abs(L[2] - L[3]) < tol) {
+                // Report width × height as the sketch-plane bounding box, so an
+                // axis-aligned rectangle reads "80 × 45" (x-extent × y-extent)
+                // the way it was drawn rather than sorted side lengths.
+                float minx = 1e30f, miny = 1e30f, maxx = -1e30f, maxy = -1e30f;
+                for (const auto* l : nl)
+                    for (int pid : {l->startPointId, l->endPointId}) {
+                        glm::vec2 p = posOf(*m_after, pid);
+                        minx = std::min(minx, p.x); maxx = std::max(maxx, p.x);
+                        miny = std::min(miny, p.y); maxy = std::max(maxy, p.y);
+                    }
+                std::snprintf(buf, sizeof(buf), "Rectangle %.1f \xC3\x97 %.1f mm",
+                              maxx - minx, maxy - miny);
+                return buf;
+            }
+        }
+        if (nl.size() == 1 && nc.empty() && na.empty()) {
+            std::snprintf(buf, sizeof(buf), "Line %.1f mm", lineLen(nl[0]));
+            return buf;
+        }
+    }
+
+    // Anything else — fall back to the generic element-count diff.
     int delta = m_after->elementCount() - m_before->elementCount();
     if (delta > 0) return "Add sketch element";
     if (delta < 0) return "Remove sketch element";

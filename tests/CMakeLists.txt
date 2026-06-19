@@ -30,6 +30,8 @@ add_library(materializr_core STATIC
     ${CMAKE_SOURCE_DIR}/src/modeling/TransformOp.cpp
     ${CMAKE_SOURCE_DIR}/src/modeling/PushPullOp.cpp
     ${CMAKE_SOURCE_DIR}/src/modeling/Sketch.cpp
+    ${CMAKE_SOURCE_DIR}/src/modeling/SketchEditOp.cpp
+    ${CMAKE_SOURCE_DIR}/src/modeling/SketchSolver.cpp
     ${CMAKE_SOURCE_DIR}/src/modeling/SubShapeIndex.cpp
 )
 
