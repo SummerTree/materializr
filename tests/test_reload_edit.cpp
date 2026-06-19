@@ -345,6 +345,32 @@ TEST(SketchHistory, MeaningfulDescriptions) {
               "Arc R8.0 mm");
 }
 
+// A circle added without a constraint is diameter-editable from history: the
+// panel writes the new radius to the after-snapshot, and execute() pushes the
+// resized sketch onto the live one (centre unchanged).
+TEST(SketchHistory, CircleDiameterEditableFromHistory) {
+    using materializr::Sketch;
+    using materializr::SketchEditOp;
+    auto before = std::make_shared<Sketch>();
+    auto after  = std::make_shared<Sketch>();
+    int ctr = after->addPoint({3, 4});
+    int cid = after->addCircle(ctr, 10.0);     // Ø20
+    auto live = std::make_shared<Sketch>();
+    *live = *after;                             // edit already applied to live
+
+    SketchEditOp op(live, before, after);
+    // Panel edit → writes the new radius into the after-snapshot.
+    after->setCircleRadius(cid, 7.5);          // Ø15
+    Document doc;
+    ASSERT_TRUE(op.execute(doc));               // Apply Changes
+
+    double r = -1; glm::vec2 c{};
+    for (const auto& cc : live->getCircles()) if (cc.id == cid) r = cc.radius;
+    for (const auto& p : live->getPoints())   if (p.id == ctr) c = p.pos;
+    EXPECT_NEAR(r, 7.5, 1e-9) << "live circle resized to the new radius";
+    EXPECT_NEAR(c.x, 3.0, 1e-9); EXPECT_NEAR(c.y, 4.0, 1e-9) << "centre unchanged";
+}
+
 // DeleteOp reloads as a real op: params round-trip and rehydrate recovers the
 // deleted shape so an editStep replay can roll it back.
 TEST(ReloadEdit, DeleteRehydrates) {

@@ -306,12 +306,6 @@ void SketchEditOp::renderProperties() {
         ImGui::TextDisabled("No snapshot");
         return;
     }
-    auto& cs = m_after->getMutableConstraints();
-    if (cs.empty()) {
-        ImGui::TextDisabled("No constraints in this step");
-        return;
-    }
-
     // Edit dimensional values inline. For each change we re-solve `m_after`
     // so dependent geometry catches up — Apply Changes then copies the
     // solved snapshot onto the live sketch via editStep / execute().
@@ -321,6 +315,7 @@ void SketchEditOp::renderProperties() {
     };
 
     bool anyDim = false;
+    auto& cs = m_after->getMutableConstraints();
     for (size_t i = 0; i < cs.size(); ++i) {
         Constraint& c = cs[i];
         ImGui::PushID(static_cast<int>(i));
@@ -369,9 +364,43 @@ void SketchEditOp::renderProperties() {
         ImGui::PopID();
     }
 
+    // Constraint-less geometry: let a newly-added circle's DIAMETER be edited
+    // directly here (its centre stays put — the unambiguous case). Editing
+    // writes straight to m_after's circle; Apply Changes (execute) copies the
+    // resized sketch onto the live one. Lines/rectangles/arcs are intentionally
+    // left out — which point/side stays fixed is ambiguous without constraints.
+    if (m_before) {
+        std::vector<int> newCircleIds;
+        for (const auto& c : m_after->getCircles()) {
+            bool wasThere = false;
+            for (const auto& b : m_before->getCircles())
+                if (b.id == c.id) { wasThere = true; break; }
+            if (wasThere) continue;
+            bool governed = false;   // a Radius constraint already edits it above
+            for (const auto& cn : m_after->getConstraints())
+                if (cn.type == ConstraintType::Radius && cn.entityA == c.id) {
+                    governed = true; break;
+                }
+            if (!governed) newCircleIds.push_back(c.id);
+        }
+        for (int cid : newCircleIds) {
+            double r = 0.0;
+            for (const auto& c : m_after->getCircles())
+                if (c.id == cid) { r = c.radius; break; }
+            double dia = r * 2.0;
+            ImGui::PushID(cid + 1000000);   // keep clear of the constraint-row ids
+            if (ImGui::InputDouble("Diameter (mm)", &dia, 0.0, 0.0, "%.3f",
+                                   ImGuiInputTextFlags_EnterReturnsTrue)) {
+                m_after->setCircleRadius(cid, std::max(dia, 1e-6) * 0.5);
+            }
+            ImGui::PopID();
+            anyDim = true;
+        }
+    }
+
     if (!anyDim) {
-        ImGui::TextWrapped("This step contains only non-dimensional "
-                           "constraints — there are no values to edit.");
+        ImGui::TextWrapped("Nothing editable in this step (only non-dimensional "
+                           "constraints or geometry without an editable size).");
     } else {
         ImGui::TextDisabled("Press Enter to commit a value, then Apply Changes.");
     }
