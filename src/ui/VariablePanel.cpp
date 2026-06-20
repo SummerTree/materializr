@@ -1,3 +1,4 @@
+#include "UiTheme.h"
 #include "VariablePanel.h"
 #include "../core/VariableManager.h"
 #include <imgui.h>
@@ -120,7 +121,7 @@ bool VariablePanel::render() {
     // Add Variable section
     ImGui::Spacing();
     ImGui::Separator();
-    ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "Add Variable");
+    ImGui::TextColored(materializr::accentText(), "Add Variable");
 
     ImGui::SetNextItemWidth(100.0f);
     ImGui::InputText("##NewName", m_newName, sizeof(m_newName));

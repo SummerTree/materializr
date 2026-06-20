@@ -1,3 +1,4 @@
+#include "UiTheme.h"
 #include "ui_scale.h"
 #include "AboutDialog.h"
 #include <imgui.h>
@@ -61,7 +62,7 @@ void AboutDialog::render() {
         ImGui::GetFont()->Scale = 2.0f;
         ImGui::PushFont(ImGui::GetFont());
         ImGui::SetCursorPosX((ImGui::GetWindowWidth() - ImGui::CalcTextSize("Materializr").x) * 0.5f);
-        ImGui::TextColored(ImVec4(0.4f, 0.7f, 1.0f, 1.0f), "Materializr");
+        ImGui::TextColored(materializr::accentText(), "Materializr");
         ImGui::GetFont()->Scale = origScale;
         ImGui::PopFont();
 
@@ -78,7 +79,7 @@ void AboutDialog::render() {
         ImGui::Text("%s", desc);
 
         ImGui::Spacing();
-        ImGui::TextColored(ImVec4(0.65f, 0.75f, 0.95f, 1.0f), "Credits");
+        ImGui::TextColored(materializr::accentText(), "Credits");
         ImGui::BulletText("R4stl1n — original project");
         ImGui::BulletText("stevebushwa — design, testing, direction");
         ImGui::BulletText("Claude (Anthropic) — pair-coding collaborator");

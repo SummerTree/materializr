@@ -79,6 +79,8 @@ void ThemeManager::applyDark() {
     colors[ImGuiCol_Tab]              = ImVec4(0.14f, 0.14f, 0.18f, 1.0f);
     colors[ImGuiCol_TabHovered]       = ImVec4(0.28f, 0.35f, 0.48f, 1.0f);
     colors[ImGuiCol_TabSelected]      = ImVec4(0.22f, 0.28f, 0.38f, 1.0f);
+    colors[ImGuiCol_TabDimmed]         = ImVec4(0.11f, 0.11f, 0.14f, 1.0f);
+    colors[ImGuiCol_TabDimmedSelected] = ImVec4(0.17f, 0.19f, 0.26f, 1.0f);
 
     colors[ImGuiCol_ScrollbarBg]      = ImVec4(0.10f, 0.10f, 0.12f, 0.50f);
     colors[ImGuiCol_ScrollbarGrab]    = ImVec4(0.30f, 0.30f, 0.34f, 1.0f);
@@ -141,6 +143,11 @@ void ThemeManager::applyLight() {
     colors[ImGuiCol_Tab]              = ImVec4(0.82f, 0.82f, 0.86f, 1.0f);
     colors[ImGuiCol_TabHovered]       = ImVec4(0.62f, 0.70f, 0.82f, 1.0f);
     colors[ImGuiCol_TabSelected]      = ImVec4(0.72f, 0.78f, 0.88f, 1.0f);
+    // Unfocused (dimmed) dock tabs — without these, docked panel tab labels
+    // (Properties/History/Tools) kept the dark default and went unreadable
+    // against the black light-theme text until hovered.
+    colors[ImGuiCol_TabDimmed]         = ImVec4(0.84f, 0.84f, 0.88f, 1.0f);
+    colors[ImGuiCol_TabDimmedSelected] = ImVec4(0.78f, 0.82f, 0.90f, 1.0f);
 
     colors[ImGuiCol_ScrollbarBg]      = ImVec4(0.90f, 0.90f, 0.92f, 0.50f);
     colors[ImGuiCol_ScrollbarGrab]    = ImVec4(0.68f, 0.68f, 0.72f, 1.0f);

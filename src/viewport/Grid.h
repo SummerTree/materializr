@@ -35,10 +35,22 @@ public:
     /// `minorAlpha` (0..1) scales the 1× tier opacity — set to 0 to hide minor
     /// lines on big projects where they read as clutter. `globalAlpha` (0..1)
     /// scales the final grid opacity so geometry below stays visible.
+    /// Every tier carries a screen-space density fade in the shader, so a tier
+    /// dissolves smoothly as it gets sub-pixel dense (no moiré). `sketchGrid`
+    /// (0/1) picks the look: 0 = the tiered world/ground grid (minor + 10× major
+    /// + 100× mega, brighter coarser lines on top); 1 = the face-on sketch grid,
+    /// a SINGLE uniform tier (every line the same colour and weight, no "plaid")
+    /// that dims as one even sheet under `globalAlpha`.
+    /// `depthBias` is a signed fraction of the view-ray length nudging the grid's
+    /// depth: positive draws it ON a coplanar face (the sketch face), negative
+    /// lets a coplanar body face occlude it (the ground grid under a body). The
+    /// grid never writes depth, so it blends over geometry rather than punching
+    /// through it.
     void render(const glm::mat4& view, const glm::mat4& projection,
                 const glm::vec3& fadeCenter, float fadeDistance,
                 const Plane& plane, float minorStep,
-                float minorAlpha = 1.0f, float globalAlpha = 0.55f);
+                float minorAlpha = 1.0f, float globalAlpha = 0.55f,
+                float sketchGrid = 0.0f, float depthBias = 0.0005f);
 
 private:
     bool compileShader(unsigned int& shader, unsigned int type, const char* source);
@@ -59,6 +71,8 @@ private:
     int m_locScale = -1;
     int m_locMinorAlpha = -1;
     int m_locGlobalAlpha = -1;
+    int m_locSketchGrid = -1;
+    int m_locDepthBias = -1;
 };
 
 } // namespace materializr

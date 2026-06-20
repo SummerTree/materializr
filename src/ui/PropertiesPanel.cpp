@@ -1,3 +1,4 @@
+#include "UiTheme.h"
 #include "PropertiesPanel.h"
 #include "../core/History.h"
 #include "../core/Document.h"
@@ -71,7 +72,7 @@ bool PropertiesPanel::render() {
         const Operation* op = m_history->getStep(m_editingStep);
         if (op) {
             // Operation header
-            ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "%s", op->name().c_str());
+            ImGui::TextColored(materializr::accentText(), "%s", op->name().c_str());
             ImGui::Separator();
 
             ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "%s", op->description().c_str());
@@ -136,7 +137,7 @@ bool PropertiesPanel::render() {
         int bodyId = sel[0].bodyId;
 
         // Header
-        ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "Body Properties");
+        ImGui::TextColored(materializr::accentText(), "Body Properties");
         ImGui::Separator();
 
         // Body name (editable)
@@ -171,7 +172,7 @@ bool PropertiesPanel::render() {
         // Scale — same TransformOp, same anchor, same ellipse-from-cylinder
         // surprise. Editing now lives on the Scale gizmo popup, which has a
         // % / mm toggle and shows live dimensions in mm mode.
-        ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "Dimensions");
+        ImGui::TextColored(materializr::accentText(), "Dimensions");
         const TopoDS_Shape& shape = m_document->getBody(bodyId);
         if (!shape.IsNull()) {
             // BRepBndLib::AddOptimal here used to run every frame, costing
@@ -274,7 +275,7 @@ bool PropertiesPanel::render() {
 
         char selText[128];
         std::snprintf(selText, sizeof(selText), "%d %s(s) selected", count, typeName);
-        ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "%s", selText);
+        ImGui::TextColored(materializr::accentText(), "%s", selText);
         ImGui::Separator();
 
         if (sketchLike && m_document && m_history && parentSketchId >= 0) {
@@ -526,7 +527,7 @@ void PropertiesPanel::renderSketchConstraintsPanel(int sketchId, bool& modified)
         return;
     }
 
-    ImGui::TextColored(ImVec4(0.6f, 0.85f, 1.0f, 1.0f), "Constraints");
+    ImGui::TextColored(materializr::accentText(), "Constraints");
     ImGui::Separator();
 
     // Friendly type names for the non-editable bullet rows.

@@ -1,3 +1,4 @@
+#include "ui/UiTheme.h"
 #include "InteractiveOpController.h"
 #include "touch_mode.h"
 #include "../core/Document.h"
@@ -122,7 +123,7 @@ void InteractiveOpController::renderPanel(const IopContext& ctx) {
                  ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
                  ImGuiWindowFlags_AlwaysAutoResize);
 
-    ImGui::TextColored(ImVec4(0.6f, 0.9f, 1.0f, 1.0f), "%s", title());
+    ImGui::TextColored(materializr::accentText(), "%s", title());
     ImGui::Separator();
 
     bool changed = false;

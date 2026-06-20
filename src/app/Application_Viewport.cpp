@@ -1,3 +1,4 @@
+#include "ui/UiTheme.h"
 #include "ui_scale.h"
 #include "touch_mode.h"
 #include "gl_common.h"
@@ -155,7 +156,10 @@ void Application::renderViewport() {
         // Grid: in any sketch mode (whether on a face or from scratch), lay the
         // infinite world grid on the sketch plane so it shows face-on and any
         // nearby face can be referenced. Outside sketch mode, use the XZ ground.
-        {
+        // Deferred into a lambda and invoked AFTER the solid geometry below, so
+        // the grid (which no longer writes depth) blends over bodies instead of
+        // punching through coplanar faces.
+        auto drawGrid = [&]() {
             Grid::Plane gp; // defaults to the XZ ground
             bool sketching = m_inSketchMode && m_activeSketch;
             if (sketching) {
@@ -235,10 +239,25 @@ void Application::renderViewport() {
                     }
                 }
             }
-            m_grid->render(view, proj, fadeCenter, std::max(fadeDist, 10.0f),
+            // One grid (m_grid) serves both the XZ ground and the sketch plane,
+            // driven by the opacity setting in every mode. The shader gives each
+            // tier its own screen-space density fade, so the fine face-on sketch
+            // grid dissolves as one even sheet (no moiré "plaid") and dims
+            // uniformly under the opacity slider. In sketch mode the view is
+            // FACE-ON, so a distance fade would just cull the grid's edges as
+            // opacity drops; flatten it (huge fade distance) so opacity is the
+            // only thing dimming the grid. The angled world view keeps its soft
+            // horizon fade.
+            float gridFade = sketching ? 1.0e6f : std::max(fadeDist, 10.0f);
+            // depthBias: + draws the grid ON the coplanar sketch face; - lets a
+            // coplanar body face (e.g. a body sitting on the XZ ground) occlude
+            // the ground grid instead of it bleeding through.
+            m_grid->render(view, proj, fadeCenter, gridFade,
                            gp, std::max(m_sketchGridStep, 0.01f),
-                           minorAlpha, 0.55f /*globalAlpha*/);
-        }
+                           minorAlpha, m_sketchGridOpacity /*globalAlpha*/,
+                           sketching ? 1.0f : 0.0f /*sketchGrid: uniform single tier*/,
+                           sketching ? 0.0005f : -0.0005f /*depthBias*/);
+        };
         // Plugin-registered render passes (e.g. ConstructionPlanePlugin's
         // plane quads) draw between the grid/background and the body/edge
         // pass. PluginContext receives the same view+proj, and each pass'
@@ -289,6 +308,12 @@ void Application::renderViewport() {
         if (!m_revolveLiveActive) {
             m_selectionHighlight->render(*m_selection, *m_document, view, proj);
         }
+
+        // Grid drawn here — after bodies/edges/section/highlight — so it blends
+        // over solid geometry and fades cleanly under the opacity slider, rather
+        // than punching grid lines through coplanar faces (the old "grey grid
+        // baked into the face that opacity couldn't remove").
+        drawGrid();
 
         // Update gizmo visibility and position based on selection.
         // Suppressed by navigationOnly so a panel pick highlights the body
@@ -4945,7 +4970,7 @@ void Application::renderViewport() {
         // pick from a double-click body pick the way a mouse does). Each branch
         // first selects its entity, then lists its specific actions; body-level
         // actions that aren't face-specific are dual-listed under both.
-        ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "Object");
+        ImGui::TextColored(materializr::accentText(), "Object");
         ImGui::Separator();
 
         const int bid = m_contextMenuBodyId;
@@ -5106,7 +5131,7 @@ void Application::renderViewport() {
     // the viewport.
     if (ImGui::BeginPopup("PlaneContextMenu")) {
         const int pid = m_contextMenuPlaneId;
-        ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "Construction Plane");
+        ImGui::TextColored(materializr::accentText(), "Construction Plane");
         ImGui::Separator();
         if (ImGui::MenuItem("Flip Normal")) {
             m_document->flipPlaneNormal(pid);
@@ -5138,7 +5163,7 @@ void Application::renderViewport() {
         int nCir = static_cast<int>(m_sketchTool->getSelectedCircles().size());
         int nArc = static_cast<int>(m_sketchTool->getSelectedArcs().size());
         int nCur = nCir + nArc; // any curve selection
-        ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f),
+        ImGui::TextColored(materializr::accentText(),
                            "Selection: %d point%s, %d line%s, %d curve%s",
                            nPts, nPts == 1 ? "" : "s",
                            nLns, nLns == 1 ? "" : "s",
@@ -5429,7 +5454,7 @@ void Application::renderViewport() {
                 updateInteractiveEdgeOp();
             }
             if (m_edgeOpTwoDist) {
-                ImGui::TextColored(ImVec4(0.47f, 0.82f, 1.0f, 1.0f),
+                ImGui::TextColored(materializr::accentText(),
                                    "Distance B (other face)");
                 if (ImGui::InputText("##val2", m_edgeOpInputBuf2,
                                      sizeof(m_edgeOpInputBuf2),
@@ -5629,7 +5654,7 @@ void Application::renderViewport() {
                 ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
                 ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings);
 
-            ImGui::TextColored(ImVec4(0.6f, 0.9f, 1.0f, 1.0f), "%s", dimLabel);
+            ImGui::TextColored(materializr::accentText(), "%s", dimLabel);
             ImGui::Separator();
             // Window width is fixed now, so wrapping at the window edge is safe
             // (no feedback loop).

@@ -610,6 +610,7 @@ private:
     int   m_meshQuality = 1;        // tessellation density: 0=Low..3=Ultra
     float m_selectionLineWidth = 3.0f; // px width of highlighted edges/body outlines
     float m_sketchLineWidth = 2.5f;    // px width of sketch geometry over the grid
+    float m_sketchGridOpacity = 0.55f; // opacity of the sketch-plane grid (0..1)
     bool  m_smallScreenWarned = false; // persisted: user ticked "don't show again"
     bool  m_smallScreenAck = false;    // dismissed for this run only
     bool  m_leftPanelHidden = false;   // persisted: Tools column collapsed

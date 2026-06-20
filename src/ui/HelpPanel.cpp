@@ -1,3 +1,4 @@
+#include "UiTheme.h"
 #include "ui_scale.h"
 #include "HelpPanel.h"
 #include <imgui.h>
@@ -9,7 +10,7 @@ namespace {
 // One section heading + a wrapped paragraph below it. Keeps the layout uniform.
 void section(const char* title, const char* body) {
     ImGui::Spacing();
-    ImGui::TextColored(ImVec4(0.55f, 0.78f, 1.0f, 1.0f), "%s", title);
+    ImGui::TextColored(materializr::accentText(), "%s", title);
     ImGui::Separator();
     ImGui::TextWrapped("%s", body);
     ImGui::Spacing();

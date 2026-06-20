@@ -1,3 +1,4 @@
+#include "UiTheme.h"
 #include "ui_scale.h"
 #include "MeasureTool.h"
 #include "../core/Document.h"
@@ -182,14 +183,14 @@ void MeasureTool::renderPanel() {
             ImGui::TextWrapped("Click a body in the viewport — clicking a face counts. "
                                "Ctrl+click to add more bodies, or use box-select.");
             ImGui::Spacing();
-            ImGui::TextColored(ImVec4(0.75f, 0.85f, 1.0f, 1.0f),
+            ImGui::TextColored(materializr::accentText(),
                                "Selected: %d %s", bodyIds, bodyIds == 1 ? "body" : "bodies");
             break;
         case MeasureMode::Edge:
             ImGui::TextWrapped("Click within ~8 px of an edge to pick it. "
                                "Ctrl+click to add more edges to the sum.");
             ImGui::Spacing();
-            ImGui::TextColored(ImVec4(0.75f, 0.85f, 1.0f, 1.0f),
+            ImGui::TextColored(materializr::accentText(),
                                "Selected: %d %s", edges, edges == 1 ? "edge" : "edges");
             break;
         case MeasureMode::Line:

@@ -1,3 +1,4 @@
+#include "UiTheme.h"
 #include "ItemsPanel.h"
 #include "../touch_mode.h"
 #include "../core/Document.h"
@@ -46,7 +47,7 @@ bool ItemsPanel::render() {
     bool colorChanged = false; // a body colour edit also needs a mesh rebuild
 
     // Filter toggles at top
-    ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "Filter");
+    ImGui::TextColored(materializr::accentText(), "Filter");
     ImGui::Separator();
 
     // Touch mode wraps the third toggle to a second row so the filter strip needs
@@ -69,7 +70,7 @@ bool ItemsPanel::render() {
 
     // Bodies section
     if (m_showBodies) {
-        ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "Bodies");
+        ImGui::TextColored(materializr::accentText(), "Bodies");
         // "+ New folder" button at the section header creates an empty folder
         // (bodies join via right-click → Move to folder…).
         ImGui::SameLine();
@@ -229,7 +230,7 @@ bool ItemsPanel::render() {
     // Sketches section
     if (m_showSketches) {
         ImGui::Separator();
-        ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "Sketches");
+        ImGui::TextColored(materializr::accentText(), "Sketches");
 
         std::vector<int> sketchIds = m_document->getAllSketchIds();
         if (sketchIds.empty()) {
@@ -344,7 +345,7 @@ bool ItemsPanel::render() {
     // Construction (planes + axes) section
     if (m_showPlanes) {
         ImGui::Separator();
-        ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "Construction Planes");
+        ImGui::TextColored(materializr::accentText(), "Construction Planes");
 
         std::vector<int> planeIds = m_document->getAllPlaneIds();
         if (planeIds.empty()) {
@@ -435,7 +436,7 @@ bool ItemsPanel::render() {
         }
 
         ImGui::Spacing();
-        ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "Construction Axes");
+        ImGui::TextColored(materializr::accentText(), "Construction Axes");
 
         std::vector<int> axisIds = m_document->getAllAxisIds();
         if (axisIds.empty()) {

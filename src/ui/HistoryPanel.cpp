@@ -1,3 +1,4 @@
+#include "UiTheme.h"
 #include "HistoryPanel.h"
 #include "../core/History.h"
 #include "../core/Document.h"
@@ -30,12 +31,12 @@ bool HistoryPanel::render() {
     ImGui::Begin("History", nullptr, ImGuiWindowFlags_NoCollapse);
 
     if (!m_history || !m_document) {
-        ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "No history available.");
+        ImGui::TextColored(materializr::dimText(), "No history available.");
         ImGui::End();
         return false;
     }
 
-    ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "Operation History");
+    ImGui::TextColored(materializr::accentText(), "Operation History");
     ImGui::Separator();
 
     int stepCount = m_history->stepCount();
@@ -110,7 +111,7 @@ bool HistoryPanel::render() {
             ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.3f, 0.5f, 1.0f, 0.3f));
         }
         if (isAboveBreakpoint || isAboveCurrent || isDisabled) {
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_Text, materializr::dimText());
         }
         // Step label uses the op's description() when available — gives
         // dimension steps a useful caption ("Add Distance 25 mm") instead
@@ -234,7 +235,7 @@ bool HistoryPanel::render() {
         }
         ImGui::PopID();
         ImGui::SameLine();
-        ImGui::TextColored(ImVec4(0.85f, 0.85f, 0.95f, 1.0f),
+        ImGui::TextColored(materializr::accentText(),
                            "%s  (%d step%s)",
                            dateLabel(bucket, today, yest).c_str(),
                            runLen, runLen == 1 ? "" : "s");
@@ -282,7 +283,7 @@ bool HistoryPanel::render() {
         const Operation* op = m_history->getStep(m_editingStep);
         if (op) {
             ImGui::Separator();
-            ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "Properties: %s",
+            ImGui::TextColored(materializr::accentText(), "Properties: %s",
                                op->name().c_str());
             ImGui::BeginChild("StepProps", ImVec2(0, propsBlockH - 60.0f), true);
             const_cast<Operation*>(op)->renderProperties();

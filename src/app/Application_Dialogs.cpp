@@ -1,3 +1,4 @@
+#include "ui/UiTheme.h"
 #include "ui_scale.h"
 #include "touch_mode.h"
 #include "gl_common.h"
@@ -264,6 +265,16 @@ void Application::renderSettings() {
                     }
 
                     ImGui::Spacing();
+                    ImGui::SeparatorText("Appearance");
+                    if (ImGui::SliderFloat("Grid opacity", &m_sketchGridOpacity,
+                                           0.0f, 1.0f, "%.2f")) {
+                        changed = true;
+                    }
+                    ImGui::SetItemTooltip(
+                        "Opacity of the sketch-plane grid. Lower it if the grid "
+                        "competes with your sketch lines; 0 hides it.");
+
+                    ImGui::Spacing();
                     if (ImGui::Checkbox("Show level toggle in sketch toolbar",
                                         &m_showInferenceToolbarToggle)) {
                         changed = true;
@@ -484,7 +495,7 @@ void Application::renderMirrorPopup() {
         m_showMirrorPopup = false;
     }
     if (ImGui::BeginPopup("MirrorPopup")) {
-        ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "Mirror across");
+        ImGui::TextColored(materializr::accentText(), "Mirror across");
         ImGui::Separator();
 
         // Mirror the body across the plane on its own bounding box for the chosen
@@ -764,7 +775,7 @@ void Application::renderResizeCylindricalPanel() {
             ? (m_resizeCylIsHole ? "Edit Bottom Diameter (hole)" : "Edit Bottom Diameter (outer)")
             : (m_resizeCylIsHole ? "Edit Top Diameter (hole)"    : "Edit Top Diameter (outer)");
     (void)roleSuffix; // kept for grep
-    ImGui::TextColored(ImVec4(0.6f, 0.9f, 1.0f, 1.0f), "%s", heading);
+    ImGui::TextColored(materializr::accentText(), "%s", heading);
     ImGui::Separator();
 
     if (both) {
@@ -882,7 +893,7 @@ void Application::renderScalePanel() {
         ImGuiWindowFlags_AlwaysAutoResize);
 
     const bool mm = (m_scaleUnitMode == ScaleUnitMode::Millimeter);
-    ImGui::TextColored(ImVec4(0.6f, 0.9f, 1.0f, 1.0f),
+    ImGui::TextColored(materializr::accentText(),
                        mm ? "Scale (target mm)" : "Scale (%% of current)");
     ImGui::Separator();
 
@@ -1054,7 +1065,7 @@ void Application::renderInteractionsPanel() {
         ImGui::TextUnformatted(action);
         if (touchRagged) ImGui::SameLine();
         else             ImGui::SameLine(120.0f);
-        ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "%s", keys);
+        ImGui::TextColored(materializr::accentText(), "%s", keys);
     };
     if (materializr::touchMode()) {
     // Touch gesture reference. The mouse/keyboard legend is nonsense on a bare
@@ -1185,7 +1196,7 @@ void Application::renderSketchPatternPopup() {
         }
 
         ImGui::Separator();
-        ImGui::TextColored(ImVec4(0.6f, 0.9f, 1.0f, 1.0f), "Origin");
+        ImGui::TextColored(materializr::accentText(), "Origin");
         ImGui::Text("(%.2f, %.2f) sketch coords",
                     m_sketchPatternOriginX, m_sketchPatternOriginY);
         if (m_sketchPatternPickingOrigin) {
@@ -1237,7 +1248,7 @@ void Application::renderPatternPanel() {
     bool axisChanged = false;
     if (m_patternKind == PatternKind::Linear) {
         // ---- Direction radio buttons (X / Y / Z) ----
-        ImGui::TextColored(ImVec4(0.6f, 0.9f, 1.0f, 1.0f), "Direction");
+        ImGui::TextColored(materializr::accentText(), "Direction");
         const char* labels[] = { "X", "Y", "Z" };
         for (int i = 0; i < 3; ++i) {
             if (i > 0) ImGui::SameLine();
@@ -1250,7 +1261,7 @@ void Application::renderPatternPanel() {
         // ---- Rotation axis combo: construction axes + world X/Y/Z ----
         // Mirrors the Revolve axis picker so any construction axis the user
         // made can drive the pattern (the headline of "axes feed patterns").
-        ImGui::TextColored(ImVec4(0.6f, 0.9f, 1.0f, 1.0f), "Rotation axis");
+        ImGui::TextColored(materializr::accentText(), "Rotation axis");
         std::vector<int> axisIds = m_document->getAllAxisIds();
         std::string current;
         const char* userLabels[3] = {"X (user)", "Y (user)", "Z (user, floor-up)"};
@@ -1337,7 +1348,7 @@ void Application::renderPatternPanel() {
 
         // ---- Axis origin (radial only) ----
         ImGui::Separator();
-        ImGui::TextColored(ImVec4(0.6f, 0.9f, 1.0f, 1.0f), "Axis origin");
+        ImGui::TextColored(materializr::accentText(), "Axis origin");
         if (m_patternAxisId >= 0) {
             // A construction axis defines its own origin — copies orbit its
             // centreline, so the manual origin picker doesn't apply.
@@ -1433,7 +1444,7 @@ void Application::renderThreadPanel() {
         ImGuiWindowFlags_NoSavedSettings |
         ImGuiWindowFlags_AlwaysAutoResize);
 
-    ImGui::TextColored(ImVec4(0.6f, 0.9f, 1.0f, 1.0f), "%s thread",
+    ImGui::TextColored(materializr::accentText(), "%s thread",
                        m_threadIsHole ? "Internal" : "External");
     ImGui::Text("Diameter %.2f mm, length %.2f mm",
                 m_threadRadius * 2.0, m_threadLength);
@@ -1745,7 +1756,7 @@ void Application::renderSnapWidget() {
     // Settings popup — checkbox + radio buttons. Each change saves to the
     // settings file immediately so the choice survives the next launch.
     if (ImGui::BeginPopup("SnapSettings")) {
-        ImGui::TextColored(ImVec4(0.6f, 0.85f, 1.0f, 1.0f), "Snap & Grid");
+        ImGui::TextColored(materializr::accentText(), "Snap & Grid");
         ImGui::Separator();
         bool snap = m_snapToGrid;
         if (ImGui::Checkbox("Snap to grid", &snap)) {
@@ -1791,7 +1802,7 @@ void Application::renderConstructionPlanePanel() {
         ImGuiWindowFlags_NoSavedSettings |
         ImGuiWindowFlags_AlwaysAutoResize);
 
-    ImGui::TextColored(ImVec4(0.6f, 0.9f, 1.0f, 1.0f), "Alignment");
+    ImGui::TextColored(materializr::accentText(), "Alignment");
     bool kindChanged = false;
     auto kindRadio = [&](const char* label, int idx, bool enabled = true) {
         if (!enabled) ImGui::BeginDisabled();
@@ -1839,7 +1850,7 @@ void Application::renderConstructionPlanePanel() {
     }
 
     ImGui::Separator();
-    ImGui::TextColored(ImVec4(0.6f, 0.9f, 1.0f, 1.0f), "Offset");
+    ImGui::TextColored(materializr::accentText(), "Offset");
     // Sync the slider/field with the live preview plane's distance from
     // world origin along its current normal, so the value reflects gizmo
     // drags and rotations rather than only the popup-input history. Skip
@@ -1897,7 +1908,7 @@ void Application::renderConstructionPlanePanel() {
     // Axis labels use Z-up convention (user X = world X, user Y = world Z,
     // user Z = world Y), so picking "Z" rotates around the up axis.
     ImGui::Separator();
-    ImGui::TextColored(ImVec4(0.6f, 0.9f, 1.0f, 1.0f), "Rotate by");
+    ImGui::TextColored(materializr::accentText(), "Rotate by");
     ImGui::SetNextItemWidth(80);
     // Enter in the field is equivalent to clicking Apply — same shortcut the
     // sketch dim popup uses, so the user can dial in 23.5°, press Enter,
@@ -2040,7 +2051,7 @@ void Application::renderRevolvePopup() {
     //     axis (no sketch needed, body is repositioned).
     //   - Sweep Sketch: RevolveOp sweeping a sketch profile around the
     //     axis into a new (or boolean-combined) body.
-    ImGui::TextColored(ImVec4(0.6f, 0.9f, 1.0f, 1.0f), "What");
+    ImGui::TextColored(materializr::accentText(), "What");
     int prevWhat = m_revolveWhatIdx;
     if (ImGui::RadioButton("Rotate Body around axis", m_revolveWhatIdx == 0))
         m_revolveWhatIdx = 0;
@@ -2058,7 +2069,7 @@ void Application::renderRevolvePopup() {
     // Both flows want a body shown (Rotate Body operates on it; Sweep
     // boolean modes target it). Sketch only matters in Sweep mode.
     ImGui::Separator();
-    ImGui::TextColored(ImVec4(0.6f, 0.9f, 1.0f, 1.0f), "Selection");
+    ImGui::TextColored(materializr::accentText(), "Selection");
     const int bodyCount = static_cast<int>(m_revolveBodyIds.size());
     if (bodyCount == 1) {
         ImGui::Text("• Body: %s (id %d)",
@@ -2084,7 +2095,7 @@ void Application::renderRevolvePopup() {
     // document plus the canonical user-Z-up world axes at the bottom.
     // Solves the "I can't pick the axis I just made" report.
     ImGui::Separator();
-    ImGui::TextColored(ImVec4(0.6f, 0.9f, 1.0f, 1.0f), "Axis");
+    ImGui::TextColored(materializr::accentText(), "Axis");
     std::vector<int> axisIds = m_document->getAllAxisIds();
     std::string current;
     if (m_revolveAxisId >= 0) {
@@ -2118,7 +2129,7 @@ void Application::renderRevolvePopup() {
     }
 
     ImGui::Separator();
-    ImGui::TextColored(ImVec4(0.6f, 0.9f, 1.0f, 1.0f), "Angle");
+    ImGui::TextColored(materializr::accentText(), "Angle");
     ImGui::SetNextItemWidth(100);
     bool angleChanged = false;
     if (ImGui::InputText("##revAng", m_revolveAngleBuf, sizeof(m_revolveAngleBuf),
@@ -2155,7 +2166,7 @@ void Application::renderRevolvePopup() {
     // an in-place transform, no mode choice.
     if (m_revolveWhatIdx == 1) {
         ImGui::Separator();
-        ImGui::TextColored(ImVec4(0.6f, 0.9f, 1.0f, 1.0f), "Mode");
+        ImGui::TextColored(materializr::accentText(), "Mode");
         const char* modes[] = {"New Body", "Union", "Cut", "Intersect"};
         for (int i = 0; i < 4; ++i) {
             if (i > 0) ImGui::SameLine();
@@ -2221,7 +2232,7 @@ void Application::renderRotatePlaneAboutAxisPopup() {
 
     // Hinge picker — the lines computed at open time.
     ImGui::Separator();
-    ImGui::TextColored(ImVec4(0.6f, 0.9f, 1.0f, 1.0f), "Hinge");
+    ImGui::TextColored(materializr::accentText(), "Hinge");
     const char* curLabel =
         (m_rotPlaneHingeIdx >= 0 &&
          m_rotPlaneHingeIdx < static_cast<int>(m_rotPlaneHingeLabels.size()))
@@ -2240,7 +2251,7 @@ void Application::renderRotatePlaneAboutAxisPopup() {
 
     // Angle — typed entry + slider, both live-preview on change.
     ImGui::Separator();
-    ImGui::TextColored(ImVec4(0.6f, 0.9f, 1.0f, 1.0f), "Angle");
+    ImGui::TextColored(materializr::accentText(), "Angle");
     ImGui::SetNextItemWidth(100);
     bool angleChanged = false;
     if (ImGui::InputText("##rotPlaneAng", m_rotPlaneAngleBuf, sizeof(m_rotPlaneAngleBuf),
@@ -2548,7 +2559,7 @@ void Application::renderConstructionAxisPanel() {
         ImGuiWindowFlags_NoSavedSettings |
         ImGuiWindowFlags_AlwaysAutoResize);
 
-    ImGui::TextColored(ImVec4(0.6f, 0.9f, 1.0f, 1.0f), "Direction");
+    ImGui::TextColored(materializr::accentText(), "Direction");
     bool kindChanged = false;
     auto kindRadio = [&](const char* label, int idx) {
         if (idx > 0) ImGui::SameLine();
@@ -2566,7 +2577,7 @@ void Application::renderConstructionAxisPanel() {
     ImGui::TextDisabled("Labels are user-Z-up: Z is the floor-up axis.");
 
     ImGui::Separator();
-    ImGui::TextColored(ImVec4(0.6f, 0.9f, 1.0f, 1.0f), "Origin (mm)");
+    ImGui::TextColored(materializr::accentText(), "Origin (mm)");
     bool originChanged = false;
     const char* axisLetters[3] = {"X", "Y", "Z"};
     for (int i = 0; i < 3; ++i) {
@@ -2927,7 +2938,7 @@ void Application::renderPrimitivePopup() {
                  ImGuiWindowFlags_NoSavedSettings |
                  ImGuiWindowFlags_AlwaysAutoResize);
 
-    ImGui::TextColored(ImVec4(0.6f, 0.9f, 1.0f, 1.0f), "Dimensions");
+    ImGui::TextColored(materializr::accentText(), "Dimensions");
     switch (k) {
     case 0: // Box
         ImGui::InputDouble("Width (X)",  &m_primitivePopupExtents[0],
@@ -2963,7 +2974,7 @@ void Application::renderPrimitivePopup() {
     }
 
     ImGui::Spacing();
-    ImGui::TextColored(ImVec4(0.6f, 0.9f, 1.0f, 1.0f), "Origin (mm)");
+    ImGui::TextColored(materializr::accentText(), "Origin (mm)");
     ImGui::InputDouble("X", &m_primitivePopupOrigin[0], 0.1, 1.0, "%.3f");
     ImGui::InputDouble("Y", &m_primitivePopupOrigin[1], 0.1, 1.0, "%.3f");
     ImGui::InputDouble("Z", &m_primitivePopupOrigin[2], 0.1, 1.0, "%.3f");

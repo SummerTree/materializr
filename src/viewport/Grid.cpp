@@ -55,6 +55,10 @@ uniform vec3 u_planeNormal;
 uniform float u_scale;         // lines every 1/u_scale plane units (minor)
 uniform float u_minorAlpha;    // 0..1 multiplier on the minor (1×) tier; 0 hides it
 uniform float u_globalAlpha;   // 0..1 multiplier on the final grid alpha
+uniform float u_sketchGrid;    // 1 = sketch grid: one uniform tier (no plaid)
+uniform float u_depthBias;     // signed depth nudge: + toward camera (draw the
+                               // grid ON a coplanar face, e.g. the sketch face),
+                               // - away (let a coplanar body face occlude it)
 
 out vec4 fragColor;
 
@@ -63,24 +67,22 @@ float computeDepth(vec3 pos) {
     return (clipPos.z / clipPos.w) * 0.5 + 0.5;
 }
 
-// `uv` are the fragment's in-plane coordinates (already in plane units).
-vec4 grid(vec2 uv, float scale, vec4 lineColor) {
-    vec2 coord = uv * scale;
-    vec2 derivative = fwidth(coord);
-    vec2 g = abs(fract(coord - 0.5) - 0.5) / derivative;
-    float line = min(g.x, g.y);
-    float minU = min(derivative.x, 1.0);
-    float minV = min(derivative.y, 1.0);
-
-    vec4 color = lineColor;
-    color.a = 1.0 - min(line, 1.0);
-
-    // U-axis highlight (red) where the V coordinate is ~0
-    if (coord.y > -0.5 * minV && coord.y < 0.5 * minV) color = vec4(0.8, 0.2, 0.2, 1.0);
-    // V-axis highlight (blue) where the U coordinate is ~0
-    if (coord.x > -0.5 * minU && coord.x < 0.5 * minU) color = vec4(0.2, 0.2, 0.8, 1.0);
-
-    return color;
+// Grid line coverage with a CONSTANT pixel width and a flat (box) profile, so a
+// line keeps the same thickness at every opacity and simply dims uniformly when
+// the alpha is lowered — instead of a bright-cored triangle whose sides get
+// eaten as you fade, which reads as lines changing thickness ("plaid"). `coord`
+// is in cell units (one integer step = one grid cell); `widthPx` is the line
+// width in pixels. When cells go sub-pixel the line just widens to fill and the
+// grid greys out evenly, so there is no moiré beat pattern either.
+float gridCoverage(vec2 coord, float widthPx) {
+    vec2 deriv = fwidth(coord);                       // cell units per pixel
+    vec2 toLine = abs(fract(coord - 0.5) - 0.5);      // 0 at a line, 0.5 mid-cell
+    vec2 halfW = deriv * (widthPx * 0.5);             // half line width, cell units
+    vec2 aa = deriv;                                  // one-pixel anti-alias band
+    // Flat top out to `halfW`, then a one-pixel linear ramp to 0. Constant width,
+    // uniform brightness across the line — dims cleanly under a global alpha.
+    vec2 cov = clamp((halfW + aa - toLine) / aa, 0.0, 1.0);
+    return max(cov.x, cov.y);
 }
 
 void main() {
@@ -99,7 +101,7 @@ void main() {
     // of the ray length, so the bias stays visually tight at any scale.
     vec3 toNear = v_nearPoint - fragPos3D;
     float rayLen = length(toNear);
-    vec3 biasedPos = fragPos3D + (toNear / max(rayLen, 1e-6)) * (rayLen * 0.0005);
+    vec3 biasedPos = fragPos3D + (toNear / max(rayLen, 1e-6)) * (rayLen * u_depthBias);
     gl_FragDepth = computeDepth(biasedPos);
 
     // In-plane coordinates relative to the plane origin.
@@ -110,37 +112,49 @@ void main() {
     float dist = length(fragPos3D - u_fadeCenter);
     float fade = clamp(1.0 - dist / max(u_fadeDistance, 1e-3), 0.0, 1.0);
 
-    // Three tiers: minor (every 1), major (every 10), mega (every 100). Each
-    // blends over the lower tier by its coverage so dense grids still read
-    // clearly when several tiers coincide.
-    vec4 minorColor = grid(uv, u_scale,        vec4(0.34, 0.34, 0.38, 1.0));
-    vec4 majorColor = grid(uv, u_scale * 0.1,  vec4(0.85, 0.87, 0.95, 1.0));
-    vec4 megaColor  = grid(uv, u_scale * 0.01, vec4(1.00, 1.00, 1.00, 1.0));
+    // The finest (1×) tier, drawn with the anti-moiré pristine-grid coverage.
+    float covMinor = gridCoverage(uv * u_scale, 1.3);
 
-    // The minor tier can be dimmed or hidden by the app — e.g. when the
-    // project's bbox is bigger than 100 mm, the 1-mm lines are clutter
-    // (you can barely see the major lines through them). The major and
-    // mega tiers are always full strength.
-    minorColor.a *= u_minorAlpha;
-
-    vec4 color = minorColor;
-    if (majorColor.a > 0.0) {
-        color.rgb = mix(color.rgb, majorColor.rgb, majorColor.a);
-        color.a = max(color.a, majorColor.a);
+    vec3  rgb;
+    float a;
+    if (u_sketchGrid > 0.5) {
+        // SKETCH GRID: a single uniform tier — every line the SAME colour and
+        // weight, so there is no "plaid"/tartan from brighter coarser lines
+        // crossing finer ones, and the whole sheet dims as ONE layer under the
+        // opacity slider. The pristine-grid coverage greys it out evenly when it
+        // gets dense instead of moiréing; the slider is the brightness control.
+        rgb = vec3(0.72, 0.75, 0.82);
+        a   = covMinor * u_minorAlpha;
+    } else {
+        // WORLD / GROUND GRID: three tiers — minor (every 1), major (every 10),
+        // mega (every 100). The brighter 10- and 100-unit lines read on top;
+        // zooming reveals finer tiers. Keeps the tiered look (the "10 mm /
+        // 100 mm lines") the user wants on the ground grid.
+        float covMajor = gridCoverage(uv * u_scale * 0.1,  1.3);
+        float covMega  = gridCoverage(uv * u_scale * 0.01, 1.3);
+        rgb = vec3(0.34, 0.34, 0.38);
+        a   = covMinor * u_minorAlpha;
+        rgb = mix(rgb, vec3(0.85, 0.87, 0.95), covMajor);
+        a   = max(a, covMajor);
+        rgb = mix(rgb, vec3(1.00, 1.00, 1.00), covMega);
+        a   = max(a, covMega);
     }
-    if (megaColor.a > 0.0) {
-        color.rgb = mix(color.rgb, megaColor.rgb, megaColor.a);
-        color.a = max(color.a, megaColor.a);
-    }
 
-    color.a *= fade;
-    // Translucent globally so geometry below the grid (looking from above)
-    // remains visible. 0.55 is the sweet spot: lines still read clearly
-    // but a body underneath is no longer obscured.
-    color.a *= u_globalAlpha;
-    if (color.a < 0.001) discard;
+    // Coloured axes through the grid origin (red = U, blue = V), anti-aliased
+    // over one pixel and always drawn on top so the origin reads at any zoom.
+    vec2 acoord = uv * u_scale;
+    vec2 aderiv = fwidth(acoord);
+    float axisU = 1.0 - min(abs(acoord.y) / max(aderiv.y, 1e-6), 1.0); // V≈0 → U axis
+    float axisV = 1.0 - min(abs(acoord.x) / max(aderiv.x, 1e-6), 1.0); // U≈0 → V axis
+    if (axisU > 0.0) { rgb = mix(rgb, vec3(0.80, 0.20, 0.20), axisU); a = max(a, axisU); }
+    if (axisV > 0.0) { rgb = mix(rgb, vec3(0.20, 0.20, 0.80), axisV); a = max(a, axisV); }
 
-    fragColor = color;
+    // Distance fade, then the global opacity slider — both linear multipliers so
+    // the whole grid dims uniformly instead of culling lines one by one.
+    float alpha = a * fade * u_globalAlpha;
+    if (alpha < 0.001) discard;
+
+    fragColor = vec4(rgb, alpha);
 }
 )";
 
@@ -189,6 +203,8 @@ bool Grid::initialize()
     m_locScale = glGetUniformLocation(m_shaderProgram, "u_scale");
     m_locMinorAlpha = glGetUniformLocation(m_shaderProgram, "u_minorAlpha");
     m_locGlobalAlpha = glGetUniformLocation(m_shaderProgram, "u_globalAlpha");
+    m_locSketchGrid = glGetUniformLocation(m_shaderProgram, "u_sketchGrid");
+    m_locDepthBias = glGetUniformLocation(m_shaderProgram, "u_depthBias");
 
     // Create a dummy VAO (required for core profile, even with no vertex attributes)
     glGenVertexArrays(1, &m_vao);
@@ -199,7 +215,8 @@ bool Grid::initialize()
 void Grid::render(const glm::mat4& view, const glm::mat4& projection,
                   const glm::vec3& fadeCenter, float fadeDistance,
                   const Plane& plane, float minorStep,
-                  float minorAlpha, float globalAlpha)
+                  float minorAlpha, float globalAlpha, float sketchGrid,
+                  float depthBias)
 {
     if (!m_shaderProgram) return;
 
@@ -219,16 +236,29 @@ void Grid::render(const glm::mat4& view, const glm::mat4& projection,
     glUniform1f(m_locScale, scale);
     glUniform1f(m_locMinorAlpha, minorAlpha);
     glUniform1f(m_locGlobalAlpha, globalAlpha);
+    glUniform1f(m_locSketchGrid, sketchGrid);
+    glUniform1f(m_locDepthBias, depthBias);
 
     // Enable blending for grid transparency
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    // Depth: TEST against the scene (so geometry in front of the grid plane
+    // hides it) but do NOT WRITE depth. Writing depth on the grid's line pixels
+    // made the lines "win" the depth fight against any coplanar face (a body
+    // sitting on the ground, or the very face being sketched on) and punch a
+    // hole through it to the background — a grey grid baked into the face that
+    // opacity couldn't dim. With writes off the grid simply blends over whatever
+    // is behind it and fades cleanly. u_depthBias decides whether it sits on top
+    // of (sketch) or behind (ground) a coplanar surface.
+    glDepthMask(GL_FALSE);
 
     // Draw the full-screen quad (6 vertices from gl_VertexID)
     glBindVertexArray(m_vao);
     glDrawArrays(GL_TRIANGLES, 0, 6);
     glBindVertexArray(0);
 
+    glDepthMask(GL_TRUE);
     glDisable(GL_BLEND);
     glUseProgram(0);
 }

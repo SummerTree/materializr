@@ -1,3 +1,4 @@
+#include "UiTheme.h"
 #include "ui_scale.h"
 #include "SettingsPanel.h"
 #include <imgui.h>
@@ -103,7 +104,7 @@ bool SettingsPanel::render() {
     if (ImGui::BeginTabBar("SettingsTabs")) {
         // General tab
         if (ImGui::BeginTabItem("General")) {
-            ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "Units");
+            ImGui::TextColored(materializr::accentText(), "Units");
             ImGui::Separator();
             const char* unitItems[] = { "Millimeters (mm)", "Centimeters (cm)", "Inches (in)" };
             if (ImGui::Combo("Unit System", &m_settings.unitSystem, unitItems, 3)) {
@@ -111,7 +112,7 @@ bool SettingsPanel::render() {
             }
 
             ImGui::Spacing();
-            ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "Auto-Save");
+            ImGui::TextColored(materializr::accentText(), "Auto-Save");
             ImGui::Separator();
             if (ImGui::Checkbox("Enable Auto-Save", &m_settings.autoSaveEnabled)) {
                 changed = true;
@@ -127,7 +128,7 @@ bool SettingsPanel::render() {
 
         // Display tab
         if (ImGui::BeginTabItem("Display")) {
-            ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "Visibility");
+            ImGui::TextColored(materializr::accentText(), "Visibility");
             ImGui::Separator();
             if (ImGui::Checkbox("Show Grid", &m_settings.showGrid)) {
                 changed = true;
@@ -140,7 +141,7 @@ bool SettingsPanel::render() {
             }
 
             ImGui::Spacing();
-            ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "Grid");
+            ImGui::TextColored(materializr::accentText(), "Grid");
             ImGui::Separator();
             if (ImGui::InputFloat("Grid Size", &m_settings.gridSize, 0.1f, 1.0f, "%.2f")) {
                 if (m_settings.gridSize < 0.01f) m_settings.gridSize = 0.01f;
@@ -160,7 +161,7 @@ bool SettingsPanel::render() {
 
         // Mouse tab
         if (ImGui::BeginTabItem("Mouse")) {
-            ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "Sensitivity");
+            ImGui::TextColored(materializr::accentText(), "Sensitivity");
             ImGui::Separator();
             if (ImGui::SliderFloat("Orbit", &m_settings.orbitSensitivity, 0.1f, 3.0f, "%.2f")) {
                 changed = true;
@@ -177,7 +178,7 @@ bool SettingsPanel::render() {
 
         // Defaults tab
         if (ImGui::BeginTabItem("Defaults")) {
-            ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "Operation Defaults");
+            ImGui::TextColored(materializr::accentText(), "Operation Defaults");
             ImGui::Separator();
 
             double extrudeDist = m_settings.defaultExtrudeDistance;

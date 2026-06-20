@@ -1,3 +1,4 @@
+#include "UiTheme.h"
 #include "VersionPanel.h"
 #include "../core/VersionManager.h"
 
@@ -28,7 +29,7 @@ int VersionPanel::render() {
     }
 
     // Save Version section
-    ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "Save Version");
+    ImGui::TextColored(materializr::accentText(), "Save Version");
     ImGui::Separator();
 
     ImGui::SetNextItemWidth(-80.0f);
@@ -46,7 +47,7 @@ int VersionPanel::render() {
     ImGui::Spacing();
 
     // Auto-save settings
-    ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "Auto-Save");
+    ImGui::TextColored(materializr::accentText(), "Auto-Save");
     ImGui::Separator();
 
     int interval = m_manager->getAutoSaveInterval();
@@ -70,7 +71,7 @@ int VersionPanel::render() {
     ImGui::Spacing();
 
     // Version list
-    ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "Version History");
+    ImGui::TextColored(materializr::accentText(), "Version History");
     ImGui::Separator();
 
     const auto& versions = m_manager->getVersions();

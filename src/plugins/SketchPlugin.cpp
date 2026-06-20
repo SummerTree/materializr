@@ -1,3 +1,4 @@
+#include "../ui/UiTheme.h"
 #include "ui_scale.h"
 #include "../touch_mode.h"
 #include "../plugin/PluginMacro.h"
@@ -93,7 +94,7 @@ public:
 
     void renderOverlay(PluginContext& ctx) override {
         ImGui::SetCursorPos(ImVec2(10, 30));
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.8f, 1.0f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_Text, materializr::accentText());
         ImGui::Text(materializr::touchMode()
             ? "SKETCH MODE - Draw shapes. Finish Sketch applies, Exit Sketch discards."
             : "SKETCH MODE - Draw shapes. Enter to finish, Escape to cancel.");

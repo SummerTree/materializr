@@ -1,3 +1,4 @@
+#include "UiTheme.h"
 #include "ui_scale.h"
 #include "ShortcutsPanel.h"
 #include <imgui.h>
@@ -28,7 +29,7 @@ void ShortcutsPanel::render() {
                                   ImGuiTableFlags_SizingStretchProp;
 
     // File operations
-    ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "File");
+    ImGui::TextColored(materializr::accentText(), "File");
     ImGui::Separator();
     if (ImGui::BeginTable("FileShortcuts", 2, tableFlags)) {
         ImGui::TableSetupColumn("Shortcut", ImGuiTableColumnFlags_WidthFixed, 150.0f);
@@ -53,7 +54,7 @@ void ShortcutsPanel::render() {
     ImGui::Spacing();
 
     // Edit operations
-    ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "Edit");
+    ImGui::TextColored(materializr::accentText(), "Edit");
     ImGui::Separator();
     if (ImGui::BeginTable("EditShortcuts", 2, tableFlags)) {
         ImGui::TableSetupColumn("Shortcut", ImGuiTableColumnFlags_WidthFixed, 150.0f);
@@ -84,7 +85,7 @@ void ShortcutsPanel::render() {
     ImGui::Spacing();
 
     // Tools
-    ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "Tools");
+    ImGui::TextColored(materializr::accentText(), "Tools");
     ImGui::Separator();
     if (ImGui::BeginTable("ToolShortcuts", 2, tableFlags)) {
         ImGui::TableSetupColumn("Shortcut", ImGuiTableColumnFlags_WidthFixed, 150.0f);
@@ -112,7 +113,7 @@ void ShortcutsPanel::render() {
     ImGui::Spacing();
 
     // Navigation
-    ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "Navigation");
+    ImGui::TextColored(materializr::accentText(), "Navigation");
     ImGui::Separator();
     if (ImGui::BeginTable("NavShortcuts", 2, tableFlags)) {
         ImGui::TableSetupColumn("Shortcut", ImGuiTableColumnFlags_WidthFixed, 150.0f);

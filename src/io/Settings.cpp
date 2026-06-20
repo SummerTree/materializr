@@ -69,6 +69,7 @@ void applyKv(const std::map<std::string, std::string>& kv, AppSettings& s) {
     readInt (kv, "meshQuality",          s.meshQuality);
     readFloat(kv, "selectionLineWidth",  s.selectionLineWidth);
     readFloat(kv, "sketchLineWidth",     s.sketchLineWidth);
+    readFloat(kv, "sketchGridOpacity",   s.sketchGridOpacity);
     readBool (kv, "smallScreenWarned",   s.smallScreenWarned);
     readBool (kv, "leftPanelHidden",     s.leftPanelHidden);
     readBool (kv, "rightPanelHidden",    s.rightPanelHidden);
@@ -252,6 +253,7 @@ bool SettingsIO::save(const std::string& path, const AppSettings& s) {
     ofs << "meshQuality = "         << s.meshQuality         << "\n";
     ofs << "selectionLineWidth = "  << s.selectionLineWidth  << "\n";
     ofs << "sketchLineWidth = "     << s.sketchLineWidth     << "\n";
+    ofs << "sketchGridOpacity = "   << s.sketchGridOpacity   << "\n";
     ofs << "smallScreenWarned = "   << s.smallScreenWarned   << "\n";
     ofs << "leftPanelHidden = "     << s.leftPanelHidden     << "\n";
     ofs << "rightPanelHidden = "    << s.rightPanelHidden    << "\n";
@@ -311,6 +313,7 @@ bool SettingsIO::exportJson(const std::string& path, const AppSettings& s) {
     ofs << "  \"meshQuality\": "             << s.meshQuality           << ",\n";
     ofs << "  \"selectionLineWidth\": "      << s.selectionLineWidth    << ",\n";
     ofs << "  \"sketchLineWidth\": "         << s.sketchLineWidth       << ",\n";
+    ofs << "  \"sketchGridOpacity\": "       << s.sketchGridOpacity     << ",\n";
     ofs << "  \"smallScreenWarned\": "       << s.smallScreenWarned     << ",\n";
     ofs << "  \"leftPanelHidden\": "         << s.leftPanelHidden       << ",\n";
     ofs << "  \"rightPanelHidden\": "        << s.rightPanelHidden      << ",\n";

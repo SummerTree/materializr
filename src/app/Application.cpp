@@ -1,3 +1,4 @@
+#include "ui/UiTheme.h"
 #include "gl_common.h"
 
 #include <cstdlib>
@@ -798,7 +799,7 @@ void Application::renderSplashFrame(const char* status) {
     ImVec2 ts = ImGui::CalcTextSize(title);
     ImGui::SetCursorPos(ImVec2((vp->WorkSize.x - ts.x) * 0.5f,
                                vp->WorkSize.y * 0.40f));
-    ImGui::TextColored(ImVec4(0.55f, 0.75f, 1.0f, 1.0f), "%s", title);
+    ImGui::TextColored(materializr::accentText(), "%s", title);
     ImGui::SetWindowFontScale(1.0f);
 
     ImVec2 vs = ImGui::CalcTextSize(ver);
@@ -867,7 +868,7 @@ bool Application::renderProgressFrame(float fraction, const char* label) {
     ImGui::Begin("##progress", nullptr,
                  ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings |
                  ImGuiWindowFlags_NoMove | ImGuiWindowFlags_AlwaysAutoResize);
-    ImGui::TextColored(ImVec4(0.55f, 0.75f, 1.0f, 1.0f), "Working\xE2\x80\xA6");
+    ImGui::TextColored(materializr::accentText(), "Working\xE2\x80\xA6");
     ImGui::Spacing();
     if (label && label[0]) ImGui::TextWrapped("%s", label);
     ImGui::Spacing();
@@ -1332,6 +1333,7 @@ AppSettings Application::currentSettings() const {
     s.meshQuality = m_meshQuality;
     s.selectionLineWidth = m_selectionLineWidth;
     s.sketchLineWidth = m_sketchLineWidth;
+    s.sketchGridOpacity = m_sketchGridOpacity;
     s.smallScreenWarned = m_smallScreenWarned;
     s.leftPanelHidden = m_leftPanelHidden;
     s.rightPanelHidden = m_rightPanelHidden;
@@ -1397,6 +1399,7 @@ void Application::applyAppSettings(const AppSettings& s) {
     m_meshQuality = s.meshQuality;
     m_selectionLineWidth = s.selectionLineWidth;
     m_sketchLineWidth = s.sketchLineWidth;
+    m_sketchGridOpacity = s.sketchGridOpacity;
     m_smallScreenWarned = s.smallScreenWarned;
     m_leftPanelHidden = s.leftPanelHidden;
     m_rightPanelHidden = s.rightPanelHidden;
