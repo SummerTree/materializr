@@ -53,8 +53,9 @@ bool HistoryPanel::render() {
     if (anyReloaded) {
         ImGui::PushTextWrapPos(0.0f);
         ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.3f, 1.0f),
-            "Steps marked (reloaded) were restored from the saved project. "
-            "Undo/redo work, but their parameters can't be edited.");
+            "Amber (frozen) steps were restored from an older save and have no "
+            "editable parameters. Undo/redo still work; to change one, select "
+            "its feature and use Repair Geometry, then redo it.");
         ImGui::PopTextWrapPos();
         ImGui::Separator();
     }
@@ -105,13 +106,21 @@ bool HistoryPanel::render() {
         bool isCurrentlyEditing = (i == m_editingStep);
         bool isDisabled = !op->isEnabled();
         bool isAboveCurrent = (i > currentStep);
+        bool isFrozen = op->isReloaded(); // baked: reloaded with no editable params
 
         ImGui::PushID(i);
         if (isCurrentlyEditing) {
             ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.3f, 0.5f, 1.0f, 0.3f));
         }
+        // Colour precedence: dim (inactive/disabled) wins so the active row set
+        // reads clearly; otherwise a frozen step is amber so it's easy to spot.
+        bool pushedText = true;
         if (isAboveBreakpoint || isAboveCurrent || isDisabled) {
             ImGui::PushStyleColor(ImGuiCol_Text, materializr::dimText());
+        } else if (isFrozen) {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.75f, 0.3f, 1.0f));
+        } else {
+            pushedText = false;
         }
         // Step label uses the op's description() when available — gives
         // dimension steps a useful caption ("Add Distance 25 mm") instead
@@ -123,14 +132,14 @@ bool HistoryPanel::render() {
                       i + 1,
                       detail.c_str(),
                       isDisabled ? " [disabled]" : "",
-                      op->isReloaded() ? " (reloaded)" : "");
+                      isFrozen ? " (frozen)" : "");
         bool selected = (i == m_editingStep);
         if (ImGui::Selectable(label, selected)) {
             m_editingStep = i;
             m_showProperties = true;
             m_deleteConflict = false;
         }
-        if (isAboveBreakpoint || isAboveCurrent || isDisabled) {
+        if (pushedText) {
             ImGui::PopStyleColor();
         }
         if (isCurrentlyEditing) {
