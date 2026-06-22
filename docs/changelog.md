@@ -3,6 +3,34 @@
 All notable changes to Materializr are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow SemVer.
 
+## [1.2.2] — 2026-06-21
+
+Resource-usage and autosave fixes. Backward compatible — existing projects open
+unchanged.
+
+### Fixed
+
+- **Autosave actually runs now.** It was effectively never firing unless you
+  interacted continuously, so a project you edited and then left alone was never
+  saved and closing always prompted "unsaved changes." The check now runs while
+  idle, on a wall-clock timer.
+
+### Changed
+
+- **Render on demand — much lower CPU/GPU/battery use.** The app no longer
+  redraws at 60fps when there's nothing to show: it stops rendering when idle,
+  when a sketch or a live preview (push/pull, fillet, move, …) is left open and
+  untouched (a 1s grace covers interaction), and — most importantly — **whenever
+  the window is in the background.** A backgrounded app previously kept the GPU
+  busy enough to make the whole desktop's cursor stutter on shared-GPU systems;
+  that's gone. Interaction and orbiting are unchanged (still smooth at 60fps).
+
+### Added
+
+- **AppStream metadata** in the AppImage, so AppImage managers (Gear Lever,
+  AppImagePool) and software centres show the description, screenshot, links and
+  release notes instead of just the name.
+
 ## [1.2.1] — 2026-06-21
 
 Parametric-edit reliability fixes found while dogfooding multi-feature parts.
