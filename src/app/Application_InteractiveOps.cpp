@@ -537,13 +537,19 @@ void Application::refreshAllEdgeOpFaces() {
     for (int i = 0; i < m_history->stepCount(); ++i) {
         const Operation* op = m_history->getStep(i);
         if (!op || !op->isEnabled()) continue;
-        if (auto* f = const_cast<FilletOp*>(dynamic_cast<const FilletOp*>(op))) {
-            TopoDS_Shape b = m_document->getBody(f->getBodyId());
-            if (!b.IsNull()) f->refreshGeneratedFaces(b);
-        } else if (auto* c = const_cast<ChamferOp*>(dynamic_cast<const ChamferOp*>(op))) {
-            TopoDS_Shape b = m_document->getBody(c->getBodyId());
-            if (!b.IsNull()) c->refreshGeneratedFaces(b);
-        }
+        // A fillet/chamfer's body may have been DELETED by a later step (e.g. a
+        // filleted lid that was then deleted). getBody() throws on a missing id,
+        // which — uncaught here — aborted the whole app on load ("Fatal error:
+        // Body not found: N"). Skip any op whose body is gone; nothing to refresh.
+        try {
+            if (auto* f = const_cast<FilletOp*>(dynamic_cast<const FilletOp*>(op))) {
+                TopoDS_Shape b = m_document->getBody(f->getBodyId());
+                if (!b.IsNull()) f->refreshGeneratedFaces(b);
+            } else if (auto* c = const_cast<ChamferOp*>(dynamic_cast<const ChamferOp*>(op))) {
+                TopoDS_Shape b = m_document->getBody(c->getBodyId());
+                if (!b.IsNull()) c->refreshGeneratedFaces(b);
+            }
+        } catch (...) { /* body deleted downstream — nothing to refresh */ }
     }
 }
 
