@@ -4,6 +4,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <string>
 
 class History;
 class Document;
