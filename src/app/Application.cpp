@@ -787,53 +787,67 @@ void Application::renderSplashFrame(const char* status) {
     // big project takes ~10 s on slower machines — this used to be a blank
     // window). Polls events so the WM doesn't flag us unresponsive.
     if (!m_window) return;
-    m_window->pollEvents();
-    int fbw = 0, fbh = 0;
-    m_window->framebufferSize(fbw, fbh);
-    glViewport(0, 0, fbw, fbh);
-    glClearColor(0.075f, 0.082f, 0.11f, 1.0f); // matches the app background
-    glClear(GL_COLOR_BUFFER_BIT);
 
-    beginFrame();
-    const ImGuiViewport* vp = ImGui::GetMainViewport();
-    ImGui::SetNextWindowPos(vp->WorkPos);
-    ImGui::SetNextWindowSize(vp->WorkSize);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, 0));
-    ImGui::Begin("##splash", nullptr,
-                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs |
-                 ImGuiWindowFlags_NoSavedSettings);
+    auto drawOnce = [&]() {
+        m_window->pollEvents();
+        int fbw = 0, fbh = 0;
+        m_window->framebufferSize(fbw, fbh);
+        glViewport(0, 0, fbw, fbh);
+        glClearColor(0.075f, 0.082f, 0.11f, 1.0f); // matches the app background
+        glClear(GL_COLOR_BUFFER_BIT);
 
-    const char* title = "M A T E R I A L I Z R";
-    char ver[48];
-    std::snprintf(ver, sizeof(ver), "version %s", MATERIALIZR_VERSION);
+        beginFrame();
+        const ImGuiViewport* vp = ImGui::GetMainViewport();
+        ImGui::SetNextWindowPos(vp->WorkPos);
+        ImGui::SetNextWindowSize(vp->WorkSize);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, 0));
+        ImGui::Begin("##splash", nullptr,
+                     ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs |
+                     ImGuiWindowFlags_NoSavedSettings);
 
-    ImGui::SetWindowFontScale(2.2f);
-    ImVec2 ts = ImGui::CalcTextSize(title);
-    ImGui::SetCursorPos(ImVec2((vp->WorkSize.x - ts.x) * 0.5f,
-                               vp->WorkSize.y * 0.40f));
-    ImGui::TextColored(materializr::accentText(), "%s", title);
-    ImGui::SetWindowFontScale(1.0f);
+        const char* title = "M A T E R I A L I Z R";
+        char ver[48];
+        std::snprintf(ver, sizeof(ver), "version %s", MATERIALIZR_VERSION);
 
-    ImVec2 vs = ImGui::CalcTextSize(ver);
-    ImGui::SetCursorPos(ImVec2((vp->WorkSize.x - vs.x) * 0.5f,
-                               vp->WorkSize.y * 0.40f + ts.y * 2.2f + 8.0f));
-    ImGui::TextDisabled("%s", ver);
+        ImGui::SetWindowFontScale(2.2f);
+        ImVec2 ts = ImGui::CalcTextSize(title);
+        ImGui::SetCursorPos(ImVec2((vp->WorkSize.x - ts.x) * 0.5f,
+                                   vp->WorkSize.y * 0.40f));
+        ImGui::TextColored(materializr::accentText(), "%s", title);
+        ImGui::SetWindowFontScale(1.0f);
 
-    // Status line with a marching-dots heartbeat.
-    int dots = static_cast<int>(ImGui::GetTime() * 3.0) % 4;
-    char line[128];
-    std::snprintf(line, sizeof(line), "%s%.*s", status, dots, "...");
-    ImVec2 ls = ImGui::CalcTextSize(line);
-    ImGui::SetCursorPos(ImVec2((vp->WorkSize.x - ls.x) * 0.5f,
-                               vp->WorkSize.y * 0.40f + ts.y * 2.2f + 40.0f));
-    ImGui::Text("%s", line);
+        ImVec2 vs = ImGui::CalcTextSize(ver);
+        ImGui::SetCursorPos(ImVec2((vp->WorkSize.x - vs.x) * 0.5f,
+                                   vp->WorkSize.y * 0.40f + ts.y * 2.2f + 8.0f));
+        ImGui::TextDisabled("%s", ver);
 
-    ImGui::End();
-    ImGui::PopStyleColor();
-    ImGui::PopStyleVar();
-    endFrame();
-    m_window->swapBuffers();
+        // Status line with a marching-dots heartbeat.
+        int dots = static_cast<int>(ImGui::GetTime() * 3.0) % 4;
+        char line[128];
+        std::snprintf(line, sizeof(line), "%s%.*s", status, dots, "...");
+        ImVec2 ls = ImGui::CalcTextSize(line);
+        ImGui::SetCursorPos(ImVec2((vp->WorkSize.x - ls.x) * 0.5f,
+                                   vp->WorkSize.y * 0.40f + ts.y * 2.2f + 40.0f));
+        ImGui::Text("%s", line);
+
+        ImGui::End();
+        ImGui::PopStyleColor();
+        ImGui::PopStyleVar();
+        endFrame();
+        m_window->swapBuffers();
+    };
+
+    // Render the FIRST splash frame to both buffers in the double-buffered swap
+    // chain. The back buffer is undefined until the first swap; if the WM
+    // presents the window in that gap you get an intermittent black flash before
+    // the text. Priming both removes it. Later calls already have defined
+    // content behind them, so a single pass is enough.
+    drawOnce();
+    if (!m_splashPrimed) {
+        drawOnce();
+        m_splashPrimed = true;
+    }
 }
 
 void Application::drawIndeterminateBar() {

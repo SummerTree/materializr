@@ -113,6 +113,10 @@ private:
     // the projection progress overlay and the thread-cutting modal).
     void drawIndeterminateBar();
     bool m_progressCancelled = false;
+    // Set once the first splash frame has been rendered to BOTH swap-chain
+    // buffers (see renderSplashFrame) — kills the intermittent black flash from
+    // the undefined back buffer being presented before the first swap.
+    bool m_splashPrimed = false;
     // A heavy op deferred from a controller commit to run between frames, where
     // renderProgressFrame can pump its own frames without nesting ImGui frames.
     std::function<void()> m_deferredHeavyTask;
