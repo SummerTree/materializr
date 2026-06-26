@@ -9,7 +9,7 @@ modeling, threads, SVG & text engraving, STL/STEP/SVG export.
 > and hit targets. **Designed for tablets** — a phone screen will be cramped.
 > Grab the APK from the [latest release](https://github.com/materializr-cad/materializr/releases/latest),
 > or see [`android/README.md`](android/README.md) to build it yourself.
-> F-Droid and Google Play are on the way.
+> Also on [F-Droid](https://f-droid.org/packages/com.materializr.app/).
 
 ![Materializr modeling a coffee mug with filleted rim, handle, and embossed logo wrapped around the cylindrical face](docs/hero-mug.png)
 
@@ -22,7 +22,13 @@ modeling, threads, SVG & text engraving, STL/STEP/SVG export.
 | Linux (x86_64 / aarch64) | `Materializr-*.AppImage` | `chmod +x` it and run — no install |
 | Windows | `Materializr-Setup.exe` | run the installer |
 | Windows (portable) | `Materializr-windows-x64.zip` | unzip anywhere, run `materializr.exe` |
-| Android (arm64-v8a) | `Materializr-*-arm64-v8a.apk` | sideload (enable "install unknown apps"); tablets recommended |
+| Android (F-Droid) | [on F-Droid](https://f-droid.org/packages/com.materializr.app/) | install + auto-update from the F-Droid app; tablets recommended |
+| Android (latest APK) | `Materializr-*-arm64-v8a.apk` | sideload (enable "install unknown apps") for the freshest fixes; tablets recommended |
+
+> **Prefer F-Droid?** It builds each release from source on its own
+> roughly-weekly cadence, so a brand-new bug fix can take a few days to reach it.
+> If you're chasing a fix we just shipped, the GitHub APK above will have it
+> first.
 
 ![C++17](https://img.shields.io/badge/C%2B%2B-17-blue)
 ![CMake](https://img.shields.io/badge/CMake-3.20%2B-blue)
