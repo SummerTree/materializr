@@ -80,3 +80,9 @@ if(NOT DEFINED MATERIALIZR_VERSION_NAME OR MATERIALIZR_VERSION_NAME STREQUAL "")
     set(MATERIALIZR_VERSION_NAME "0.0.0")
 endif()
 target_compile_definitions(main PRIVATE MATERIALIZR_VERSION="${MATERIALIZR_VERSION_NAME}")
+
+# Make OCC_CATCH_SIGNALS a real Standard_ErrorHandler (see the matching note in
+# the top-level CMakeLists.txt): without OCC_CONVERT_SIGNALS the macro is a
+# no-op and an OCCT kernel fault aborts the app instead of being caught by an
+# op's try{}. Android is always Unix, so define it unconditionally.
+target_compile_definitions(main PRIVATE OCC_CONVERT_SIGNALS)

@@ -7,6 +7,7 @@
 #include <BRepOffset_Mode.hxx>
 #include <BRepCheck_Analyzer.hxx>
 #include <GeomAbs_JoinType.hxx>
+#include <Standard_ErrorHandler.hxx> // OCC_CATCH_SIGNALS
 #include <TopoDS.hxx>
 #include <imgui.h>
 
@@ -44,6 +45,12 @@ bool ShellOp::execute(Document& doc) {
         auto tryShell = [&](Standard_Boolean inter, GeomAbs_JoinType join,
                             TopoDS_Shape& out) -> bool {
             try {
+                // A thick-solid that exceeds the body's available wall space can
+                // SIGSEGV deep in BRepOffset (issue #3: shell-on-shell). With
+                // OCC_CONVERT_SIGNALS enabled, OCC_CATCH_SIGNALS turns that
+                // kernel signal into a Standard_Failure the catch below absorbs,
+                // so the op cleanly fails instead of taking the app down.
+                OCC_CATCH_SIGNALS
                 BRepOffsetAPI_MakeThickSolid mk;
                 mk.MakeThickSolidByJoin(m_previousShape, m_facesToRemove,
                                         -m_thickness, 1.0e-3, BRepOffset_Skin,
