@@ -35,6 +35,7 @@
 #include <TopExp_Explorer.hxx>
 
 #include <algorithm>
+#include <map>
 #include <unordered_map>
 #include <unordered_set>
 #include <cmath>
@@ -1166,11 +1167,13 @@ std::vector<Sketch::Region> Sketch::buildRegionsUncached() const {
         if (atomic.empty()) atomic = faces; // fall back to the un-fused faces
     }
 
-    // Split those faces by every sketch line, so an open interior line that
+    // Split those faces by every open sketch curve, so an interior curve that
     // divides a region (e.g. a wall splitting a room) yields separate selectable
-    // cells. Lines that merely trace a face boundary are no-ops here; only lines
+    // cells. Curves that merely trace a face boundary are no-ops here; only those
     // crossing a face's interior actually subdivide it. (GF above handles closed
-    // overlaps/holes; this handles open dividing lines.)
+    // overlaps/holes; this handles open dividing lines, ARCS and splines — the
+    // greedy wire-walker in buildWires can miss interior bands bounded by two
+    // arcs, so feeding the arcs to the splitter recovers those cells.)
     {
         TopTools_ListOfShape toolEdges;
         for (const auto& line : m_lines) {
@@ -1182,6 +1185,44 @@ std::vector<Sketch::Region> Sketch::buildRegionsUncached() const {
             if (p1.Distance(p2) < 1e-9) continue;
             BRepBuilderAPI_MakeEdge mk(p1, p2);
             if (mk.IsDone()) toolEdges.Append(mk.Edge());
+        }
+        // Arcs as dividing tools — same three-point construction as emitOcctEdge.
+        for (const auto& arc : m_arcs) {
+            const SketchPoint* c = getPoint(arc.centerPointId);
+            const SketchPoint* s = getPoint(arc.startPointId);
+            const SketchPoint* e = getPoint(arc.endPointId);
+            if (!c || !s || !e) continue;
+            float sA = std::atan2(s->pos.y - c->pos.y, s->pos.x - c->pos.x);
+            float eA = std::atan2(e->pos.y - c->pos.y, e->pos.x - c->pos.x);
+            if (eA <= sA) eA += 2.0f * static_cast<float>(M_PI);
+            float midA = 0.5f * (sA + eA);
+            glm::vec2 mid2d(c->pos.x + std::cos(midA) * static_cast<float>(arc.radius),
+                            c->pos.y + std::sin(midA) * static_cast<float>(arc.radius));
+            gp_Pnt p1 = sketchToWorld(s->pos);
+            gp_Pnt pm = sketchToWorld(mid2d);
+            gp_Pnt p2 = sketchToWorld(e->pos);
+            if (p1.Distance(p2) < 1e-9 && p1.Distance(pm) < 1e-9) continue;
+            try {
+                GC_MakeArcOfCircle arcMaker(p1, pm, p2);
+                if (!arcMaker.IsDone()) continue;
+                BRepBuilderAPI_MakeEdge mk(arcMaker.Value());
+                if (mk.IsDone()) toolEdges.Append(mk.Edge());
+            } catch (...) {}
+        }
+        // Splines as dividing tools — same B-spline fit as emitOcctEdge.
+        for (const auto& sp : m_splines) {
+            if (sp.isConstruction || sp.controlPointIds.size() < 2) continue;
+            std::vector<glm::vec2> samp = sampleSpline2D(sp, 24);
+            if (samp.size() < 2) continue;
+            try {
+                TColgp_Array1OfPnt arr(1, static_cast<int>(samp.size()));
+                for (size_t k = 0; k < samp.size(); ++k)
+                    arr.SetValue(static_cast<int>(k) + 1, sketchToWorld(samp[k]));
+                GeomAPI_PointsToBSpline fit(arr, 3, 8, GeomAbs_C2, 1.0e-3);
+                if (!fit.IsDone()) continue;
+                BRepBuilderAPI_MakeEdge mk(fit.Curve());
+                if (mk.IsDone()) toolEdges.Append(mk.Edge());
+            } catch (...) {}
         }
         if (!toolEdges.IsEmpty() && !atomic.empty()) {
             try {

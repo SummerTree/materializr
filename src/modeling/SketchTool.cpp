@@ -747,19 +747,47 @@ glm::vec2 SketchTool::snap(glm::vec2 pos) const {
     const auto& arcs = m_sketch->getArcs();
     for (const auto& a : arcs) {
         const SketchPoint* center = m_sketch->getPoint(a.centerPointId);
-        if (!center) continue;
+        const SketchPoint* spt   = m_sketch->getPoint(a.startPointId);
+        const SketchPoint* ept   = m_sketch->getPoint(a.endPointId);
+        if (!center || !spt || !ept) continue;
         glm::vec2 v = pos - center->pos;
         float dist = glm::length(v);
         if (dist < 1e-6f) continue;
         float r = static_cast<float>(a.radius);
         if (std::abs(dist - r) < curveSnapThreshold) {
             if (m_inferenceLevel == InferenceLevel::Off) continue;
+
+            // Compute arc span so perimeter snaps are limited to the actual arc,
+            // not the extended full circle. Same convention as the midpoint calc.
+            const float TWO_PI = 2.0f * static_cast<float>(M_PI);
+            float startA = std::atan2(spt->pos.y - center->pos.y,
+                                      spt->pos.x - center->pos.x);
+            float sweep  = std::atan2(ept->pos.y - center->pos.y,
+                                      ept->pos.x - center->pos.x) - startA;
+            while (sweep < 0.0f)    sweep += TWO_PI;
+            while (sweep >= TWO_PI) sweep -= TWO_PI;
+            // Skip if cursor is not within the arc's angular span.
+            float cursorA = std::atan2(v.y, v.x) - startA;
+            while (cursorA < 0.0f)    cursorA += TWO_PI;
+            while (cursorA >= TWO_PI) cursorA -= TWO_PI;
+            if (cursorA > sweep) continue;
+
             if ((m_inferenceLevel == InferenceLevel::Full ||
                  m_inferenceLevel == InferenceLevel::Max) && gridActive) {
                 glm::vec2 gc;
                 if (snapCurveToGrid(center->pos, r, pos, m_gridStep,
-                                    std::max(curveSnapThreshold, m_gridStep * 0.6f), gc))
-                    return gc;
+                                    std::max(curveSnapThreshold, m_gridStep * 0.6f), gc)) {
+                    // Accept grid crossing only when it lies on the arc.
+                    float gcA = std::atan2(gc.y - center->pos.y,
+                                           gc.x - center->pos.x) - startA;
+                    while (gcA < 0.0f)    gcA += TWO_PI;
+                    while (gcA >= TWO_PI) gcA -= TWO_PI;
+                    if (gcA <= sweep) return gc;
+                }
+                // No grid crossing on the arc — fall through to the plain
+                // perimeter point so arcs behave like circles (any on-arc point
+                // is reachable even when no grid line crosses the arc span).
+                return center->pos + (v / dist) * r;
             }
             if (gridActive && std::abs(dist - r) >= gridDist) continue;
             return center->pos + (v / dist) * r;
