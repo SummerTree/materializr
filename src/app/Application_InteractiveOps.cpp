@@ -65,6 +65,7 @@
 #include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
 #include <TopTools_ListOfShape.hxx>
 #include <BRep_Builder.hxx>
+#include <BRepBuilderAPI_Copy.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
 #include <gp_Cylinder.hxx>
 #include <gp_Ax2.hxx>
@@ -761,12 +762,20 @@ void Application::commitThread() {
         return;
     }
     std::fprintf(stderr, "[Thread] Apply: launching worker\n");
-    // Kick the multi-second sweep + boolean onto a worker thread. The shape
-    // handle is copied in (OCCT handles are atomically refcounted) and the
-    // worker touches no Document state; renderThreadPanel polls the future
-    // and pushes the real op — with the precomputed result — when it lands.
-    TopoDS_Shape body;
-    try { body = m_document->getBody(m_threadBodyId); } catch (...) {}
+    // Kick the multi-second sweep + boolean onto a worker thread. renderThreadPanel
+    // polls the future and pushes the real op — with the precomputed result — when
+    // it lands.
+    //
+    // DEEP-COPY the shape into the worker. A bare TopoDS_Shape handle copy is
+    // refcount-shared with the live document's TShape, whose lazy OCCT caches
+    // (triangulation, bounding box, surface adaptors) the RENDER thread populates
+    // and reads every frame — concurrent read/write on the same TShape is a data
+    // race (UB → intermittent crash/corruption). BRepBuilderAPI_Copy gives the
+    // worker an independent TShape, so the two threads share nothing.
+    TopoDS_Shape live;
+    try { live = m_document->getBody(m_threadBodyId); } catch (...) {}
+    if (live.IsNull()) { cancelThread(); return; }
+    TopoDS_Shape body = BRepBuilderAPI_Copy(live).Shape();
     if (body.IsNull()) { cancelThread(); return; }
     auto worker = std::make_shared<ThreadOp>();
     {

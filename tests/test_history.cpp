@@ -212,3 +212,42 @@ TEST(HistoryTest, GetStepOutOfBoundsReturnsNull) {
     EXPECT_EQ(history.getStep(0), nullptr);
     EXPECT_EQ(history.getStep(100), nullptr);
 }
+
+// Regression: disabling a step then undo/redo must respect isEnabled(). A
+// disabled step is never applied (replayAll skips it), so undo() must not call
+// undo() on it (it would revert geometry that never existed) and redo() must not
+// execute it. Mirrors the HistoryPanel Disable + replayAll flow.
+TEST(HistoryTest, UndoRedoSkipDisabledSteps) {
+    Document doc;
+    History history;
+    for (int i = 0; i < 3; i++)
+        history.pushOperation(std::make_unique<MockAddBodyOp>(10.0 + i), doc);
+    ASSERT_EQ(doc.bodyCount(), 3);
+    ASSERT_EQ(history.currentStep(), 2);
+
+    // Disable the TIP step (2) and rebuild — replayAll re-executes only 0 and 1,
+    // but lands currentIndex on the (disabled) tip at index 2.
+    const_cast<Operation*>(history.getStep(2))->setEnabled(false);
+    history.replayAll(doc);
+    EXPECT_EQ(doc.bodyCount(), 2);
+    EXPECT_EQ(history.currentStep(), 2);
+
+    // Undo must skip the never-applied disabled tip and undo step 1 (the last
+    // applied step). The pre-fix code undid the disabled step → no real change
+    // and a desynced index (this would leave bodyCount() == 2).
+    EXPECT_TRUE(history.undo(doc));
+    EXPECT_EQ(doc.bodyCount(), 1);
+    EXPECT_EQ(history.currentStep(), 0);
+
+    // Redo re-applies step 1.
+    EXPECT_TRUE(history.redo(doc));
+    EXPECT_EQ(doc.bodyCount(), 2);
+    EXPECT_EQ(history.currentStep(), 1);
+
+    // A second redo must SKIP the disabled step 2 (not execute it): body count
+    // stays 2 and the redo range is consumed.
+    EXPECT_TRUE(history.redo(doc));
+    EXPECT_EQ(doc.bodyCount(), 2);
+    EXPECT_EQ(history.currentStep(), 2);
+    EXPECT_FALSE(history.canRedo());
+}

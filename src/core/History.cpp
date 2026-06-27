@@ -84,18 +84,30 @@ bool History::undo(Document& doc) {
         return false;
     }
 
-    Operation* op = m_operations[m_currentIndex].get();
+    // A DISABLED step at the tip was never applied (replayAll skips disabled ops),
+    // so calling its undo() would revert geometry that never existed. Walk the tip
+    // down past any disabled steps and undo the last ACTUALLY-APPLIED (enabled) one.
+    int idx = m_currentIndex;
+    while (idx > m_undoFloor && !m_operations[idx]->isEnabled()) idx--;
+    if (idx <= m_undoFloor) {
+        // Only disabled (never-applied) steps sit above the floor — nothing to undo.
+        std::fprintf(stderr, "[History] undo: only disabled steps above floor (currentIndex=%d)\n",
+                     m_currentIndex);
+        return false;
+    }
+
+    Operation* op = m_operations[idx].get();
     std::fprintf(stderr, "[History] undo step %d '%s' (type=%s reloaded=%d enabled=%d)\n",
-                 m_currentIndex, op->name().c_str(), op->typeId().c_str(),
+                 idx, op->name().c_str(), op->typeId().c_str(),
                  op->isReloaded() ? 1 : 0, op->isEnabled() ? 1 : 0);
     if (!op->undo(doc)) {
         std::fprintf(stderr, "[History] undo FAILED at step %d '%s' — op->undo() "
                              "returned false; staying at this step\n",
-                     m_currentIndex, op->name().c_str());
+                     idx, op->name().c_str());
         return false;
     }
 
-    m_currentIndex--;
+    m_currentIndex = idx - 1;
     // Manual undo means the user is steering the applied range themselves —
     // drop any pending auto-recovery so a later edit doesn't surprise-redo
     // steps they deliberately walked back past.
@@ -109,14 +121,26 @@ bool History::redo(Document& doc) {
         return false;
     }
 
-    m_currentIndex++;
-    Operation* op = m_operations[m_currentIndex].get();
-    if (!op->execute(doc)) {
-        m_failedReplayAt = m_currentIndex;
-        m_currentIndex--;
-        return false;
+    // Skip DISABLED steps: they are suppressed, so executing one would re-apply
+    // geometry the user turned off. Advance to the next ENABLED step and run it.
+    const int n = static_cast<int>(m_operations.size());
+    int idx = m_currentIndex + 1;
+    while (idx < n && !m_operations[idx]->isEnabled()) idx++;
+    if (idx >= n) {
+        // Only disabled steps remain in the redo range — consume them (advance the
+        // tip past them, no execution) so Ctrl+Y doesn't keep firing with no effect.
+        m_currentIndex = n - 1;
+        if (m_eventBus) m_eventBus->publish(materializr::HistoryStepEvent{m_currentIndex, false});
+        return true;
     }
 
+    Operation* op = m_operations[idx].get();
+    if (!op->execute(doc)) {
+        m_failedReplayAt = idx;
+        return false; // leave the tip below the failed step
+    }
+
+    m_currentIndex = idx;
     op->rememberGoodParams();
     if (m_failedReplayAt >= 0 && m_currentIndex >= m_failedReplayAt) {
         m_failedReplayAt = -1; // the previously-failed step recomputed fine

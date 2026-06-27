@@ -2135,6 +2135,12 @@ void Application::handleToolAction(int action) {
 }
 
 void Application::handleShortcuts() {
+    // A threaded thread-cut compute is in flight (its modal popup is up). Suppress
+    // shortcuts until it resolves: undo/redo/delete would mutate the document — and
+    // the worker's target body — out from under the in-flight op, whose result is
+    // pushed on the main thread when the future lands.
+    if (m_threadComputing) return;
+
     ImGuiIO& io = ImGui::GetIO();
 
     // Undo/Redo — poll the hardware Ctrl state directly so it works even when
