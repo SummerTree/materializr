@@ -364,6 +364,9 @@ void FileDialogs::openFile(const std::string& title,
     if (!seed.empty() && seed.back() != '/' && seed.back() != '\\') {
         seed += '/';
     }
+    // Never hand a path that begins with '-' to the backend: kdialog (and some
+    // others) read a leading-dash positional argument as an option flag.
+    if (!seed.empty() && seed[0] == '-') seed = "./" + seed;
     s_async.openH = std::make_unique<pfd::open_file>(
         title, seed, pfdFilters(filters));
     s_async.callback = std::move(callback);
@@ -395,6 +398,7 @@ void FileDialogs::saveFile(const std::string& title,
         if (!defaultName.empty()) p /= defaultName;
         seed = p.string();
     }
+    if (!seed.empty() && seed[0] == '-') seed = "./" + seed; // see openFile note
     s_async.saveH = std::make_unique<pfd::save_file>(
         title, seed, pfdFilters(filters),
         pfd::opt::force_overwrite);

@@ -48,6 +48,16 @@ ImportResult IgesIO::import(const std::string& filePath, Document& doc) {
         return result;
     }
 
+    // Bound the work before the (synchronous, UI-thread) transfer: a crafted file
+    // with a huge root/entity count would otherwise drive unbounded allocation and
+    // time, and the per-sub-shape importCount could in theory overflow. 100k is far
+    // beyond any real IGES model.
+    const Standard_Integer kMaxEntities = 100000;
+    if (reader.NbRootsForTransfer() > kMaxEntities) {
+        result.errorMessage = "IGES file has too many entities to import";
+        return result;
+    }
+
     // Transfer all roots
     Standard_Integer nbRoots = reader.TransferRoots();
     if (nbRoots == 0) {
@@ -59,6 +69,10 @@ ImportResult IgesIO::import(const std::string& filePath, Document& doc) {
 
     // Iterate over transferred shapes
     for (Standard_Integer i = 1; i <= reader.NbShapes(); ++i) {
+        if (importCount >= kMaxEntities) {
+            result.errorMessage = "IGES file produced too many bodies to import";
+            return result;
+        }
         TopoDS_Shape shape = reader.Shape(i);
 
         // Explore for solids first

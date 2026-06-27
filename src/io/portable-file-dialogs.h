@@ -1154,9 +1154,10 @@ inline std::string internal::file_dialog::string_result()
 #if _WIN32
     return m_async->result();
 #else
-    // Strip the newline character
+    // Strip the newline character. (Local patch: guard ret.back() — a cancelled
+    // dialog returns an empty string, and back() on it is undefined behaviour.)
     auto ret = m_async->result();
-    return ret.back() == '\n' ? ret.substr(0, ret.size() - 1) : ret;
+    return (!ret.empty() && ret.back() == '\n') ? ret.substr(0, ret.size() - 1) : ret;
 #endif
 }
 

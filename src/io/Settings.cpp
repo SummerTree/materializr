@@ -344,6 +344,17 @@ AppSettings SettingsIO::importJson(const std::string& path, bool* ok) {
     auto kv = parseFlatJson(ss.str());
     if (kv.empty()) { if (ok) *ok = false; return s; } // unparseable / empty
 
+    // Symmetry with exportJson, which omits these machine-local/session keys so a
+    // shared file stays portable. Strip them on import too, so a planted settings
+    // file can't inject this machine's session state (a lastProjectPath that
+    // becomes a silent save target, a lastFileDir, or fabricated recents).
+    kv.erase("lastProjectPath");
+    kv.erase("lastFileDir");
+    for (auto it = kv.begin(); it != kv.end(); ) {
+        if (it->first.rfind("recent", 0) == 0) it = kv.erase(it);
+        else ++it;
+    }
+
     applyKv(kv, s);
     if (ok) *ok = true;
     return s;
