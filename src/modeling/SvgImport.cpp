@@ -675,6 +675,13 @@ bool SvgImport::load(const std::string& path, SvgPaths& out) {
         std::fprintf(stderr, "[SVG] cannot parse '%s'\n", path.c_str());
         return false;
     }
+    // Reject non-finite image dimensions: a crafted SVG can make nanosvg's number
+    // parser yield inf/NaN, which would poison `ref`, the bounds, and the scale.
+    if (!std::isfinite(img->width) || !std::isfinite(img->height)) {
+        std::fprintf(stderr, "[SVG] non-finite image dimensions — refusing\n");
+        nsvgDelete(img);
+        return false;
+    }
     const float ref = std::max(1.0f, std::max(img->width, img->height));
 
     bool haveBB = false;
@@ -687,6 +694,13 @@ bool SvgImport::load(const std::string& path, SvgPaths& out) {
         const bool filled = (sh->fill.type != NSVG_PAINT_NONE);
         for (NSVGpath* p = sh->paths; p; p = p->next) {
             if (p->npts < 4) continue;
+            // Skip paths with non-finite coordinates (a crafted SVG can make
+            // nanosvg emit inf/NaN); they'd otherwise poison the bounds and the
+            // (int) cast in sampleCubic (UB).
+            bool finite = true;
+            for (int i = 0; i < p->npts * 2; ++i)
+                if (!std::isfinite(p->pts[i])) { finite = false; break; }
+            if (!finite) continue;
             std::vector<glm::vec2> pts;
             pts.push_back(glm::vec2(p->pts[0], p->pts[1]));
             for (int i = 0; i < p->npts - 1; i += 3)
