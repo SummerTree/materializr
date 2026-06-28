@@ -70,9 +70,9 @@ bool HistoryPanel::render() {
         ImGui::PushTextWrapPos(0.0f);
         ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.35f, 1.0f),
             "Step %d (%s) couldn't recompute — the geometry it referenced no "
-            "longer exists after the upstream edit. Edit an upstream step "
-            "(it retries automatically), edit this step's parameters, or "
-            "delete it.",
+            "longer exists after an upstream step was edited or disabled. "
+            "Re-enable the disabled step, edit an upstream step (it retries "
+            "automatically), edit this step's parameters, or delete it.",
             failedAt + 1, fop ? fop->name().c_str() : "?");
         ImGui::PopTextWrapPos();
         ImGui::Separator();
@@ -152,8 +152,9 @@ bool HistoryPanel::render() {
                 m_showProperties = true;
             }
             if (ImGui::MenuItem(op->isEnabled() ? "Disable" : "Enable")) {
-                const_cast<Operation*>(op)->setEnabled(!op->isEnabled());
-                m_history->replayAll(*m_document);
+                // In-place toggle — preserves base bodies the op modifies
+                // (replayAll's doc.clear() would delete them).
+                m_history->setStepEnabled(i, !op->isEnabled(), *m_document);
                 modified = true;
             }
             if (ImGui::MenuItem("Set Breakpoint Here")) {

@@ -105,6 +105,15 @@ public:
     // Replay: re-execute all enabled steps from scratch
     bool replayAll(Document& doc);
 
+    // Enable/disable a single step, rebuilding the model IN PLACE (no
+    // doc.clear()) so base/imported bodies that no operation recreates — e.g.
+    // the starting box a lone push/pull modifies — are preserved. Returns false
+    // if the rebuild left a dependent step unable to recompute (recorded via
+    // lastReplayFailure()); the model is still valid, just partial. This is the
+    // toggle the history/properties UI should call — NOT replayAll, whose
+    // doc.clear() would delete non-operation base bodies.
+    bool setStepEnabled(int index, bool enabled, Document& doc);
+
     // Clear history
     void clear();
 

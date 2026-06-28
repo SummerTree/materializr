@@ -415,6 +415,55 @@ bool History::removeStep(int index, Document& doc) {
     return true;
 }
 
+bool History::setStepEnabled(int index, bool enabled, Document& doc) {
+    int count = static_cast<int>(m_operations.size());
+    if (index < 0 || index >= count) return false;
+    Operation* target = m_operations[index].get();
+    if (target->isEnabled() == enabled) return true; // no change
+
+    // Above the applied tip (redo region / breakpoint-suppressed): the step
+    // isn't in the document right now, so just flip the flag — the next
+    // redo/replay will honor it.
+    if (index > m_currentIndex) {
+        target->setEnabled(enabled);
+        return true;
+    }
+
+    // Roll the document back to just before `index` by undoing the applied ops
+    // in reverse. Uses the CURRENT (pre-toggle) flags: a currently-enabled
+    // target gets undone here; a currently-disabled one (we're enabling it) was
+    // never applied, so it's correctly skipped.
+    for (int i = m_currentIndex; i >= index; --i) {
+        Operation* op = m_operations[i].get();
+        if (op->isEnabled()) op->undo(doc);
+    }
+
+    target->setEnabled(enabled);
+
+    // Re-execute from `index` forward, IN PLACE. No doc.clear(), so base /
+    // imported bodies that aren't operations (the starting box a lone push/pull
+    // edits) survive. Disabled ops are skipped; an op that can no longer rebuild
+    // because the geometry it referenced was suppressed upstream is skipped too
+    // (cascade suppression) and recorded so the UI can flag the partial result.
+    m_failedReplayAt = -1;
+    int firstFail = -1;
+    for (int i = index; i <= m_currentIndex; ++i) {
+        Operation* op = m_operations[i].get();
+        if (op->isEnabled()) {
+            if (!op->execute(doc)) {
+                if (firstFail < 0) firstFail = i;
+                continue;
+            }
+            op->rememberGoodParams();
+        }
+    }
+    if (firstFail >= 0) m_failedReplayAt = firstFail;
+
+    if (m_eventBus)
+        m_eventBus->publish(materializr::HistoryStepEvent{m_currentIndex, true});
+    return firstFail < 0;
+}
+
 void History::setBreakpoint(int index) {
     m_breakpoint = index;
 }
@@ -431,18 +480,34 @@ bool History::replayAll(Document& doc) {
         limit = m_breakpoint;
     }
 
+    // Called only by the history Disable/Enable toggle. Suppressing a feature
+    // strips the geometry downstream ops were built on, so some of them can no
+    // longer recompute. Rather than ABORT the whole replay at the first such
+    // failure — which blanks the viewport and reads as "the model is gone" —
+    // SKIP the failed op and keep going. A dependent op that needs the
+    // suppressed geometry simply fails and is skipped too (cascade suppression),
+    // while geometry that's independent of the disabled step still builds. Re-
+    // enabling the step replays cleanly and brings everything back, so the
+    // operation is always recoverable. The first failure is recorded so the UI
+    // can flag that the rebuild was partial.
+    m_failedReplayAt = -1;
+    int firstFailure = -1;
     for (int i = 0; i <= limit; ++i) {
         Operation* op = m_operations[i].get();
         if (op->isEnabled()) {
             if (!op->execute(doc)) {
-                m_currentIndex = i - 1;
-                return false;
+                if (firstFailure < 0) firstFailure = i;
+                continue; // skip this op, keep replaying the rest
             }
             op->rememberGoodParams();
         }
     }
 
     m_currentIndex = limit;
+    if (firstFailure >= 0) {
+        m_failedReplayAt = firstFailure;
+        return false;
+    }
     return true;
 }
 

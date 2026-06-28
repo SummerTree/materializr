@@ -109,9 +109,10 @@ bool PropertiesPanel::render() {
             // Enabled/disabled toggle
             bool enabled = op->isEnabled();
             if (ImGui::Checkbox("Enabled", &enabled)) {
-                const_cast<Operation*>(op)->setEnabled(enabled);
                 if (m_document) {
-                    m_history->replayAll(*m_document);
+                    // In-place toggle — preserves base bodies the op modifies
+                    // (replayAll's doc.clear() would delete them).
+                    m_history->setStepEnabled(m_editingStep, enabled, *m_document);
                     modified = true;
                 }
             }
