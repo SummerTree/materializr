@@ -3,6 +3,16 @@
 All notable changes to Materializr are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow SemVer.
 
+## [1.3.0-beta.2] — 2026-06-28 (pre-release)
+
+### Fixed
+
+- **ViewCube — edges and corners stay selectable until a face is edge-on.** The
+  new edge-click feature culled edge spots and corner dots once a face tilted
+  past ~45°, even though the face itself stayed visible to 90°. Visibility is now
+  derived from face adjacency (a vertex/edge is live while a face bordering it
+  faces the camera), so they track the real silhouette.
+
 ## [1.3.0-beta.1] — 2026-06-28 (pre-release)
 
 First build of the **beta channel**. Headline feature: sketch elements are now
