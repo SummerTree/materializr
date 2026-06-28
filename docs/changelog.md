@@ -3,6 +3,31 @@
 All notable changes to Materializr are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow SemVer.
 
+## [1.3.0-beta.1] — 2026-06-28 (pre-release)
+
+First build of the **beta channel**. Headline feature: sketch elements are now
+resizable after they're drawn.
+
+### Added
+
+- **Resize sketch geometry from the Properties panel.** Select an element while
+  editing a sketch and change its size directly:
+  - **Lines** — set the **Length**; the line grows symmetrically about its
+    midpoint, and anything sharing its endpoints (chained lines, rectangle
+    corners, arc ends) follows along.
+  - **Rectangles** — select any side to edit **Width × Height**; the centre
+    stays put. Detected automatically from one selected side.
+  - **Arcs** — **Radius** and **Chord** both scale the arc keeping its shape
+    (chord = the straight distance between the endpoints); **Sweep** changes the
+    included angle. Moving a point shared with an arc bends that arc to preserve
+    its swept angle.
+  - These edits are proper undoable history steps, and selecting an element
+    highlights its history step (and vice-versa).
+- **Beta update channel.** A new *Settings → Include pre-release (beta) builds*
+  opt-in. With it on, the in-app update check also offers pre-releases (like
+  this one); left off, you stay on stable releases only. The two channels are
+  kept apart automatically — stable users are never shown betas.
+
 ## [1.2.8] — 2026-06-27
 
 macOS arrives, plus security hardening, correctness fixes, and sketch/history polish.

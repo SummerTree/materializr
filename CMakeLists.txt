@@ -1,5 +1,12 @@
 cmake_minimum_required(VERSION 3.20)
-project(Materializr VERSION 1.2.8 LANGUAGES CXX)
+project(Materializr VERSION 1.3.0 LANGUAGES CXX)
+
+# Pre-release suffix appended to the reported version (e.g. "-beta.1"). Empty on
+# stable releases. Kept here next to project() so a beta build self-identifies
+# as e.g. "1.3.0-beta.1" — that way the in-app update check (which is semver
+# pre-release aware) doesn't nag a beta tester to "update" to the build they're
+# already running, and hands off cleanly to the final 1.3.0.
+set(MATERIALIZR_VERSION_SUFFIX "-beta.1")
 
 # macOS: deliberately do NOT pin CMAKE_OSX_DEPLOYMENT_TARGET. The bundled Homebrew
 # OpenCASCADE/SDL2 dylibs are built for the build host's macOS, so they — not our
@@ -372,7 +379,7 @@ endif()
 # Surface the project version to the C++ code so About / update-checker can use
 # a single source of truth (the project() VERSION at the top of this file).
 target_compile_definitions(materializr PRIVATE
-    MATERIALIZR_VERSION="${PROJECT_VERSION}")
+    MATERIALIZR_VERSION="${PROJECT_VERSION}${MATERIALIZR_VERSION_SUFFIX}")
 
 # OCC_CONVERT_SIGNALS turns the OCC_CATCH_SIGNALS macro into a real
 # Standard_ErrorHandler so that an OCCT kernel fault (SIGSEGV/SIGFPE deep inside
