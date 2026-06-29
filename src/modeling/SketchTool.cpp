@@ -33,6 +33,9 @@ void SketchTool::setMode(SketchToolMode mode) {
         onCancel();
     }
     m_mode = mode;
+    // Leaving select/move: drop element highlights so they don't linger as
+    // golden geometry once the user goes back to drawing.
+    if (mode != SketchToolMode::Select) clearElementSelection();
     m_clickCount = 0;
     m_isPlacing = false;
     m_lastPointId = -1;
@@ -121,6 +124,10 @@ void SketchTool::onMouseMove(glm::vec2 pos) {
     // Trim uses the raw cursor for picking; snapping would pull the click toward
     // unrelated nearby targets and pick the wrong element.
     glm::vec2 newPos = (m_mode == SketchToolMode::Trim) ? pos : snap(pos);
+    // Select/move only manipulates existing geometry — inference guides are
+    // visual noise here. Keep the snapped position (handy when dragging an
+    // element onto a grid point/endpoint) but drop the guide markers.
+    if (m_mode == SketchToolMode::Select) m_activeInferences.clear();
     glm::vec2 delta  = newPos - m_currentPos;
     m_currentPos = newPos;
 

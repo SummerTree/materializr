@@ -1501,7 +1501,10 @@ void Application::renderViewport() {
             // point 1" ghost markers. Drawn during placement / hover so the
             // user can see WHY the cursor is being snapped before they click.
             // Pure visual cue: nothing in the placed geometry remembers them.
-            if (m_inSketchMode && m_activeSketch && m_sketchTool) {
+            // Touch Move (nav-lock) mode isn't drawing/selecting, so the snap
+            // guides are just visual noise here — same reasoning as the Select
+            // tool suppressing them in SketchTool::onMouseMove.
+            if (m_inSketchMode && m_activeSketch && m_sketchTool && !m_moveModeToggle) {
                 const gp_Ax3& iax = m_activeSketch->getPlane().Position();
                 glm::vec3 iO(iax.Location().X(), iax.Location().Y(), iax.Location().Z());
                 glm::vec3 iX(iax.XDirection().X(), iax.XDirection().Y(), iax.XDirection().Z());
@@ -2240,13 +2243,19 @@ void Application::renderViewport() {
                 // creep the view.
                 if (!gizmoOwnsDrag && m_window->consumeTouchPan(tdx, tdy)) {
                     if (std::fabs(tdx) > 0.5f || std::fabs(tdy) > 0.5f) {
-                        cam.pan(tdx * 0.55f * m_touchPanSens, tdy * 0.55f * m_touchPanSens);
+                        // Base 0.275 = old 0.55 × 0.50: the calmer pan that used to
+                        // need a 0.50x slider is now the 1.0x baseline (raw pan was
+                        // twitchy). Slider still scales from here.
+                        cam.pan(tdx * 0.275f * m_touchPanSens, tdy * 0.275f * m_touchPanSens);
                     }
                 }
                 // Pinch zoom: continuous (fires every frame), so a fraction of a
                 // wheel tick. Deadzoned to keep a pure pan from zooming.
                 if (m_window->consumeTouchZoom(tdz)) {
-                    if (std::fabs(tdz) > 1.5f) cam.zoom(tdz * 0.006f * m_touchZoomSens);
+                    // Base 0.015 = old 0.006 × 2.5: the faster zoom that used to
+                    // need a 2.5x slider is now the 1.0x baseline (raw zoom was
+                    // painfully slow). Slider still scales from here.
+                    if (std::fabs(tdz) > 1.5f) cam.zoom(tdz * 0.015f * m_touchZoomSens);
                 }
             }
 

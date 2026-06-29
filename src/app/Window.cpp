@@ -342,8 +342,14 @@ void Window::handleFingerEvent(unsigned type, std::int64_t id, float nx, float n
                 m_scrollArmed = true;
             } else if (wantScroll && m_scrollArmed) {
                 // Switch press -> scroll: release the left button so the row the
-                // finger started on isn't selected/activated by the flick.
+                // finger started on isn't selected/activated by the flick. Park
+                // the cursor off-screen BEFORE releasing — a release while still
+                // over the button/row reads as a click (ImGui buttons fire on
+                // mouse-up over the active item), which is exactly the "scrolling
+                // also selects tools" bug. The justLatched block below moves the
+                // cursor back onto the panel for the wheel target.
                 if (m_leftDown) {
+                    io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
                     io.AddMouseButtonEvent(0, false);
                     m_leftDown = false;
                     m_leftReleaseWasGesture = true;

@@ -3,6 +3,33 @@
 All notable changes to Materializr are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow SemVer.
 
+## [1.3.0-beta.4] — 2026-06-28 (pre-release)
+
+### Changed
+
+- **Touch — calmer pan, faster zoom by default.** The baseline (1.0×)
+  two-finger pan was twitchy and the pinch-zoom was painfully slow. The base
+  sensitivities are retuned (pan ×0.5, zoom ×2.5) so the out-of-the-box feel is
+  right; the Settings sliders still scale from there.
+
+### Fixed
+
+- **Sketch Select/Move no longer shows inference guides.** Snap markers and
+  labels only appear while you're actually drawing now — hovering with the
+  Select/Move tool (or with touch "Move" mode on) no longer clutters the view
+  with guides it can't act on.
+- **Selecting a sketch element no longer leaves it highlighted after you switch
+  tools.** Picking a line/point with Select/Move and then choosing a drawing
+  tool now clears the golden highlight instead of leaving it stuck on.
+- **Touch — scrolling a menu no longer selects the options it passes over.** A
+  drag-to-scroll over the Tools list released the press *on* the button it
+  started on, registering as a tap. The cursor is now parked off-screen before
+  the release so a scroll flick just scrolls.
+- **Touch — panels scroll with a natural finger drag.** Dragging inside the
+  Settings window (and other panels) moved the whole window instead of
+  scrolling. Windows are now movable from the title bar only, so body drags fall
+  through to drag-to-scroll.
+
 ## [1.3.0-beta.3] — 2026-06-28 (pre-release)
 
 ### Fixed

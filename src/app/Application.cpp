@@ -536,6 +536,13 @@ void Application::initImGui() {
         // overlapping widgets fight for the touch.)
         style.DockingSeparatorSize = 12.0f;
         style.TouchExtraPadding = ImVec2(8.0f, 8.0f);
+        // By default ImGui lets a window be dragged from any empty spot in its
+        // body, not just the title bar. On a touchscreen that means a natural
+        // drag-to-scroll over a panel's empty space sets g.MovingWindow and the
+        // whole window slides around instead of scrolling (very visible in
+        // Settings). Restrict moves to the title bar so body drags fall through
+        // to the drag-to-scroll latch in Window.cpp.
+        io.ConfigWindowsMoveFromTitleBarOnly = true;
     }
 
     // Swap ImGui's default ProggyClean for JetBrains Mono — slashed zero,
