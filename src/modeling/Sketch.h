@@ -193,6 +193,12 @@ public:
     int elementCount() const;
     int pointCount() const;
 
+    // World-space axis-aligned bounds of all sketch geometry (points expanded
+    // by circle radii). Returns false when the sketch has no points, leaving
+    // out* untouched. Used to frame an in-progress sketch — it lives outside
+    // the Document, so the usual body-bbox path can't see it.
+    bool getWorldBounds(glm::vec3& outMin, glm::vec3& outMax) const;
+
     // --- Serialization helpers (used by ProjectIO) ---
     // Append elements directly, preserving their stored ids and construction
     // flags, so a sketch can be reloaded exactly as it was saved.

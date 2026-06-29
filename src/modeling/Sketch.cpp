@@ -36,6 +36,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <limits>
 #include <map>
 #include <unordered_map>
 #include <unordered_set>
@@ -92,6 +93,34 @@ const SketchPoint* Sketch::getPoint(int id) const {
         if (pt.id == id) return &pt;
     }
     return nullptr;
+}
+
+bool Sketch::getWorldBounds(glm::vec3& outMin, glm::vec3& outMax) const {
+    if (m_points.empty()) return false;
+    glm::vec3 lo( std::numeric_limits<float>::max());
+    glm::vec3 hi(-std::numeric_limits<float>::max());
+    auto addPt = [&](const gp_Pnt& p) {
+        glm::vec3 v(static_cast<float>(p.X()), static_cast<float>(p.Y()),
+                    static_cast<float>(p.Z()));
+        lo = glm::min(lo, v);
+        hi = glm::max(hi, v);
+    };
+    for (const auto& pt : m_points) addPt(sketchToWorld(pt.pos));
+    // Points only capture circle centres; expand by radius along the plane axes
+    // so the rim is enclosed too (arc/polygon extents are covered by their
+    // generated endpoints/vertices).
+    for (const auto& c : m_circles) {
+        const SketchPoint* ctr = getPoint(c.centerPointId);
+        if (!ctr) continue;
+        float r = static_cast<float>(c.radius);
+        addPt(sketchToWorld(ctr->pos + glm::vec2( r, 0)));
+        addPt(sketchToWorld(ctr->pos + glm::vec2(-r, 0)));
+        addPt(sketchToWorld(ctr->pos + glm::vec2( 0, r)));
+        addPt(sketchToWorld(ctr->pos + glm::vec2( 0,-r)));
+    }
+    outMin = lo;
+    outMax = hi;
+    return true;
 }
 
 const std::vector<SketchPoint>& Sketch::getPoints() const {

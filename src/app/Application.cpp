@@ -2713,6 +2713,16 @@ void Application::handleViewCubeAction(int action) {
         cmin = glm::vec3(static_cast<float>(x0), static_cast<float>(y0), static_cast<float>(z0));
         cmax = glm::vec3(static_cast<float>(x1), static_cast<float>(y1), static_cast<float>(z1));
     }
+    // An in-progress sketch isn't in the Document yet, so the body loop above
+    // can't see it. Frame it too — otherwise a ViewCube click during the very
+    // first sketch snaps to the tiny default cube instead of the drawing.
+    if (m_activeSketch) {
+        glm::vec3 smin, smax;
+        if (m_activeSketch->getWorldBounds(smin, smax)) {
+            if (bbox.IsVoid()) { cmin = smin; cmax = smax; }
+            else { cmin = glm::min(cmin, smin); cmax = glm::max(cmax, smax); }
+        }
+    }
     glm::vec3 center = (cmin + cmax) * 0.5f;
     float radius = glm::length(cmax - cmin) * 0.5f;
     if (radius < 1.0f) radius = 1.0f;
