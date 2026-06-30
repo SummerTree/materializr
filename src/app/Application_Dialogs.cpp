@@ -3473,6 +3473,7 @@ bool writeFlatPatternPdf(const std::string& path, const materializr::FlatPattern
 
     const double K = 72.0 / 25.4;            // points per millimetre (1:1 scale)
     const double pad = T.pad, minx = T.minx, miny = T.miny;
+    const double Wmm = (T.maxx - minx) + 2 * pad, Hmm = (T.maxy - miny) + 2 * pad;
     auto DX = [&](double x) { return (x - minx) + pad; };   // world → drawing mm (Y up)
     auto DY = [&](double y) { return (y - miny) + pad; };
 
@@ -3529,6 +3530,28 @@ bool writeFlatPatternPdf(const std::string& path, const materializr::FlatPattern
                 segs.push_back({a1, b1}); segs.push_back({a2, b2});
             }
             strokeSegs(segs);
+        }
+        // Registration crosshairs in the tile OVERLAPS: the same drawing-mm point
+        // prints on both adjacent sheets (the clip keeps each page's share), so
+        // overlaying the sheets until the crosses coincide gives precise fitment.
+        if (nCols > 1 || nRows > 1) {
+            pdff(s, "1 0 1 RG 0.4 w\n");                 // magenta, thin
+            const double arm = 4.0;                      // mm half-length of each arm
+            auto cross = [&](double dx, double dy) {
+                if (dx < ox - 1 || dx > ox + cwMM + 1 || dy < oy - 1 || dy > oy + chMM + 1) return;
+                const double px = PX(dx), py = PY(dy);
+                pdff(s, "%.2f %.2f m %.2f %.2f l S\n", px - arm * K, py, px + arm * K, py);
+                pdff(s, "%.2f %.2f m %.2f %.2f l S\n", px, py - arm * K, px, py + arm * K);
+            };
+            const double spacing = 45.0;                 // mm between marks along a seam
+            for (int c = 1; c < nCols; ++c) {
+                const double xc = c * stepX + (cwMM - stepX) * 0.5;    // column-overlap centre
+                for (double y = 0; y <= Hmm + 1e-6; y += spacing) cross(xc, y);
+            }
+            for (int r = 1; r < nRows; ++r) {
+                const double yc = r * stepY + (chMM - stepY) * 0.5;    // row-overlap centre
+                for (double x = 0; x <= Wmm + 1e-6; x += spacing) cross(x, yc);
+            }
         }
         pdff(s, "Q\n");   // end clip
 
@@ -3810,6 +3833,12 @@ void Application::renderUnfoldDialog() {
     ImGui::SetNextItemWidth(150);
     ImGui::SliderFloat("Rotate", &m_unfoldRotationDeg, -180.0f, 180.0f, "%.0f°");
     ImGui::SameLine();
+    if (ImGui::Button("-", ImVec2(24, 0))) { m_unfoldRotationDeg -= 1.0f; if (m_unfoldRotationDeg < -180.0f) m_unfoldRotationDeg += 360.0f; }
+    ImGui::SetItemTooltip("Rotate -1°");
+    ImGui::SameLine();
+    if (ImGui::Button("+", ImVec2(24, 0))) { m_unfoldRotationDeg += 1.0f; if (m_unfoldRotationDeg > 180.0f) m_unfoldRotationDeg -= 360.0f; }
+    ImGui::SetItemTooltip("Rotate +1°");
+    ImGui::SameLine();
     if (ImGui::Button("+90°")) {
         m_unfoldRotationDeg += 90.0f;
         if (m_unfoldRotationDeg > 180.0f) m_unfoldRotationDeg -= 360.0f;
@@ -3833,8 +3862,6 @@ void Application::renderUnfoldDialog() {
         m_unfoldRotationDeg = bestAng;
     }
     ImGui::SetItemTooltip("Rotate to the orientation that needs the fewest PDF pages.");
-    ImGui::SameLine();
-    ImGui::Checkbox("Page grid", &m_unfoldShowPages);
 
     // The rotated pattern drives the canvas AND the exporters — what you see is
     // what you get.
@@ -3860,7 +3887,9 @@ void Application::renderUnfoldDialog() {
             }
     // With the page grid shown, fit the view to the whole sheet extent so every
     // page is visible; otherwise fit to the pattern alone.
-    const bool showGrid = m_unfoldShowPages && tiling.nCols > 0;
+    // Only the PDF (tiled) export has page breaks — SVG is one 1:1 file, so its
+    // preview stays clean (no "ghost paper edge" lines to confuse).
+    const bool showGrid = (m_unfoldExportFmt == 1) && tiling.nCols > 0;
     double gx0 = minx, gy0 = miny, gx1 = maxx, gy1 = maxy;
     if (showGrid) {
         gx0 = std::min(gx0, tiling.minx - tiling.pad);
@@ -3928,37 +3957,41 @@ void Application::renderUnfoldDialog() {
     ImGui::EndChild();
 
     // ── Export ──
-    {
+    // Format picks both the output AND the preview above: SVG = one 1:1 file
+    // (clean preview), PDF = tiled sheets (page grid shown). PDF also gets a
+    // page-size choice.
+    ImGui::SetNextItemWidth(190);
+    ImGui::Combo("Format", &m_unfoldExportFmt, "SVG — one 1:1 file\0PDF — tiled, printable\0");
+    if (m_unfoldExportFmt == 1) {
+        ImGui::SameLine();
         int pg = m_unfoldPageA4 ? 1 : 0;
-        ImGui::SetNextItemWidth(120);
-        if (ImGui::Combo("PDF page size", &pg, "US Letter\0A4\0")) m_unfoldPageA4 = (pg == 1);
+        ImGui::SetNextItemWidth(110);
+        if (ImGui::Combo("Page", &pg, "US Letter\0A4\0")) m_unfoldPageA4 = (pg == 1);
     }
-    if (ImGui::Button("Export SVG…", ImVec2(130, 0))) {
+    if (ImGui::Button("Export…", ImVec2(110, 0))) {
         const double th = m_unfoldThicknessMm;
-        // Capture a COPY of the ROTATED pattern: the file dialog resolves on a
-        // later frame, by which time the bevel slider may have replaced it.
-        const materializr::FlatPattern pat = rfp;
-        materializr::FileDialogs::exportFile(
-            "Export Flat Pattern", "flat-pattern.svg", "image/svg+xml",
-            {{"SVG Files", "*.svg"}},
-            [pat, fm, th](const std::string& path) {
-                return writeFlatPatternSvg(path, pat, fm, th);
-            });
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Export PDF…", ImVec2(130, 0))) {
-        const double th = m_unfoldThicknessMm;
-        const bool a4 = m_unfoldPageA4;
         const materializr::FlatPattern pat = rfp;  // rotated copy; dialog may recompute later
-        materializr::FileDialogs::exportFile(
-            "Export Flat Pattern (tiled 1:1)", "flat-pattern.pdf", "application/pdf",
-            {{"PDF Files", "*.pdf"}},
-            [pat, fm, th, a4](const std::string& path) {
-                return writeFlatPatternPdf(path, pat, fm, th, a4);
-            });
+        if (m_unfoldExportFmt == 0) {
+            materializr::FileDialogs::exportFile(
+                "Export Flat Pattern", "flat-pattern.svg", "image/svg+xml",
+                {{"SVG Files", "*.svg"}},
+                [pat, fm, th](const std::string& path) {
+                    return writeFlatPatternSvg(path, pat, fm, th);
+                });
+        } else {
+            const bool a4 = m_unfoldPageA4;
+            materializr::FileDialogs::exportFile(
+                "Export Flat Pattern (tiled 1:1)", "flat-pattern.pdf", "application/pdf",
+                {{"PDF Files", "*.pdf"}},
+                [pat, fm, th, a4](const std::string& path) {
+                    return writeFlatPatternPdf(path, pat, fm, th, a4);
+                });
+        }
     }
-    ImGui::SetItemTooltip("Tiled, full-size (1:1) printable template with crop marks "
-                          "and a 50 mm scale bar to verify print scale.");
+    ImGui::SetItemTooltip(m_unfoldExportFmt == 0
+        ? "One full-size (1:1) SVG for a laser/CNC bed."
+        : "Tiled, full-size (1:1) PDF with crop marks, a 50 mm scale bar, and "
+          "registration crosses in the overlaps for precise assembly.");
     ImGui::SameLine();
     if (ImGui::Button("Close", ImVec2(90, 0))) m_unfoldDialogActive = false;
 

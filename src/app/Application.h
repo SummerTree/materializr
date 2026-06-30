@@ -1268,7 +1268,7 @@ private:
     bool  m_unfoldConformal = false;              // LSCM unwrap (one stretchy piece) vs developable pieces
     bool  m_unfoldPageA4 = false;                 // PDF export page size: A4 vs US Letter
     float m_unfoldRotationDeg = 0.0f;             // viewer/export rotation of the whole flat pattern
-    bool  m_unfoldShowPages = true;               // overlay the PDF page-break grid on the 2D canvas
+    int   m_unfoldExportFmt = 0;                  // export format: 0 = SVG (no page grid), 1 = PDF (tiled)
     void beginUnfoldDialog();
     void recomputeUnfold();
     void renderUnfoldDialog();
