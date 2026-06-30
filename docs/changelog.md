@@ -3,6 +3,25 @@
 All notable changes to Materializr are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow SemVer.
 
+## [1.3.0-beta.10] — 2026-06-30 (pre-release)
+
+### Fixed
+
+- **Oversized window on small / scaled Windows displays.** On a 1080p (or
+  smaller) Windows screen at the OS-default 125–150% display scaling, the fixed
+  1600×900 window opened larger than the virtualised desktop and spilled past
+  every edge — hiding the taskbar, the title-bar close button, and the sides of
+  both dock panels. The window now clamps its initial size to the display's
+  usable work area (taskbar excluded) and starts **maximized** when the screen is
+  too small; the clamped size becomes the restore size, so un-maximizing or a
+  minimize→restore no longer overruns the display. 2K+ Windows screens, Linux,
+  macOS, and Android were unaffected.
+
+### Changed
+
+- **Android: OCCT geometry kernel 7.8.1 → 7.9.3**, matching the desktop/Linux
+  build so behaviour stays consistent across platforms. APK versionCode 26.
+
 ## [1.3.0-beta.9] — 2026-06-30 (pre-release)
 
 ### Added
