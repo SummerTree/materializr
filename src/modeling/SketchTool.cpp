@@ -1484,15 +1484,23 @@ int SketchTool::findCoincidentPoint(glm::vec2 pos, int excludeId) const {
     if (!m_sketch) return -1;
 
     const float threshold = 0.3f * snapScale(); // point snap (wider on touch)
+    // Return the NEAREST point within the radius, not the first one found. On
+    // dense or small-scale geometry (e.g. an SVG imported small, whose spline
+    // control points sit within the weld radius of each other) "first in range"
+    // can weld an arc/line endpoint onto the wrong neighbour — the arc then
+    // renders rotated off its latched endpoints with the wrong bulge. Scaling
+    // the artwork up spread the points past the radius, which is why that made
+    // the same operation behave; nearest makes it scale-independent.
+    int best = -1;
+    float bestD = threshold;
     const auto& points = m_sketch->getPoints();
     for (const auto& pt : points) {
         if (pt.id == excludeId) continue;
         if (pt.fromText) continue; // never weld user geometry onto glyphs
-        if (glm::length(pos - pt.pos) < threshold) {
-            return pt.id;
-        }
+        float d = glm::length(pos - pt.pos);
+        if (d < bestD) { bestD = d; best = pt.id; }
     }
-    return -1;
+    return best;
 }
 
 void SketchTool::selectAll() {
