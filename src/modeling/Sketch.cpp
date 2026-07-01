@@ -1420,6 +1420,39 @@ std::vector<Sketch::Region> Sketch::buildRegionsUncached() const {
     // arcs, so feeding the arcs to the splitter recovers those cells.)
     {
         TopTools_ListOfShape toolEdges;
+        // A tool curve should only SUBDIVIDE a face when it crosses the interior;
+        // one that merely traces the boundary must be a no-op. BOPAlgo honours
+        // that for straight edges, but a boundary ARC gets imprinted and carves a
+        // thin sliver off each rounded corner (newly visible once SVG import
+        // recovers real arcs). So only feed a curve whose midpoint has face
+        // interior on BOTH sides — true for an interior divider, false for a
+        // boundary edge.
+        std::vector<std::vector<glm::vec2>> atomicPolys;
+        for (const auto& f : atomic) {
+            std::vector<glm::vec2> poly;
+            densifyWire2D(BRepTools::OuterWire(f), m_plane, poly);
+            if (!poly.empty()) atomicPolys.push_back(std::move(poly));
+        }
+        glm::vec2 abMin(0.0f), abMax(0.0f); bool haveAB = false;
+        for (const auto& poly : atomicPolys)
+            for (const auto& q : poly) {
+                if (!haveAB) { abMin = abMax = q; haveAB = true; }
+                else { abMin.x = std::min(abMin.x, q.x); abMin.y = std::min(abMin.y, q.y);
+                       abMax.x = std::max(abMax.x, q.x); abMax.y = std::max(abMax.y, q.y); }
+            }
+        const float divEps = std::max(1e-4f,
+            0.01f * glm::length(abMax - abMin));
+        auto insideAny = [&](glm::vec2 p) {
+            for (const auto& poly : atomicPolys)
+                if (pointInPolygon2D(poly, p)) return true;
+            return false;
+        };
+        auto isDivider = [&](glm::vec2 mid, glm::vec2 nrm) {
+            float nl = glm::length(nrm);
+            if (nl < 1e-9f) return true;           // degenerate: leave as-is
+            nrm /= nl;
+            return insideAny(mid + nrm * divEps) && insideAny(mid - nrm * divEps);
+        };
         for (const auto& line : m_lines) {
             const SketchPoint* a = getPoint(line.startPointId);
             const SketchPoint* b = getPoint(line.endPointId);
@@ -1427,6 +1460,9 @@ std::vector<Sketch::Region> Sketch::buildRegionsUncached() const {
             gp_Pnt p1 = sketchToWorld(a->pos);
             gp_Pnt p2 = sketchToWorld(b->pos);
             if (p1.Distance(p2) < 1e-9) continue;
+            glm::vec2 mid = 0.5f * (a->pos + b->pos);
+            glm::vec2 nrm(-(b->pos.y - a->pos.y), b->pos.x - a->pos.x);
+            if (!isDivider(mid, nrm)) continue;
             BRepBuilderAPI_MakeEdge mk(p1, p2);
             if (mk.IsDone()) toolEdges.Append(mk.Edge());
         }
@@ -1446,6 +1482,8 @@ std::vector<Sketch::Region> Sketch::buildRegionsUncached() const {
             gp_Pnt pm = sketchToWorld(mid2d);
             gp_Pnt p2 = sketchToWorld(e->pos);
             if (p1.Distance(p2) < 1e-9 && p1.Distance(pm) < 1e-9) continue;
+            if (!isDivider(mid2d, glm::vec2(mid2d.x - c->pos.x, mid2d.y - c->pos.y)))
+                continue;
             try {
                 GC_MakeArcOfCircle arcMaker(p1, pm, p2);
                 if (!arcMaker.IsDone()) continue;
