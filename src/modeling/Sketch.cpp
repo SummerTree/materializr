@@ -889,23 +889,28 @@ std::vector<TopoDS_Wire> Sketch::buildWires() const {
         std::vector<glm::vec2> samp = sampleSpline2D(sp, 24);
         const int ns = static_cast<int>(samp.size());
         std::unordered_set<int> ownCtrl(sp.controlPointIds.begin(), sp.controlPointIds.end());
-        struct SplineSplit { int sampleIdx; int ptId; };
+        // A landed point sits ANYWHERE on the curve (between samples), so project
+        // each candidate onto the sample SEGMENTS, not just the vertices — a
+        // vertex-only test misses a point on a chord and the loop never closes.
+        struct SplineSplit { int seg; float t; int ptId; };   // on segment [seg, seg+1]
         std::vector<SplineSplit> splits;
         if (ns >= 3) {
             for (const auto& kv : coord) {
                 if (ownCtrl.count(kv.first)) continue;
-                int bestI = -1; float bestD = onLineTol;
-                for (int i = 1; i < ns - 1; ++i) {       // interior samples only
-                    float d = glm::length(samp[i] - kv.second);
-                    if (d < bestD) { bestD = d; bestI = i; }
+                int bestSeg = -1; float bestT = 0.0f, bestD = onLineTol;
+                for (int i = 0; i + 1 < ns; ++i) {
+                    glm::vec2 a = samp[i], ab = samp[i + 1] - a;
+                    float len2 = glm::dot(ab, ab);
+                    if (len2 < 1e-12f) continue;
+                    float t = glm::clamp(glm::dot(kv.second - a, ab) / len2, 0.0f, 1.0f);
+                    float d = glm::length(kv.second - (a + ab * t));
+                    if (d < bestD) { bestD = d; bestSeg = i; bestT = t; }
                 }
-                if (bestI > 0) splits.push_back({bestI, kv.first});
+                if (bestSeg >= 0) splits.push_back({bestSeg, bestT, kv.first});
             }
             std::sort(splits.begin(), splits.end(),
-                      [](const SplineSplit& a, const SplineSplit& b) { return a.sampleIdx < b.sampleIdx; });
-            splits.erase(std::unique(splits.begin(), splits.end(),
-                         [](const SplineSplit& a, const SplineSplit& b){ return a.sampleIdx == b.sampleIdx; }),
-                         splits.end());
+                      [](const SplineSplit& a, const SplineSplit& b) {
+                          return a.seg != b.seg ? a.seg < b.seg : a.t < b.t; });
         }
         if (splits.empty()) {
             EdgeSpec es;
@@ -915,21 +920,23 @@ std::vector<TopoDS_Wire> Sketch::buildWires() const {
             edges.push_back(es);
             continue;
         }
-        // Emit contiguous sub-edges: front -> split0 -> split1 -> ... -> back.
-        int prevIdx = 0, prevPt = sp.controlPointIds.front();
+        // Contiguous sub-edges front -> cut0 -> ... -> back. A cut on segment s
+        // ends the previous sub-edge at sample s and starts the next at sample
+        // s+1; the exact cut point is pinned in emitOcctEdge.
+        int prevStart = 0, prevPt = sp.controlPointIds.front();
         for (const auto& s : splits) {
             EdgeSpec es;
             es.splineIdx = static_cast<int>(si);
             es.startPtId = prevPt; es.endPtId = s.ptId;
-            es.splineSampStart = prevIdx; es.splineSampEnd = s.sampleIdx;
+            es.splineSampStart = prevStart; es.splineSampEnd = s.seg;
             edges.push_back(es);
-            prevIdx = s.sampleIdx; prevPt = s.ptId;
+            prevStart = s.seg + 1; prevPt = s.ptId;
         }
         EdgeSpec es;
         es.splineIdx = static_cast<int>(si);
         es.startPtId = prevPt;
         es.endPtId = closedSp ? sp.controlPointIds.front() : sp.controlPointIds.back();
-        es.splineSampStart = prevIdx; es.splineSampEnd = ns - 1;
+        es.splineSampStart = prevStart; es.splineSampEnd = ns - 1;
         edges.push_back(es);
     }
 
@@ -1001,10 +1008,15 @@ std::vector<TopoDS_Wire> Sketch::buildWires() const {
             if (subEdge) {
                 int a = std::max(0, es.splineSampStart);
                 int b = std::min(static_cast<int>(full.size()) - 1, es.splineSampEnd);
-                if (b <= a) return false;
+                samp.push_back(sc->second);                     // exact start (pinned)
                 for (int i = a; i <= b; ++i) samp.push_back(full[i]);
-                samp.front() = sc->second;   // pin to exact shared-point coords
-                samp.back()  = ec->second;
+                samp.push_back(ec->second);                     // exact end (pinned)
+                // Drop a duplicate where a pinned end coincides with its sample
+                // (front/back sub-edges begin/end ON a control-point sample).
+                std::vector<glm::vec2> ded;
+                for (const auto& q : samp)
+                    if (ded.empty() || glm::length(q - ded.back()) > 1e-6f) ded.push_back(q);
+                samp.swap(ded);
             } else {
                 samp = std::move(full);
             }

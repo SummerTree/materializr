@@ -1031,7 +1031,7 @@ glm::vec2 SketchTool::snap(glm::vec2 pos) const {
             for (int cpid : sp.controlPointIds)
                 if (m_snapExcludePoints.count(cpid)) { excluded = true; break; }
             if (excluded) continue;
-            std::vector<glm::vec2> samp = m_sketch->sampleSpline2D(sp, 32);
+            std::vector<glm::vec2> samp = m_sketch->sampleSpline2D(sp, 24); // match buildWires
             float bestD = onLineThresh; glm::vec2 bestProj(0.0f), bestDir(1.0f, 0.0f);
             bool found = false;
             for (size_t k = 0; k + 1 < samp.size(); ++k) {
