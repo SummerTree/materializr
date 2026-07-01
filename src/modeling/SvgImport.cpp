@@ -849,17 +849,15 @@ bool emitDetectedLoop(Sketch* sk, const std::vector<glm::vec2>& P, bool closed) 
         double dt = static_cast<double>(v1.x)*v2.x + static_cast<double>(v1.y)*v2.y;
         return std::atan2(cr, dt);
     };
+    // A corner is simply a sample whose turn exceeds the threshold. (An earlier
+    // "concentration" test — turn must beat its neighbours combined — was meant
+    // to keep tight rounded tips smooth, but small text has corners spaced only
+    // a sample or two apart, so a corner's neighbour is another corner and the
+    // test wrongly rejected it, rounding whole letters into comic-sans. The tip
+    // stays smooth without it: a smooth curve's per-sample turn is below the
+    // threshold, a sharp vertex's is above.)
     auto isCorner = [&](int i) -> bool {
-        double t = std::abs(turnAt(i));
-        if (t <= CORNER) return false;
-        // A real corner concentrates its turning at ONE sample (straight-ish
-        // approaches either side); a tight-but-smooth curve spreads it, so every
-        // sample turns a similar amount. Require this sample to exceed its two
-        // neighbours' turning combined — otherwise it's curvature, not a corner.
-        // Keeps blunt/square breaks off tight rounded tips while still catching
-        // genuine sharp vertices (whose neighbours are ~straight, so ~0 turn).
-        double tp = std::abs(turnAt(i - 1)), tn = std::abs(turnAt(i + 1));
-        return t > tp + tn;
+        return std::abs(turnAt(i)) > CORNER;
     };
     std::vector<int> corners;
     if (closed) { for (int i = 0; i < n; ++i)     if (isCorner(i)) corners.push_back(i); }
