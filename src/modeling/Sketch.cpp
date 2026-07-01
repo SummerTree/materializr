@@ -970,20 +970,6 @@ std::vector<TopoDS_Wire> Sketch::buildWires() const {
         }
     }
 
-    // Adjacency: pointId -> list of surviving edge indices
-    std::unordered_map<int, std::vector<int>> pointToEdges;
-    for (size_t i = 0; i < edges.size(); ++i) {
-        if (!alive[i]) continue;
-        pointToEdges[edges[i].startPtId].push_back(static_cast<int>(i));
-        pointToEdges[edges[i].endPtId].push_back(static_cast<int>(i));
-    }
-
-    std::unordered_set<int> usedEdges;
-
-    auto otherEnd = [&](const EdgeSpec& e, int p) {
-        return (e.startPtId == p) ? e.endPtId : e.startPtId;
-    };
-
     auto emitOcctEdge = [&](const EdgeSpec& es, int fromPt, BRepBuilderAPI_MakeWire& wm) -> bool {
         // Resolve through the coord table so synthetic crossing nodes (which have
         // no SketchPoint) work alongside real points.
@@ -1087,65 +1073,156 @@ std::vector<TopoDS_Wire> Sketch::buildWires() const {
         return true;
     };
 
-    for (size_t startIdx = 0; startIdx < edges.size(); ++startIdx) {
-        if (!alive[startIdx]) continue;
-        if (usedEdges.count(static_cast<int>(startIdx))) continue;
+    // ── Planar face traversal ──────────────────────────────────────────────
+    // Trace every minimal face of the planar graph via half-edges: each
+    // undirected edge becomes two directed half-edges, and at each vertex the
+    // face turns to the next edge in angular order. Every DIRECTED half-edge is
+    // used once, so two faces can share an edge — a bump attached to a loop, or
+    // a region split by a chord — which the old one-use-per-edge greedy walker
+    // could not (it consumed the shared edge for one face and starved the other,
+    // merging the bump or breaking the main loop). The unbounded outer face
+    // comes out clockwise and is dropped by its signed area.
 
-        std::vector<int> chain;
-        chain.push_back(static_cast<int>(startIdx));
-        usedEdges.insert(static_cast<int>(startIdx));
+    // A self-loop edge (a closed spline with no split points) is already a
+    // complete closed wire — emit it directly and keep it out of the graph.
+    std::vector<bool> edgeDead(edges.size(), false);
+    for (size_t i = 0; i < edges.size(); ++i) {
+        if (!alive[i]) { edgeDead[i] = true; continue; }
+        if (edges[i].startPtId == edges[i].endPtId) {
+            edgeDead[i] = true;
+            BRepBuilderAPI_MakeWire wm;
+            if (emitOcctEdge(edges[i], edges[i].startPtId, wm) && wm.IsDone())
+                wires.push_back(wm.Wire());
+        }
+    }
 
-        int firstPointId = edges[startIdx].startPtId;
-        int currentPointId = edges[startIdx].endPtId;
-
-        bool closed = false;
-        bool extended = true;
-        while (extended && !closed) {
-            extended = false;
-            if (currentPointId == firstPointId) { closed = true; break; }
-            auto it = pointToEdges.find(currentPointId);
-            if (it == pointToEdges.end()) break;
-            for (int idx : it->second) {
-                if (usedEdges.count(idx)) continue;
-                int nextPt = otherEnd(edges[idx], currentPointId);
-                if (nextPt < 0) continue;
-                chain.push_back(idx);
-                usedEdges.insert(idx);
-                currentPointId = nextPt;
-                extended = true;
-                break;
+    // 2D polyline of an edge from its `from` endpoint to its `to` endpoint,
+    // curves sampled — used both for the outgoing tangent (so a spline's two
+    // sub-arcs leaving a shared point are ordered right) and for the face's TRUE
+    // signed area (a corners-only polygon has ~zero area for a 2-spline loop).
+    auto edgePolyline = [&](const EdgeSpec& es, int fromPt) -> std::vector<glm::vec2> {
+        std::vector<glm::vec2> pts;
+        auto sc = coord.find(es.startPtId), ec = coord.find(es.endPtId);
+        glm::vec2 sPos = (sc != coord.end()) ? sc->second : glm::vec2(0.0f);
+        glm::vec2 ePos = (ec != coord.end()) ? ec->second : glm::vec2(0.0f);
+        if (es.splineIdx >= 0) {
+            const SketchSpline& sp = m_splines[es.splineIdx];
+            std::vector<glm::vec2> full = sampleSpline2D(sp, 24);
+            if (es.splineSampStart >= 0 && es.splineSampEnd >= 0 && !full.empty()) {
+                int a = std::max(0, es.splineSampStart);
+                int b = std::min(static_cast<int>(full.size()) - 1, es.splineSampEnd);
+                pts.push_back(sPos);
+                for (int i = a; i <= b; ++i) pts.push_back(full[i]);
+                pts.push_back(ePos);
+                std::vector<glm::vec2> ded;
+                for (const auto& q : pts)
+                    if (ded.empty() || glm::length(q - ded.back()) > 1e-6f) ded.push_back(q);
+                pts.swap(ded);
+            } else {
+                pts = full;
             }
-        }
-
-        if (!closed) {
-            for (int idx : chain) usedEdges.erase(idx);
-            continue;
-        }
-
-        // Emit OCCT wire from the chain
-        BRepBuilderAPI_MakeWire wireMaker;
-        int curPt = firstPointId;
-        bool valid = true;
-        for (int idx : chain) {
-            const EdgeSpec& es = edges[idx];
-            // A zero-length line (degenerate input — duplicate consecutive
-            // points) contributes no curve. SKIP it instead of failing:
-            // failing here used to silently drop the ENTIRE closed wire,
-            // which is how SVG circles with degenerate joint cubics
-            // vanished from region detection.
-            if (!es.isArc && es.splineIdx < 0) {
-                auto sc = coord.find(es.startPtId);
-                auto ec = coord.find(es.endPtId);
-                if (sc != coord.end() && ec != coord.end() &&
-                    glm::length(sc->second - ec->second) < 1e-6f) {
-                    curPt = otherEnd(es, curPt);
-                    continue;
+        } else if (es.isArc) {
+            glm::vec2 center(0); double radius = 0; bool ok = false;
+            if (es.circleId >= 0 && es.circleId < static_cast<int>(m_circles.size())) {
+                if (const SketchPoint* cp = getPoint(m_circles[es.circleId].centerPointId)) {
+                    center = cp->pos; radius = m_circles[es.circleId].radius; ok = true; }
+            } else {
+                int ai = -es.circleId - 2;
+                if (ai >= 0 && ai < static_cast<int>(m_arcs.size()))
+                    if (const SketchPoint* cp = getPoint(m_arcs[ai].centerPointId)) {
+                        center = cp->pos; radius = m_arcs[ai].radius; ok = true; }
+            }
+            if (ok && radius > 1e-9) {
+                const int N = 12;
+                for (int k = 0; k <= N; ++k) {
+                    float ang = es.startAngle + (es.endAngle - es.startAngle) * (static_cast<float>(k) / N);
+                    pts.push_back(center + glm::vec2(std::cos(ang), std::sin(ang)) * static_cast<float>(radius));
                 }
             }
-            if (!emitOcctEdge(es, curPt, wireMaker)) { valid = false; break; }
-            curPt = otherEnd(es, curPt);
         }
+        if (pts.size() < 2) pts = {sPos, ePos};
+        if (fromPt == es.endPtId) std::reverse(pts.begin(), pts.end());
+        return pts;
+    };
+    auto outgoingDir = [&](const EdgeSpec& es, int vpt) -> glm::vec2 {
+        std::vector<glm::vec2> poly = edgePolyline(es, vpt);
+        if (poly.size() < 2) return glm::vec2(1.0f, 0.0f);
+        glm::vec2 d = poly[1] - poly[0];
+        float l = glm::length(d);
+        return l > 1e-9f ? d / l : glm::vec2(1.0f, 0.0f);
+    };
 
+    // Half-edges: 2*i = start->end, 2*i+1 = end->start (twin = index ^ 1).
+    struct HE { int edge; int from; int to; float ang; };
+    std::vector<HE> he(edges.size() * 2, HE{-1, -1, -1, 0.0f});
+    for (size_t i = 0; i < edges.size(); ++i) {
+        if (edgeDead[i]) continue;
+        glm::vec2 ds = outgoingDir(edges[i], edges[i].startPtId);
+        glm::vec2 de = outgoingDir(edges[i], edges[i].endPtId);
+        he[2 * i]     = {static_cast<int>(i), edges[i].startPtId, edges[i].endPtId, std::atan2(ds.y, ds.x)};
+        he[2 * i + 1] = {static_cast<int>(i), edges[i].endPtId, edges[i].startPtId, std::atan2(de.y, de.x)};
+    }
+    std::unordered_map<int, std::vector<int>> outHE;
+    for (int i = 0; i < static_cast<int>(he.size()); ++i)
+        if (he[i].edge >= 0) outHE[he[i].from].push_back(i);
+    for (auto& kv : outHE)
+        std::sort(kv.second.begin(), kv.second.end(),
+                  [&](int a, int b) { return he[a].ang < he[b].ang; });
+
+    // Face's next half-edge: at the arrival vertex, the edge immediately
+    // clockwise of the twin in the CCW angular order.
+    auto nextHE = [&](int h) -> int {
+        int v = he[h].to, t = h ^ 1;       // twin is an outgoing half-edge at v
+        auto it = outHE.find(v);
+        if (it == outHE.end()) return -1;
+        const auto& lst = it->second;
+        int pos = -1, n = static_cast<int>(lst.size());
+        for (int i = 0; i < n; ++i) if (lst[i] == t) { pos = i; break; }
+        if (pos < 0) return -1;
+        return lst[(pos - 1 + n) % n];
+    };
+
+    std::vector<bool> heUsed(he.size(), false);
+    for (int h0 = 0; h0 < static_cast<int>(he.size()); ++h0) {
+        if (he[h0].edge < 0 || heUsed[h0]) continue;
+        std::vector<int> face;
+        int h = h0; bool closed = false;
+        for (int step = 0; step <= static_cast<int>(he.size()); ++step) {
+            if (h < 0 || heUsed[h]) break;
+            heUsed[h] = true; face.push_back(h);
+            int nh = nextHE(h);
+            if (nh == h0) { closed = true; break; }
+            h = nh;
+        }
+        if (!closed || face.empty()) continue;
+        // TRUE signed area from the sampled face outline (a corners-only polygon
+        // is ~zero for a 2-spline loop): keep CCW interior faces, drop the CW
+        // unbounded outer face and any zero-area degenerate.
+        std::vector<glm::vec2> poly;
+        for (int hh : face) {
+            std::vector<glm::vec2> ep = edgePolyline(edges[he[hh].edge], he[hh].from);
+            for (size_t k = (poly.empty() ? 0 : 1); k < ep.size(); ++k) poly.push_back(ep[k]);
+        }
+        double area2 = 0;
+        for (size_t k = 0; k < poly.size(); ++k) {
+            const glm::vec2& A = poly[k];
+            const glm::vec2& B = poly[(k + 1) % poly.size()];
+            area2 += static_cast<double>(A.x) * B.y - static_cast<double>(B.x) * A.y;
+        }
+        if (area2 <= 1e-7) continue;
+        BRepBuilderAPI_MakeWire wireMaker;
+        bool valid = true;
+        for (int hh : face) {
+            const EdgeSpec& es = edges[he[hh].edge];
+            // Skip a zero-length line (degenerate duplicate points) rather than
+            // failing the whole wire (that used to drop SVG circles).
+            if (!es.isArc && es.splineIdx < 0) {
+                auto sc = coord.find(es.startPtId), ec = coord.find(es.endPtId);
+                if (sc != coord.end() && ec != coord.end() &&
+                    glm::length(sc->second - ec->second) < 1e-6f) continue;
+            }
+            if (!emitOcctEdge(es, he[hh].from, wireMaker)) { valid = false; break; }
+        }
         if (valid && wireMaker.IsDone()) wires.push_back(wireMaker.Wire());
     }
 
