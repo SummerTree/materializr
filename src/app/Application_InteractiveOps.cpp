@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <cmath>
 #include <limits>
+#include <map>
 #include <set>
 
 #include "app/Application.h"
@@ -2637,6 +2638,16 @@ void Application::cascadeFromSketchEdit(int sketchId) {
     // geometry. If any can't follow (e.g. a fillet whose edge no longer exists
     // after the change), the entire model is restored — never half-built.
     //
+    // Snapshot every body's shape BEFORE the replay so we can re-tessellate
+    // ONLY the bodies it actually changes — not the whole scene. On a multi-
+    // body project a sketch edit touching one body would otherwise re-mesh
+    // every body, which is the dominant cost on a tablet. A re-executed op
+    // hands its bodies a fresh TShape, so IsEqual cleanly separates changed
+    // bodies from untouched ones; created/removed ids are covered below.
+    std::map<int, TopoDS_Shape> beforeBodies;
+    for (int id : m_document->getAllBodyIds())
+        beforeBodies[id] = m_document->getBody(id);
+
     // Pin the edited sketch's FINAL state for the replay: re-executing the
     // chain rolls the live sketch back through its SketchEditOp snapshots, so
     // mid-replay it holds a STALE state — while the extrude below was rebuilt
@@ -2655,7 +2666,20 @@ void Application::cascadeFromSketchEdit(int sketchId) {
                   "downstream feature (e.g. a fillet) couldn't follow it, so the "
                   "model was left unchanged.");
     }
-    m_meshesDirty = true;
+
+    // Partial remesh: mark only bodies whose shape changed, plus any that were
+    // created or removed. On a failed (reverted) replay every body is restored
+    // to its snapshot TShape, so nothing is marked — no needless remesh at all.
+    std::set<int> nowIds;
+    for (int id : m_document->getAllBodyIds()) {
+        nowIds.insert(id);
+        auto it = beforeBodies.find(id);
+        if (it == beforeBodies.end() ||
+            !it->second.IsEqual(m_document->getBody(id)))
+            m_dirtyBodyIds.insert(id);            // changed or newly created
+    }
+    for (const auto& [id, shp] : beforeBodies)
+        if (!nowIds.count(id)) m_dirtyBodyIds.insert(id); // removed → mesh cleared
 }
 
 void Application::cancelLoft() {

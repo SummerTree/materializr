@@ -92,8 +92,15 @@ void ShellController::panelBody(const IopContext& ctx, bool& changed) {
         // the cause: a fillet offset inward by ~its own radius collapses to a
         // zero-radius edge (singular for any join type), so the shell can't be
         // built there — but a clearly thinner or thicker wall works. Name it.
+        // roundedFaceRadii is a full-face scan and panelBody runs every frame,
+        // so cache it keyed on the body shape (recompute only when it changes).
+        const TopoDS_Shape& body = ctx.doc.getBody(bodyId());
+        if (m_radiiCacheShape.IsNull() || !m_radiiCacheShape.IsEqual(body)) {
+            m_radiiCache = ShellOp::roundedFaceRadii(body);
+            m_radiiCacheShape = body;
+        }
         double nearR = -1.0, bestD = 1e18;
-        for (double r : ShellOp::roundedFaceRadii(ctx.doc.getBody(bodyId()))) {
+        for (double r : m_radiiCache) {
             double d = std::abs(r - static_cast<double>(m_thickness));
             if (d < bestD) { bestD = d; nearR = r; }
         }
@@ -111,7 +118,11 @@ void ShellController::panelBody(const IopContext& ctx, bool& changed) {
     }
 }
 
-void ShellController::onCleanup() { m_face.Nullify(); }
+void ShellController::onCleanup() {
+    m_face.Nullify();
+    m_radiiCache.clear();
+    m_radiiCacheShape.Nullify();
+}
 
 // ─── Taper ───────────────────────────────────────────────────────────────────
 
