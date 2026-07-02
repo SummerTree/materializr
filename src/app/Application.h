@@ -374,7 +374,11 @@ private:
     // Map each sketch id to the body ids it drives (created/modified through a
     // sketch-sourced extrude / push-pull). Used by the gizmo commit to tell a
     // unison move (body + its driving sketch) from a lone move that de-links.
-    std::map<int, std::set<int>> sketchBodyLinks() const;
+    // MEMOIZED on History::revision(): the Properties panel asks for the link
+    // hint every frame while a body/sketch is selected (the normal working
+    // state), and rebuilding this walks the whole history + captureDiff per
+    // op — hundreds of map/set node allocations per frame on a long history.
+    const std::map<int, std::set<int>>& sketchBodyLinks() const;
     // Human-readable parametric-link summary for the Properties panel: for a body
     // (isBody=true) which sketch drives it, for a sketch which body it drives, plus
     // whether the link is live or was broken by an independent 3D move. "" = none.
@@ -385,6 +389,9 @@ private:
     // can't re-bind after the geometry moves, so those bodies must move rigidly
     // (and de-link) instead of re-deriving.
     bool bodySafelyRederivable(int bodyId, int viaSketchId) const;
+    // sketchBodyLinks() memo — see its declaration. ~0u forces the first build.
+    mutable std::map<int, std::set<int>> m_linkMapCache;
+    mutable unsigned m_linkMapRevision = ~0u;
     // Re-establish the parametric link of a detached sketch (Properties-panel
     // "Re-link"): clears the detached flag so editing the sketch drives its body
     // again. isBody=true re-links every detached sketch driving that body.

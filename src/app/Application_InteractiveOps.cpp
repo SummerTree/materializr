@@ -2508,9 +2508,16 @@ void Application::commitLoft() {
 // follow" workflow this trade-off is fine: simple chains just work; chained
 // workflows leave the downstream ops on the stale body and the user
 // manually re-runs them.
-std::map<int, std::set<int>> Application::sketchBodyLinks() const {
-    std::map<int, std::set<int>> links;
+const std::map<int, std::set<int>>& Application::sketchBodyLinks() const {
+    // Memoized on the history revision — the Properties panel reads the link
+    // hint every frame a body/sketch is selected, and this walk (dynamic_cast
+    // + captureDiff per step, fresh map/set nodes) was running per frame.
+    if (m_history && m_linkMapRevision == m_history->revision())
+        return m_linkMapCache;
+    std::map<int, std::set<int>>& links = m_linkMapCache;
+    links.clear();
     if (!m_history) return links;
+    m_linkMapRevision = m_history->revision();
     int n = m_history->stepCount();
     for (int i = 0; i < n; ++i) {
         const Operation* op = m_history->getStep(i);
@@ -2566,7 +2573,7 @@ void Application::relinkSketch(bool isBody, int id) {
     if (!m_document) return;
     std::vector<int> sketches;
     if (isBody) {
-        auto links = sketchBodyLinks();
+        const auto& links = sketchBodyLinks();
         for (const auto& [sid, bodies] : links)
             if (bodies.count(id)) sketches.push_back(sid);
     } else {
@@ -2587,7 +2594,7 @@ void Application::relinkSketch(bool isBody, int id) {
 
 std::string Application::linkHintFor(bool isBody, int id) const {
     if (!m_document) return "";
-    auto links = sketchBodyLinks();
+    const auto& links = sketchBodyLinks();
     auto nameList = [&](const std::set<int>& ids, bool bodies) {
         std::string s;
         for (int v : ids) {

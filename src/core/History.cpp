@@ -11,6 +11,7 @@
 History::History() = default;
 
 bool History::pushOperation(std::unique_ptr<Operation> op, Document& doc) {
+    ++m_revision;
     if (!op) {
         return false;
     }
@@ -57,6 +58,7 @@ bool History::pushOperation(std::unique_ptr<Operation> op, Document& doc) {
 }
 
 void History::pushExecuted(std::unique_ptr<Operation> op) {
+    ++m_revision;
     if (!op) return;
     op->rememberGoodParams(); // already-applied params are by definition good
     if (m_currentIndex + 1 < static_cast<int>(m_operations.size())) {
@@ -79,6 +81,7 @@ bool History::canRedo() const {
 }
 
 bool History::undo(Document& doc) {
+    ++m_revision;
     if (!canUndo()) {
         std::fprintf(stderr, "[History] undo: nothing to undo (currentIndex=%d)\n",
                      m_currentIndex);
@@ -120,6 +123,7 @@ bool History::undo(Document& doc) {
 }
 
 bool History::redo(Document& doc) {
+    ++m_revision;
     if (!canRedo()) {
         return false;
     }
@@ -168,6 +172,7 @@ const Operation* History::getStep(int index) const {
 }
 
 void History::propagateSketchValueEdits(int editedStep, Document& doc) {
+    ++m_revision;
     if (editedStep < 0 || editedStep >= static_cast<int>(m_operations.size()))
         return;
     auto* edited =
@@ -192,6 +197,7 @@ void History::propagateSketchValueEdits(int editedStep, Document& doc) {
 }
 
 bool History::editStep(int index, Document& doc, bool transactional) {
+    ++m_revision;
     if (index < 0 || index >= static_cast<int>(m_operations.size())) {
         return false;
     }
@@ -362,6 +368,7 @@ bool History::editStep(int index, Document& doc, bool transactional) {
 }
 
 bool History::removeStep(int index, Document& doc) {
+    ++m_revision;
     int count = static_cast<int>(m_operations.size());
     if (index < 0 || index >= count) return false;
 
@@ -419,6 +426,7 @@ bool History::removeStep(int index, Document& doc) {
 }
 
 bool History::setStepEnabled(int index, bool enabled, Document& doc) {
+    ++m_revision;
     int count = static_cast<int>(m_operations.size());
     if (index < 0 || index >= count) return false;
     Operation* target = m_operations[index].get();
@@ -476,6 +484,7 @@ int History::getBreakpoint() const {
 }
 
 bool History::replayAll(Document& doc) {
+    ++m_revision;
     doc.clear();
 
     int limit = static_cast<int>(m_operations.size()) - 1;
@@ -515,6 +524,7 @@ bool History::replayAll(Document& doc) {
 }
 
 void History::clear() {
+    ++m_revision;
     m_operations.clear();
     m_currentIndex = -1;
     m_breakpoint = -1;
@@ -522,6 +532,7 @@ void History::clear() {
 }
 
 void History::dropRedoTail() {
+    ++m_revision;
     if (m_currentIndex + 1 < static_cast<int>(m_operations.size()))
         m_operations.erase(m_operations.begin() + m_currentIndex + 1,
                            m_operations.end());
@@ -589,6 +600,7 @@ int History::reflowInsertionIndex(const Operation& op) const {
 
 bool History::insertStepAndReplay(int index, std::unique_ptr<Operation> op,
                                   Document& doc) {
+    ++m_revision;
     int limit = m_currentIndex;
     if (m_breakpoint >= 0 && m_breakpoint < limit) limit = m_breakpoint;
     if (index < 0 || index > limit) return false;

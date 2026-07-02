@@ -5227,48 +5227,70 @@ void Application::run() {
             // "Edit Diameter" button only appears when the picked face is a
             // cylinder on a solid-cylinder or tube body. Detection populates
             // m_resizeCyl* fields as a side effect — we throw the result away
-            // here, those are only used by the actual begin path.
-            m_toolbar->setCanEditDiameter(!m_resizeCylActive &&
-                                          detectCylindricalResizeCandidate());
-            // "Frozen round" hint: a selected fillet-shaped face (cylinder /
-            // torus) that NO enabled op owns reloaded as baked geometry — there's
-            // no editable FilletOp behind it. The toolbar surfaces a one-liner
-            // pointing at Repair Geometry. A FULL 2π cylinder is a hole / pin
-            // (Edit Diameter handles it), not a round, so it's excluded.
+            // here, those are only used by the actual begin path (which
+            // re-runs the detection itself when the button is pressed).
+            //
+            // Both this detection (OCCT surface queries + a whole-body face
+            // walk for edge picks) and the frozen-round scan below (surface
+            // query + an ownsFace() history walk) used to run EVERY rendered
+            // frame while a face was selected — the normal working state.
+            // They only depend on the selection and the history, so memoize
+            // on those revisions and recompute only when one changes.
             {
-                bool frozenRound = false;
-                TopoDS_Shape pf;
-                for (const auto& e : m_selection->getSelection())
-                    if (e.type == SelectionType::Face && !e.shape.IsNull()) {
-                        pf = e.shape; break;
-                    }
-                if (!pf.IsNull() && pf.ShapeType() == TopAbs_FACE) {
-                    try {
-                        TopoDS_Face f = TopoDS::Face(pf);
-                        Handle(Geom_Surface) s = BRep_Tool::Surface(f);
-                        bool round = false;
-                        if (!s.IsNull()) {
-                            if (s->IsKind(STANDARD_TYPE(Geom_ToroidalSurface))) {
-                                round = true; // curved-edge fillet
-                            } else if (s->IsKind(STANDARD_TYPE(Geom_CylindricalSurface))) {
-                                double u1, u2, v1, v2;
-                                BRepTools::UVBounds(f, u1, u2, v1, v2);
-                                round = (u2 - u1) < 2.0 * M_PI - 0.05; // partial = fillet
-                            }
+                static unsigned s_selRev = ~0u, s_histRev = ~0u;
+                static bool s_resizeActive = false;
+                static bool s_canEditDiameter = false;
+                static bool s_frozenRound = false;
+                const unsigned selRev  = m_selection->revision();
+                const unsigned histRev = m_history->revision();
+                if (selRev != s_selRev || histRev != s_histRev ||
+                    m_resizeCylActive != s_resizeActive) {
+                    s_selRev = selRev;
+                    s_histRev = histRev;
+                    s_resizeActive = m_resizeCylActive;
+                    s_canEditDiameter = !m_resizeCylActive &&
+                                        detectCylindricalResizeCandidate();
+                    // "Frozen round" hint: a selected fillet-shaped face
+                    // (cylinder / torus) that NO enabled op owns reloaded as
+                    // baked geometry — there's no editable FilletOp behind it.
+                    // The toolbar surfaces a one-liner pointing at Repair
+                    // Geometry. A FULL 2π cylinder is a hole / pin (Edit
+                    // Diameter handles it), not a round, so it's excluded.
+                    s_frozenRound = false;
+                    TopoDS_Shape pf;
+                    for (const auto& e : m_selection->getSelection())
+                        if (e.type == SelectionType::Face && !e.shape.IsNull()) {
+                            pf = e.shape; break;
                         }
-                        if (round) {
-                            frozenRound = true; // assume frozen until an op claims it
-                            for (const auto& op : m_history->operations())
-                                if (op && op->isEnabled() && op->ownsFace(pf) &&
-                                    (op->typeId() == "fillet" ||
-                                     op->typeId() == "chamfer")) {
-                                    frozenRound = false;
-                                    break;
+                    if (!pf.IsNull() && pf.ShapeType() == TopAbs_FACE) {
+                        try {
+                            TopoDS_Face f = TopoDS::Face(pf);
+                            Handle(Geom_Surface) s = BRep_Tool::Surface(f);
+                            bool round = false;
+                            if (!s.IsNull()) {
+                                if (s->IsKind(STANDARD_TYPE(Geom_ToroidalSurface))) {
+                                    round = true; // curved-edge fillet
+                                } else if (s->IsKind(STANDARD_TYPE(Geom_CylindricalSurface))) {
+                                    double u1, u2, v1, v2;
+                                    BRepTools::UVBounds(f, u1, u2, v1, v2);
+                                    round = (u2 - u1) < 2.0 * M_PI - 0.05; // partial = fillet
                                 }
-                        }
-                    } catch (...) {}
+                            }
+                            if (round) {
+                                s_frozenRound = true; // assume frozen until an op claims it
+                                for (const auto& op : m_history->operations())
+                                    if (op && op->isEnabled() && op->ownsFace(pf) &&
+                                        (op->typeId() == "fillet" ||
+                                         op->typeId() == "chamfer")) {
+                                        s_frozenRound = false;
+                                        break;
+                                    }
+                            }
+                        } catch (...) {}
+                    }
                 }
-                m_toolbar->setSelectedFaceFrozenRound(frozenRound);
+                m_toolbar->setCanEditDiameter(s_canEditDiameter);
+                m_toolbar->setSelectedFaceFrozenRound(s_frozenRound);
             }
             m_toolbar->setShowTooltips(m_showToolbarTooltips);
             // Mirror the live inference level (Full/Reduced/Off) so the sketch

@@ -48,6 +48,15 @@ public:
     int currentStep() const; // index of last executed step
     const Operation* getStep(int index) const;
 
+    // Monotonic counter bumped by every mutating call (push/undo/redo/edit/
+    // remove/replay/enable/clear/dropRedoTail). Lets callers memoize anything
+    // derived from the op list — e.g. the sketch↔body link map, which used to
+    // be rebuilt (full history walk + captureDiff per op) EVERY FRAME by the
+    // Properties panel's link hint. A spurious bump only invalidates a cache;
+    // a missed one would serve stale data, so mutators bump unconditionally,
+    // even when the action ends up a no-op.
+    unsigned revision() const { return m_revision; }
+
     // Thread-last reflow support: if `op` plans to touch a body that the
     // trailing Thread steps modified, returns the index those threads start
     // at (where the op should be inserted); -1 = no reflow needed.
@@ -130,6 +139,7 @@ private:
     int m_currentIndex = -1;
     int m_breakpoint = -1;
     int m_undoFloor = -1;   // see setUndoFloor(): floor for in-sketch undo
+    unsigned m_revision = 0; // see revision()
     // Step that failed to recompute during the last editStep/redo replay;
     // cleared by manual undo, by a successful retry, or by clear().
     int m_failedReplayAt = -1;
