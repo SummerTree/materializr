@@ -181,6 +181,10 @@ void Application::renderViewport() {
         glEnable(GL_DEPTH_TEST);
 
         Camera& cam = m_viewport->getCamera();
+        // Viewport height in ImGui points (the units mouse/touch deltas use):
+        // lets Camera::pan translate exactly one pixel's world size per pixel
+        // dragged, so pan tracking stays 1:1 at every zoom level.
+        cam.setViewHeightPx(contentSize.y);
         glm::mat4 view = cam.getViewMatrix();
         glm::mat4 proj = cam.getProjectionMatrix();
 
@@ -205,10 +209,46 @@ void Application::renderViewport() {
                 gp.v = v3(ax.YDirection());
                 gp.normal = v3(ax.Direction());
             }
-            // Fade radius sized to the view so the grid fills it without a hard edge.
+            // Centre the fade on the point of the plane directly under the camera
+            // (the eye's projection onto the plane). It's always finite and moves
+            // with the camera, so the fade follows cursor-zoom (the reason we left
+            // the orbit target) WITHOUT the divergence the view-ray∩plane had: as
+            // the view approaches edge-on that intersection raced to the horizon
+            // and snapped back on crossing, a one-frame brightness pop that read as
+            // a glitch. The eye-projection has no such discontinuity. For a view
+            // ray that genuinely hits the plane near the camera, blend toward that
+            // hit so framing stays centred where you're looking at normal angles.
+            glm::vec3 ro = cam.getPosition();
+            float eyeH = glm::dot(ro - gp.origin, gp.normal);
+            glm::vec3 fadeCenter = ro - eyeH * gp.normal; // eye → plane
+            {
+                glm::vec3 rd = cam.getTarget() - ro;
+                float rl = glm::length(rd);
+                if (rl > 1e-6f) {
+                    rd /= rl;
+                    float denom = glm::dot(rd, gp.normal);
+                    if (std::abs(denom) > 1e-6f) {
+                        float t = glm::dot(gp.origin - ro, gp.normal) / denom;
+                        // Only adopt the look-point when it's a sane, near hit —
+                        // not the horizon-bound intersection at grazing angles.
+                        float cap = std::max(std::abs(eyeH), 10.0f) * 32.0f;
+                        if (t > 0.0f && t < cap) fadeCenter = ro + rd * t;
+                    }
+                }
+            }
+            // Fade radius sized to the view so the grid fills it without a hard
+            // edge. Perspective used to key this off the camera→TARGET distance,
+            // but on large projects the orbit target drifts away from the content
+            // on screen (cursor-zoom onto a small part can leave it millimetres
+            // from the camera) and the grid faded out within arm's reach of the
+            // eye — "the grid disappears when I'm not even zoomed in". Key it off
+            // the camera→fadeCenter distance instead: the point on the plane the
+            // fade is centred on is, by construction, where the view is actually
+            // looking. The eye height above the plane is the floor so a low
+            // camera looking outward still gets a sane radius.
             float fadeDist = cam.isOrthographic()
                 ? cam.getOrthoSize() * 8.0f
-                : glm::length(cam.getPosition() - cam.getTarget()) * 8.0f;
+                : std::max(glm::length(fadeCenter - ro), std::abs(eyeH)) * 8.0f;
             // Suppress the minor (1×) grid tier when the project is big and
             // the user isn't actively sketching / moving — at that zoom the
             // 1-mm lines are clutter that drowns the major (10-mm) lines.
@@ -250,33 +290,8 @@ void Application::renderViewport() {
                 }
                 if (s_hideMinor) minorAlpha = 0.0f;
             }
-            // Centre the fade on the point of the plane directly under the camera
-            // (the eye's projection onto the plane). It's always finite and moves
-            // with the camera, so the fade follows cursor-zoom (the reason we left
-            // the orbit target) WITHOUT the divergence the view-ray∩plane had: as
-            // the view approaches edge-on that intersection raced to the horizon
-            // and snapped back on crossing, a one-frame brightness pop that read as
-            // a glitch. The eye-projection has no such discontinuity. For a view
-            // ray that genuinely hits the plane near the camera, blend toward that
-            // hit so framing stays centred where you're looking at normal angles.
-            glm::vec3 ro = cam.getPosition();
-            float eyeH = glm::dot(ro - gp.origin, gp.normal);
-            glm::vec3 fadeCenter = ro - eyeH * gp.normal; // eye → plane
-            {
-                glm::vec3 rd = cam.getTarget() - ro;
-                float rl = glm::length(rd);
-                if (rl > 1e-6f) {
-                    rd /= rl;
-                    float denom = glm::dot(rd, gp.normal);
-                    if (std::abs(denom) > 1e-6f) {
-                        float t = glm::dot(gp.origin - ro, gp.normal) / denom;
-                        // Only adopt the look-point when it's a sane, near hit —
-                        // not the horizon-bound intersection at grazing angles.
-                        float cap = std::max(fadeDist, 10.0f) * 4.0f;
-                        if (t > 0.0f && t < cap) fadeCenter = ro + rd * t;
-                    }
-                }
-            }
+            // (fadeCenter + fadeDist were computed above, before the minor-tier
+            // check, because the fade radius is sized off the fade centre.)
             // One grid (m_grid) serves both the XZ ground and the sketch plane,
             // driven by the opacity setting in every mode. The shader gives each
             // tier its own screen-space density fade, so the fine face-on sketch
@@ -2370,9 +2385,35 @@ void Application::renderViewport() {
                     !m_pushPullActive && !m_edgeOpActive && !m_gizmoDragging)
                     suppressCamDrag = true;
             }
+            // Pan depth anchor: Camera::pan is exact 1:1 screen tracking, but in
+            // perspective "one pixel's world size" depends on DEPTH — and the
+            // camera target is a bad proxy for it on large projects (cursor-zoom
+            // leaves it metres from, or millimetres in front of, the geometry on
+            // screen; that's what made pan twitchy up close and frozen far out).
+            // Anchor each pan gesture to the hover pick from the mouse-down
+            // frame instead — the same cached pick cursor-zoom reuses — so the
+            // point you grab moves with the cursor. No fresh hit (empty space)
+            // → -1 → Camera falls back to the target distance. The anchor is
+            // captured ONCE per button-hold: picking pauses during camera drags,
+            // and mid-drag the grabbed content stays at the same depth anyway
+            // (pan is a screen-parallel translation).
+            if (!ImGui::IsMouseDown(m_orbitButton) &&
+                !ImGui::IsMouseDown(m_panButton))
+                m_panAnchorHeld = false;
+            auto anchoredPan = [&](float dx, float dy) {
+                if (!m_panAnchorHeld) {
+                    m_panAnchorHeld = true;
+                    float d = -1.0f;
+                    if (m_zoomFocusHit && m_zoomFocusFrame >= 0 &&
+                        ImGui::GetFrameCount() - m_zoomFocusFrame <= 3)
+                        d = glm::length(m_zoomFocusPoint - cam.getPosition());
+                    cam.setPanRefDist(d);
+                }
+                cam.pan(dx, dy);
+            };
             if (!suppressCamDrag && ImGui::IsMouseDragging(m_orbitButton)) {
                 ImVec2 delta = io.MouseDelta;
-                if (io.KeyShift) cam.pan(delta.x, delta.y);
+                if (io.KeyShift) anchoredPan(delta.x, delta.y);
                 else {
                     // Touch orbit honours the user's sensitivity slider; desktop
                     // mouse orbit is unscaled (factor 1).
@@ -2382,7 +2423,7 @@ void Application::renderViewport() {
             }
             if (!suppressCamDrag && m_panButton != m_orbitButton &&
                 ImGui::IsMouseDragging(m_panButton)) {
-                cam.pan(io.MouseDelta.x, io.MouseDelta.y);
+                anchoredPan(io.MouseDelta.x, io.MouseDelta.y);
             }
 
             if (materializr::touchMode() && m_window) {
@@ -2390,14 +2431,34 @@ void Application::renderViewport() {
                 // centroid movement pans, pinch zooms. Applied here so they share
                 // the viewport-hovered gate and gizmo-ownership suppression above.
                 float tdx = 0.0f, tdy = 0.0f, tdz = 0.0f;
-                // Pan: damped, with a small deadzone so two-finger jitter doesn't
-                // creep the view.
+                // Pan: 1:1 (content glued to the fingers, like scrolling a web
+                // page — Camera::pan is pixel-exact now), with a small deadzone
+                // so two-finger jitter doesn't creep the view. The old 0.275
+                // damping compensated for the legacy distance-fraction pan
+                // being several times faster than 1:1; with exact tracking the
+                // baseline is 1.0 and the slider scales from there.
                 if (!gizmoOwnsDrag && m_window->consumeTouchPan(tdx, tdy)) {
                     if (std::fabs(tdx) > 0.5f || std::fabs(tdy) > 0.5f) {
-                        // Base 0.275 = old 0.55 × 0.50: the calmer pan that used to
-                        // need a 0.50x slider is now the 1.0x baseline (raw pan was
-                        // twitchy). Slider still scales from here.
-                        cam.pan(tdx * 0.275f * m_touchPanSens, tdy * 0.275f * m_touchPanSens);
+                        const int fc = ImGui::GetFrameCount();
+                        if (fc - m_lastTouchPanFrame > 10) {
+                            // New two-finger gesture. Touch has no hover pick to
+                            // reuse, so ray-cast the viewport centre once per
+                            // gesture (not per frame — the picker walk is the
+                            // dominant per-frame cost on dense scenes) to anchor
+                            // the pan depth to the content actually in view.
+                            float d = -1.0f;
+                            try {
+                                auto r = m_picker->pick(contentSize.x * 0.5f,
+                                                        contentSize.y * 0.5f,
+                                                        contentSize.x, contentSize.y,
+                                                        cam, *m_document);
+                                if (r.hit)
+                                    d = glm::length(r.hitPoint - cam.getPosition());
+                            } catch (...) {}
+                            cam.setPanRefDist(d);
+                        }
+                        m_lastTouchPanFrame = fc;
+                        cam.pan(tdx * m_touchPanSens, tdy * m_touchPanSens);
                     }
                 }
                 // Pinch zoom: continuous (fires every frame), so a fraction of a

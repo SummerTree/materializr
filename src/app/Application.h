@@ -1079,6 +1079,13 @@ private:
     glm::vec3 m_zoomFocusPoint{0.0f};
     int m_zoomFocusFrame = -1;
 
+    // Pan depth-anchor gesture tracking (see the anchoredPan lambda in the
+    // camera-drag handler): the anchor is captured once per pan gesture —
+    // desktop gestures live for as long as a camera button stays held,
+    // touch gestures for as long as two-finger pan events keep arriving.
+    bool m_panAnchorHeld = false;   // desktop: a camera button hold owns the anchor
+    int m_lastTouchPanFrame = -1000; // touch: last frame a two-finger pan applied
+
     // Click-cycling state: first click at a spot picks the visible FACE,
     // a second click at the same spot cycles to the sketch region covered
     // by / behind that face — resolves the face-vs-region ambiguity when
