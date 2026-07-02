@@ -2,7 +2,7 @@
 
 #include "gl_common.h"   // GLEW (Windows) must be included before other GL users
 #include "touch_mode.h"
-#include "android_files.h" // androidShow/HideTextInput (no-ops on desktop)
+#include "mobile_files.h" // mobileShow/HideTextInput (no-ops on desktop and iOS)
 #include <SDL.h>
 #include <imgui_impl_sdl2.h>
 #include <imgui_internal.h> // g.MovingWindow — let tab-drag (re-dock) beat drag-to-scroll
@@ -19,7 +19,7 @@ namespace materializr {
 Window::Window(int width, int height, const std::string& title)
     : m_width(width), m_height(height) {
 
-#if defined(__ANDROID__)
+#if defined(MZ_MOBILE)
     // Stop SDL from synthesizing mouse events from touch. On Android that
     // synthesis leaves ImGui's mouse button stuck "down" after a tap (so every
     // gesture reads as click-and-hold). We feed ImGui clean finger events
@@ -48,7 +48,7 @@ Window::Window(int width, int height, const std::string& title)
 
     // Request the right GL context per platform. Desktop: GL 3.3 Core. Android:
     // GL ES 3.0 (same shader/feature subset Materializr uses).
-#if defined(__ANDROID__)
+#if defined(MZ_GLES)
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
@@ -119,7 +119,7 @@ Window::Window(int width, int height, const std::string& title)
         bool clamped = false;
         if (maxW > 0 && m_width  > maxW) { m_width  = maxW; clamped = true; }
         if (maxH > 0 && m_height > maxH) { m_height = maxH; clamped = true; }
-#if !defined(__ANDROID__)
+#if !defined(MZ_MOBILE)
         // On a screen too small for the default size, also start maximized so the
         // app fills the work area immediately. The clamped values above become the
         // window's *restore* size, so un-maximizing — or a minimize→restore — drops
@@ -229,7 +229,7 @@ int Window::pollEvents(int waitMs) {
                     break;
             }
         }
-#if defined(__ANDROID__)
+#if defined(MZ_MOBILE)
         // Touch gestures, handled directly (SDL's own touch->mouse synthesis is
         // off). One finger drives the left mouse (tap = select, drag = orbit in
         // trackpad mode); two fingers pan/pinch-zoom the camera.
@@ -254,7 +254,7 @@ int Window::pollEvents(int waitMs) {
                 break;
         }
     }
-#if defined(__ANDROID__)
+#if defined(MZ_MOBILE)
     updateHoldSelect();          // arm the long-press (box-select on drag / menu on lift)
     pumpSyntheticRightClick();   // play back a queued long-press context-menu click
 #endif
@@ -262,7 +262,7 @@ int Window::pollEvents(int waitMs) {
     return result;
 }
 
-#if defined(__ANDROID__)
+#if defined(MZ_MOBILE)
 void Window::handleFingerEvent(unsigned type, std::int64_t id, float nx, float ny) {
     ImGuiIO& io = ImGui::GetIO();
     const float x = nx * io.DisplaySize.x;   // normalised [0,1] -> pixels
@@ -557,17 +557,17 @@ bool Window::consumeDoubleTap() {
 }
 
 void Window::updateTextInput(bool wantTextInput) {
-#if defined(__ANDROID__)
+#if defined(MZ_MOBILE)
     if (wantTextInput && !m_textInputActive) {
         SDL_StartTextInput();              // enables SDL_TEXTINPUT events
         // SDL's own keyboard-raise is gated on SDL_GetFocusWindow() != NULL,
         // which is NULL in our immersive surface, so it no-ops. Raise the IME
         // ourselves via SDLActivity (text still routes through SDL → ImGui).
-        androidShowTextInput();
+        mobileShowTextInput();
         m_textInputActive = true;
     } else if (!wantTextInput && m_textInputActive) {
         SDL_StopTextInput();
-        androidHideTextInput();
+        mobileHideTextInput();
         m_textInputActive = false;
     }
 #else

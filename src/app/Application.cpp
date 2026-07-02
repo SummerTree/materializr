@@ -92,7 +92,8 @@ inline void resetFpuForOcct() {
 #include "io/SketchRecovery.h"
 #include "io/ProjectRecovery.h"
 #include "io/Settings.h"
-#include "android_files.h" // androidLastDocUri/Name + androidOpenUri (Open Recent on SAF)
+#include "mobile_files.h" // mobileLastDocUri/Name + mobileOpenUri (Open Recent via persisted refs)
+#include "ios_platform.h" // iosInBackground (inline false off-iOS)
 #include "core/EventBus.h"
 #include "core/Events.h"
 #include "core/Verbose.h"
@@ -571,7 +572,7 @@ void Application::initImGui() {
     }
 
     ImGui_ImplSDL2_InitForOpenGL(m_window->handle(), m_window->glContext());
-#if defined(__ANDROID__)
+#if defined(MZ_GLES)
     ImGui_ImplOpenGL3_Init("#version 300 es");
 #else
     ImGui_ImplOpenGL3_Init("#version 330");
@@ -2831,7 +2832,7 @@ void Application::saveProject() {
         [this](const std::string& chosenPath) {
             if (chosenPath.empty()) return;
             std::string path = chosenPath;
-#if !defined(__ANDROID__)
+#if !defined(MZ_MOBILE)
             // Keep the .materializr extension. The project file is gzip-
             // compressed, so without the extension the OS shows it as a generic
             // "compressed archive" and the open filter can't find it. (On
@@ -2848,9 +2849,9 @@ void Application::saveProject() {
                 // Save As also lands in Open Recent (persistable ref on Android).
                 {
                     std::string ref, name;
-#if defined(__ANDROID__)
-                    ref  = materializr::androidLastDocUri();
-                    name = materializr::androidLastDocName();
+#if defined(MZ_MOBILE)
+                    ref  = materializr::mobileLastDocUri();
+                    name = materializr::mobileLastDocName();
                     if (ref.empty()) ref = path;
 #else
                     ref = path;
@@ -3376,9 +3377,9 @@ void Application::openRecentProject(const AppSettings::RecentProject& r) {
     const std::string ref  = r.ref;
     const std::string name = r.name;
     guardedOpen([this, ref, name]() {
-#if defined(__ANDROID__)
+#if defined(MZ_MOBILE)
         // ref is a persisted SAF content:// URI — resolve to a temp file, no picker.
-        std::string tmp = materializr::androidOpenUri(ref);
+        std::string tmp = materializr::mobileOpenUri(ref);
         if (tmp.empty()) {
             showToast("Couldn't open \"" + name + "\" - access may have been revoked.");
             removeRecentProject(ref);
@@ -3409,9 +3410,9 @@ void Application::loadProject() {
                 // Android (the `path` is a throwaway temp there), the real path
                 // on desktop.
                 std::string ref, name;
-#if defined(__ANDROID__)
-                ref  = materializr::androidLastDocUri();
-                name = materializr::androidLastDocName();
+#if defined(MZ_MOBILE)
+                ref  = materializr::mobileLastDocUri();
+                name = materializr::mobileLastDocName();
                 if (ref.empty()) ref = path; // fallback (non-persistable provider)
 #else
                 ref = path;
@@ -3578,10 +3579,10 @@ void Application::exportBodyAsStl(int bodyId) {
         return;
     }
 
-#if defined(__ANDROID__)
+#if defined(MZ_MOBILE)
     // Touch: offer Share (to Drive/email/3D apps) or Save-to-device. Both context
     // menus (viewport long-press + Items panel) route here.
-    FileDialogs::androidExportShareOrSave(defaultFile, "application/octet-stream",
+    FileDialogs::mobileExportShareOrSave(defaultFile, "application/octet-stream",
         [shape](const std::string& path) {
             auto result = StlExport::exportShape(path, shape);
             if (result.success)
@@ -3630,8 +3631,8 @@ void Application::exportSketchAsSvg(int sketchId) {
     // Capture the shared_ptr so the (async) dialog callback can't dangle.
     auto sk = sketch;
 
-#if defined(__ANDROID__)
-    FileDialogs::androidExportShareOrSave(defaultFile, "image/svg+xml",
+#if defined(MZ_MOBILE)
+    FileDialogs::mobileExportShareOrSave(defaultFile, "image/svg+xml",
         [sk](const std::string& path) {
             auto result = materializr::SvgExport::exportSketch(path, *sk);
             if (result.success)
@@ -5098,7 +5099,13 @@ void Application::run() {
         // earlier "foreground for 3 s" only neutralised the focus term, leaving
         // the idle term to still skip (the splash-hang regression).
         const bool launchGrace = (SDL_GetTicks() - runStartMs < 3000u);
-#if defined(__ANDROID__)
+#if defined(MZ_IOS)
+        // iOS: the OS pauses a backgrounded app too, but there is a window
+        // around WILLENTERBACKGROUND where GL calls get the app terminated by
+        // the watchdog. Hard-stop rendering while UIKit says we are backgrounded
+        // (the 500 ms event-wait below keeps the loop cheap until suspension).
+        const bool foreground = !materializr::iosInBackground();
+#elif defined(MZ_MOBILE)
         // Android exemption: the OS already pauses the activity (and SDL the GL
         // surface) when backgrounded, so the gate buys nothing here — and
         // SDL_WINDOW_INPUT_FOCUS isn't set until the first touch, so gating on it

@@ -34,7 +34,7 @@ void Viewport::bind()
     // NOTE: glBindFramebuffer requires glad or GL 3.0+ function pointer
     if (m_samples > 0 && m_msaaFbo) {
         glBindFramebuffer(GL_FRAMEBUFFER, m_msaaFbo);
-#if !defined(__ANDROID__)
+#if !defined(MZ_GLES)
         // GL ES has no GL_MULTISAMPLE toggle — MSAA is implied by the
         // multisampled renderbuffer/EGL config and is always active.
         glEnable(GL_MULTISAMPLE);
