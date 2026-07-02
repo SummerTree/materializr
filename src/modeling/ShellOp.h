@@ -24,6 +24,12 @@ public:
     int getBodyId() const { return m_bodyId; }
     double getThickness() const { return m_thickness; }
 
+    // Distinct radii (ascending) of the body's rounded faces — cylinders and
+    // tori, i.e. fillets/rounds and round holes. A shell fails outright when
+    // the wall thickness nears one of these (offsetting a round by ~its own
+    // radius is singular); the interactive panel uses this to explain WHY.
+    static std::vector<double> roundedFaceRadii(const TopoDS_Shape& body);
+
     // Operation interface
     bool execute(Document& doc) override;
     bool undo(Document& doc) override;

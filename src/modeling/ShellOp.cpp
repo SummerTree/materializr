@@ -8,11 +8,14 @@
 #include <BRepOffset_Mode.hxx>
 #include <BRepCheck_Analyzer.hxx>
 #include <BRepGProp_Face.hxx>
+#include <BRepAdaptor_Surface.hxx>
 #include <GeomAbs_JoinType.hxx>
+#include <GeomAbs_SurfaceType.hxx>
 #include <Standard_ErrorHandler.hxx> // OCC_CATCH_SIGNALS
 #include <TopoDS.hxx>
 #include <TopExp_Explorer.hxx>
 #include <gp_Vec.hxx>
+#include <algorithm>
 #include <imgui.h>
 
 namespace {
@@ -41,6 +44,25 @@ bool faceInShape(const TopoDS_Face& face, const TopoDS_Shape& shape) {
 } // namespace
 
 ShellOp::ShellOp() = default;
+
+std::vector<double> ShellOp::roundedFaceRadii(const TopoDS_Shape& body) {
+    std::vector<double> radii;
+    if (body.IsNull()) return radii;
+    for (TopExp_Explorer ex(body, TopAbs_FACE); ex.More(); ex.Next()) {
+        try {
+            BRepAdaptor_Surface sa(TopoDS::Face(ex.Current()));
+            double r = -1.0;
+            if (sa.GetType() == GeomAbs_Cylinder)   r = sa.Cylinder().Radius();
+            else if (sa.GetType() == GeomAbs_Torus) r = sa.Torus().MinorRadius();
+            if (r <= 0.0) continue;
+            bool seen = false;
+            for (double e : radii) if (std::abs(e - r) < 1e-4) { seen = true; break; }
+            if (!seen) radii.push_back(r);
+        } catch (...) {}
+    }
+    std::sort(radii.begin(), radii.end());
+    return radii;
+}
 
 void ShellOp::captureFaceAnchors(const TopoDS_Shape& shape) {
     if (!m_faceAnchors.empty() || m_facesToRemove.IsEmpty() || shape.IsNull())

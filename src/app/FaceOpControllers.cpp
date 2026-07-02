@@ -54,7 +54,7 @@ std::unique_ptr<Operation> ShellController::buildOp(const IopContext&) {
     return op;
 }
 
-void ShellController::panelBody(const IopContext&, bool& changed) {
+void ShellController::panelBody(const IopContext& ctx, bool& changed) {
     ImGui::TextDisabled("Hollows the body, opening a face.");
 
     if (m_inputFocus) {
@@ -87,9 +87,27 @@ void ShellController::panelBody(const IopContext&, bool& changed) {
     }
 
     if (!previewOk()) {
-        ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.3f, 1.0f),
-                           "Shell failed - try a thinner wall, or\n"
-                           "this body's faces can't be shelled.");
+        const ImVec4 warn(1.0f, 0.6f, 0.3f, 1.0f);
+        // If the wall lands near one of the body's rounded-edge radii, THAT'S
+        // the cause: a fillet offset inward by ~its own radius collapses to a
+        // zero-radius edge (singular for any join type), so the shell can't be
+        // built there — but a clearly thinner or thicker wall works. Name it.
+        double nearR = -1.0, bestD = 1e18;
+        for (double r : ShellOp::roundedFaceRadii(ctx.doc.getBody(bodyId()))) {
+            double d = std::abs(r - static_cast<double>(m_thickness));
+            if (d < bestD) { bestD = d; nearR = r; }
+        }
+        if (nearR > 0.0 && bestD < 0.5) {
+            ImGui::TextColored(warn,
+                "Shell failed: %.2f mm is too close to this body's %.2f mm\n"
+                "rounded edge - a wall near a fillet radius can't be offset.\n"
+                "Try a wall clearly thinner or thicker than %.2f mm.",
+                static_cast<double>(m_thickness), nearR, nearR);
+        } else {
+            ImGui::TextColored(warn,
+                "Shell failed - try a thinner wall, or\n"
+                "this body's faces can't be shelled.");
+        }
     }
 }
 

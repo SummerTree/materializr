@@ -101,6 +101,18 @@ TEST(Shell, ReasonableWallShells) {
     EXPECT_GT(vol(doc.getBody(body)), 0.0);
 }
 
+// The rounded-face radius detector finds the R3 fillet, so the panel can name
+// it when a near-radius wall fails.
+TEST(Shell, RoundedFaceRadiiFindsFillet) {
+    Document doc;
+    int body; TopoDS_Shape solid = filletedBox(doc, body);
+    auto radii = ShellOp::roundedFaceRadii(solid);
+    ASSERT_FALSE(radii.empty()) << "the R3 fillet faces must be detected";
+    bool has3 = false;
+    for (double r : radii) if (std::abs(r - 3.0) < 1e-3) has3 = true;
+    EXPECT_TRUE(has3) << "detector must report the 3mm fillet radius";
+}
+
 // The opened face rebinds after the body is regenerated (moved), so a shell
 // re-executed by the history cascade reproduces instead of vanishing.
 TEST(Shell, OpenFaceRebindsAfterBodyRegenerated) {

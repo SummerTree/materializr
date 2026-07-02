@@ -1,25 +1,30 @@
-// Diagnostic probe: drive the REAL ShellOp against a project's (filleted) body
-// at a sweep of thicknesses, timing each call. Confirms (a) an over-thick wall
-// now fails CLEANLY and fast (no infinite "Cote PT2PT3 nul" hang), and (b) the
-// opened face rebinds onto a regenerated body so the shell survives an edit.
+// Single-shot shell probe: ONE (thickness, join) attempt against a project's
+// body, printed with timing, then exit. Run under `timeout` in a shell loop so
+// a hang in one combo can't poison the rest — this maps the failure band and
+// tells us whether the intersection (sharp-corner) join is viable near the
+// fillet radius or hangs there.
 //
-// Usage: probe_shell <project.materializr>
+// Usage: probe_shell <project> <thickness> <arc|inter>
 
 #include "core/Document.h"
 #include "io/ProjectIO.h"
-#include "modeling/ShellOp.h"
 
+#include <BRepOffsetAPI_MakeThickSolid.hxx>
+#include <BRepOffset_Mode.hxx>
+#include <BRepCheck_Analyzer.hxx>
 #include <BRepGProp_Face.hxx>
 #include <BRepGProp.hxx>
 #include <GProp_GProps.hxx>
-#include <BRepBuilderAPI_Transform.hxx>
 #include <TopExp_Explorer.hxx>
+#include <TopTools_ListOfShape.hxx>
 #include <TopoDS.hxx>
-#include <gp_Trsf.hxx>
 #include <gp_Vec.hxx>
+#include <Standard_ErrorHandler.hxx>
 #include <OSD.hxx>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 
 using materializr::ProjectIO;
 using materializr::ProjectHistory;
@@ -40,64 +45,70 @@ static TopoDS_Face bottomFace(const TopoDS_Shape& body) {
     return best;
 }
 
-static double vol(const TopoDS_Shape& s) {
-    GProp_GProps g; BRepGProp::VolumeProperties(s, g); return g.Mass();
-}
-
 int main(int argc, char** argv) {
-    if (argc < 2) { std::fprintf(stderr, "usage: %s <project>\n", argv[0]); return 2; }
+    if (argc < 4) { std::fprintf(stderr, "usage: %s <project> <thickness> <arc|inter> [tol]\n", argv[0]); return 2; }
     OSD::SetSignal(Standard_False);
+    double t = std::atof(argv[2]);
+    bool inter = std::strcmp(argv[3], "inter") == 0;
+    double tol = argc >= 5 ? std::atof(argv[4]) : 1.0e-3;
+    GeomAbs_JoinType join = inter ? GeomAbs_Intersection : GeomAbs_Arc;
 
     Document doc;
     ProjectHistory hist;
-    auto res = ProjectIO::load(argv[1], doc, &hist);
-    if (!res.success) { std::fprintf(stderr, "load failed: %s\n", res.errorMessage.c_str()); return 1; }
+    if (!ProjectIO::load(argv[1], doc, &hist).success) { std::fprintf(stderr, "load failed\n"); return 1; }
+    int id = doc.getAllBodyIds().front();
+    TopoDS_Shape body = doc.getBody(id);
 
-    int bodyId = doc.getAllBodyIds().empty() ? -1 : doc.getAllBodyIds().front();
-    if (bodyId < 0) { std::fprintf(stderr, "no body\n"); return 1; }
-    const TopoDS_Shape body0 = doc.getBody(bodyId);
-    TopoDS_Face bf = bottomFace(body0);
-    std::printf("body %d, bottom-face found=%d, base vol=%.1f\n",
-                bodyId, !bf.IsNull(), vol(body0));
-
-    // (a) Thickness sweep through the REAL ShellOp — must never hang.
-    std::printf("\n--- ShellOp thickness sweep (each must return quickly) ---\n");
-    for (double t : { 1.0, 2.0, 2.5, 3.0, 4.0, 6.0 }) {
-        doc.updateBody(bodyId, body0); // reset
-        ShellOp op;
-        op.setBody(bodyId);
-        op.setThickness(t);
-        op.addFaceToRemove(bf);
-        auto t0 = std::chrono::steady_clock::now();
-        bool ok = op.execute(doc);
-        double ms = std::chrono::duration<double, std::milli>(
-                        std::chrono::steady_clock::now() - t0).count();
-        std::printf("  t=%.2f : %-9s %8.1f ms  vol=%.1f\n",
-                    t, ok ? "OK" : "fail(clean)", ms,
-                    ok ? vol(doc.getBody(bodyId)) : 0.0);
+    // scan mode: try EVERY face as the open face at this thickness/join.
+    if (std::strcmp(argv[2], "scan") == 0) {
+        double st = std::atof(argv[3]);
+        bool si = std::strcmp(argv[4], "inter") == 0;
+        GeomAbs_JoinType sj = si ? GeomAbs_Intersection : GeomAbs_Arc;
+        int fi = 0, okCount = 0;
+        for (TopExp_Explorer ex(body, TopAbs_FACE); ex.More(); ex.Next(), ++fi) {
+            TopTools_ListOfShape fl; fl.Append(TopoDS::Face(ex.Current()));
+            const char* verdict = "??";
+            try {
+                OCC_CATCH_SIGNALS
+                BRepOffsetAPI_MakeThickSolid mk;
+                mk.MakeThickSolidByJoin(body, fl, -st, 1.0e-3, BRepOffset_Skin,
+                                        si ? Standard_True : Standard_False,
+                                        Standard_False, sj);
+                mk.Build();
+                if (!mk.IsDone()) verdict = "NOTDONE";
+                else if (mk.Shape().IsNull()) verdict = "NULL";
+                else if (!BRepCheck_Analyzer(mk.Shape()).IsValid()) verdict = "INVALID";
+                else { verdict = "OK"; ++okCount; }
+            } catch (...) { verdict = "THREW"; }
+            if (std::strcmp(verdict, "OK") == 0)
+                std::printf("  face %d: OK\n", fi);
+        }
+        std::printf("scan t=%.2f %s: %d/%d faces yield a valid shell\n",
+                    st, si ? "inter" : "arc", okCount, fi);
+        return 0;
     }
 
-    // (b) Face rebind: shell a valid thickness, then translate the body (as a
-    // regeneration would move geometry) and re-run the SAME op — the opened
-    // face must re-bind to the moved body instead of being lost.
-    std::printf("\n--- face rebind across a body move ---\n");
-    doc.updateBody(bodyId, body0);
-    ShellOp op;
-    op.setBody(bodyId);
-    op.setThickness(1.5);
-    op.addFaceToRemove(bf);
-    bool first = op.execute(doc);
-    std::printf("  initial shell: %s vol=%.1f\n", first ? "OK" : "FAIL",
-                first ? vol(doc.getBody(bodyId)) : 0.0);
+    TopoDS_Face bf = bottomFace(body);
+    TopTools_ListOfShape faces; faces.Append(bf);
 
-    // Simulate an upstream rebuild: move the ORIGINAL body and set it as the
-    // current body, so op.execute must re-find the (now different-handle) face.
-    gp_Trsf tr; tr.SetTranslation(gp_Vec(0, 0, 25));
-    TopoDS_Shape moved = BRepBuilderAPI_Transform(body0, tr, true).Shape();
-    doc.updateBody(bodyId, moved);
-    bool second = op.execute(doc);
-    std::printf("  after move+re-exec: %s vol=%.1f (expect ~same as initial)\n",
-                second ? "OK — rebound" : "FAIL — face lost",
-                second ? vol(doc.getBody(bodyId)) : 0.0);
+    auto t0 = std::chrono::steady_clock::now();
+    const char* verdict = "??";
+    double v = 0;
+    try {
+        OCC_CATCH_SIGNALS
+        BRepOffsetAPI_MakeThickSolid mk;
+        mk.MakeThickSolidByJoin(body, faces, -t, tol, BRepOffset_Skin,
+                                inter ? Standard_True : Standard_False,
+                                Standard_False, join);
+        mk.Build();
+        if (!mk.IsDone()) verdict = "NOTDONE";
+        else if (mk.Shape().IsNull()) verdict = "NULL";
+        else if (!BRepCheck_Analyzer(mk.Shape()).IsValid()) verdict = "INVALID";
+        else { verdict = "OK"; GProp_GProps g; BRepGProp::VolumeProperties(mk.Shape(), g); v = g.Mass(); }
+    } catch (Standard_Failure&) { verdict = "THREW"; }
+      catch (...) { verdict = "THREW?"; }
+    double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+    std::printf("t=%.2f %-5s tol=%.0e : %-8s %8.1f ms  vol=%.1f\n",
+                t, inter ? "inter" : "arc", tol, verdict, ms, v);
     return 0;
 }
