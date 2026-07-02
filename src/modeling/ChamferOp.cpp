@@ -73,23 +73,35 @@ TopoDS_Face ChamferOp::sharedReferenceFace(const TopoDS_Shape& body,
     return TopoDS::Face(cands.front());
 }
 
-// See FilletOp::anchorSketches — anchoring consults every sketch in the doc.
-static std::vector<EdgeAnchor::SketchRef> anchorSketches(Document& doc) {
+// See FilletOp::anchorSketches — anchoring consults every sketch in the doc,
+// preferring the cascade override (the edited sketch's final state) over the
+// live sketch, which is rolled back through its snapshots mid-replay.
+static std::vector<EdgeAnchor::SketchRef> anchorSketches(
+        Document& doc, std::vector<std::shared_ptr<materializr::Sketch>>& keep) {
     std::vector<EdgeAnchor::SketchRef> refs;
-    for (int sid : doc.getAllSketchIds())
-        if (auto sk = doc.getSketch(sid)) refs.push_back({ sid, sk.get() });
+    for (int sid : doc.getAllSketchIds()) {
+        if (auto ov = doc.cascadeSketchOverride(sid)) {
+            keep.push_back(ov);
+            refs.push_back({ sid, ov.get() });
+        } else if (auto sk = doc.getSketch(sid)) {
+            keep.push_back(sk);
+            refs.push_back({ sid, sk.get() });
+        }
+    }
     return refs;
 }
 
 void ChamferOp::computeAnchors(Document& doc) {
     m_edgeAnchors.clear();
-    m_edgeAnchors = EdgeAnchor::compute(m_edges, anchorSketches(doc));
+    std::vector<std::shared_ptr<materializr::Sketch>> keep;
+    m_edgeAnchors = EdgeAnchor::compute(m_edges, anchorSketches(doc, keep));
 }
 
 bool ChamferOp::resolveAnchors(Document& doc, const TopoDS_Shape& base) {
     if (m_edgeAnchors.size() != m_edges.size()) return false;
     std::vector<TopoDS_Edge> resolved;
-    if (!EdgeAnchor::resolve(m_edgeAnchors, anchorSketches(doc), base, resolved))
+    std::vector<std::shared_ptr<materializr::Sketch>> keep;
+    if (!EdgeAnchor::resolve(m_edgeAnchors, anchorSketches(doc, keep), base, resolved))
         return false;
     m_edges = std::move(resolved);
     return true;

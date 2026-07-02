@@ -55,16 +55,30 @@ double faceBlendRadius(const TopoDS_Face& face) {
 // Every sketch in the document, as EdgeAnchor references. Real bodies are
 // carved by several sketches (base extrude + profile cuts), so anchoring
 // consults them all; sketches unrelated to this body simply never match.
-static std::vector<EdgeAnchor::SketchRef> anchorSketches(Document& doc) {
+// Prefers the cascade override (the edited sketch's FINAL state) over the
+// live sketch: during a history replay the live sketch is rolled back through
+// its SketchEditOp snapshots, so it holds a stale state exactly when this op
+// re-executes — while the extrude below was rebuilt from the final one.
+// `keep` extends the overrides' lifetime to the caller's scope.
+static std::vector<EdgeAnchor::SketchRef> anchorSketches(
+        Document& doc, std::vector<std::shared_ptr<materializr::Sketch>>& keep) {
     std::vector<EdgeAnchor::SketchRef> refs;
-    for (int sid : doc.getAllSketchIds())
-        if (auto sk = doc.getSketch(sid)) refs.push_back({ sid, sk.get() });
+    for (int sid : doc.getAllSketchIds()) {
+        if (auto ov = doc.cascadeSketchOverride(sid)) {
+            keep.push_back(ov);
+            refs.push_back({ sid, ov.get() });
+        } else if (auto sk = doc.getSketch(sid)) {
+            keep.push_back(sk);
+            refs.push_back({ sid, sk.get() });
+        }
+    }
     return refs;
 }
 
 void FilletOp::computeAnchors(Document& doc) {
     m_edgeAnchors.clear();
-    m_edgeAnchors = EdgeAnchor::compute(m_edges, anchorSketches(doc));
+    std::vector<std::shared_ptr<materializr::Sketch>> keep;
+    m_edgeAnchors = EdgeAnchor::compute(m_edges, anchorSketches(doc, keep));
     int corners = 0, rims = 0, arcs = 0, none = 0;
     for (const auto& a : m_edgeAnchors)
         (a.kind == EdgeAnchor::Anchor::Corner ? corners :
@@ -78,7 +92,8 @@ void FilletOp::computeAnchors(Document& doc) {
 bool FilletOp::resolveAnchors(Document& doc, const TopoDS_Shape& base) {
     if (m_edgeAnchors.size() != m_edges.size()) return false;
     std::vector<TopoDS_Edge> resolved;
-    if (!EdgeAnchor::resolve(m_edgeAnchors, anchorSketches(doc), base, resolved))
+    std::vector<std::shared_ptr<materializr::Sketch>> keep;
+    if (!EdgeAnchor::resolve(m_edgeAnchors, anchorSketches(doc, keep), base, resolved))
         return false;
     m_edges = std::move(resolved);
     std::fprintf(stderr, "[Fillet] resolved %zu edge(s) via generative anchors\n",

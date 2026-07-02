@@ -8,7 +8,9 @@
 // is exactly today's "a downstream fillet couldn't follow it" behaviour.
 
 #include "core/Document.h"
+#include "core/History.h"
 #include "modeling/Sketch.h"
+#include "modeling/SketchEditOp.h"
 #include "modeling/ExtrudeOp.h"
 #include "modeling/FilletOp.h"
 #include "modeling/EdgeAnchor.h"
@@ -285,6 +287,62 @@ TEST(GenerativeEdges, AnchorSerializesAndParses) {
     EXPECT_EQ(legacy[1].sketchId, 2);
     EXPECT_NEAR(legacy[1].h, 90.0, 1e-6);
     EXPECT_EQ(legacy[2].kind, EdgeAnchor::Anchor::None);
+}
+
+// THE IN-APP FLOW: the resize goes through History::editStep with a
+// SketchEditOp in the chain — exactly what cascadeFromSketchEdit runs. The
+// replay rolls the LIVE sketch back through its snapshots, so when the fillet
+// re-executes mid-replay the sketch holds the STALE (pre-edit) state while
+// the extrude below was rebuilt from the final one. Without the cascade
+// sketch override the fillet resolves against old geometry and fails every
+// time ("like nothing changed"); with it, the edit lands.
+TEST(GenerativeEdges, FilletFollowsResize_ThroughHistoryReplay) {
+    Document doc;
+    History hist;
+    int pid[4];
+    auto sk = makeRect(20.0, 10.0, pid);
+    int sid = doc.addSketch(sk);
+
+    auto ext = std::make_unique<ExtrudeOp>();
+    ExtrudeOp* extP = ext.get();
+    extP->setSketchSource(sid);
+    extP->setDistance(10.0);
+    ASSERT_TRUE(extP->rebuildProfileFromSketch(doc));
+    ASSERT_TRUE(extP->execute(doc));
+    hist.pushExecuted(std::move(ext));
+    int body = onlyBodyId(doc);
+
+    auto fil = std::make_unique<FilletOp>();
+    fil->setBody(body);
+    fil->setEdges({verticalEdgeAt(doc.getBody(body), 20.0, 10.0)});
+    fil->setRadius(2.0);
+    ASSERT_TRUE(fil->execute(doc));
+    hist.pushExecuted(std::move(fil));
+
+    // The user's edit, recorded the way the app records it: before/after
+    // snapshots around the live-sketch mutation, pushed as a history step.
+    auto before = std::make_shared<Sketch>(*sk);
+    sk->movePoint(pid[1], {40.0f, 0.0f});
+    sk->movePoint(pid[2], {40.0f, 10.0f});
+    auto after = std::make_shared<Sketch>(*sk);
+    hist.pushExecuted(std::make_unique<materializr::SketchEditOp>(sk, before, after));
+
+    // cascadeFromSketchEdit equivalent: re-derive the extrude profile from
+    // the edited sketch, then replay the whole chain transactionally.
+    ASSERT_TRUE(extP->rebuildProfileFromSketch(doc));
+
+    // Control: WITHOUT the override the replay reads the rolled-back sketch
+    // and the fillet cannot re-find the moved corner — the bug this guards.
+    EXPECT_FALSE(hist.editStep(0, doc, /*transactional=*/true))
+        << "expected the replay to fail without the cascade sketch override "
+           "(if this now PASSES, the override plumbing may be removable)";
+
+    // With the edited sketch's final state pinned, the same replay succeeds.
+    doc.setCascadeSketchOverride(sid, std::make_shared<Sketch>(*sk));
+    bool ok = hist.editStep(0, doc, /*transactional=*/true);
+    doc.clearCascadeSketchOverrides();
+    ASSERT_TRUE(ok) << "fillet must follow the resize through the history replay";
+    EXPECT_NEAR(bboxWidthX(doc, body), 40.0, 1e-6);
 }
 
 // Arc coverage: a rounded-corner profile (two lines bridged by an arc, closed

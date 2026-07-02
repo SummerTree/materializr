@@ -2636,7 +2636,18 @@ void Application::cascadeFromSketchEdit(int sketchId) {
     // the new profiles take effect and ALL downstream ops re-run on the updated
     // geometry. If any can't follow (e.g. a fillet whose edge no longer exists
     // after the change), the entire model is restored — never half-built.
+    //
+    // Pin the edited sketch's FINAL state for the replay: re-executing the
+    // chain rolls the live sketch back through its SketchEditOp snapshots, so
+    // mid-replay it holds a STALE state — while the extrude below was rebuilt
+    // from the final one. A fillet/chamfer re-finding its edges from "the
+    // sketch the user just edited" (generative anchors) must read the final
+    // state or it looks for the old geometry and fails every time.
+    if (auto sk = m_document->getSketch(sketchId))
+        m_document->setCascadeSketchOverride(
+            sketchId, std::make_shared<materializr::Sketch>(*sk));
     bool ok = m_history->editStep(earliest, *m_document, /*transactional=*/true);
+    m_document->clearCascadeSketchOverrides();
     std::fprintf(stderr, "[Cascade] sketchId=%d replay from step %d: %s\n",
                  sketchId, earliest, ok ? "applied" : "reverted");
     if (!ok) {

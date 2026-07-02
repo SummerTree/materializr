@@ -153,6 +153,23 @@ public:
     // into the serialized snapshot.
     int findSketchId(const materializr::Sketch* sk) const;
 
+    // Cascade sketch override — the EDITED sketch's final state, pinned for
+    // the duration of a history replay. During History::editStep the replayed
+    // SketchEditOp snapshots roll the LIVE sketch back through its history, so
+    // an op that re-finds geometry from "the sketch the user just edited"
+    // (fillet/chamfer generative anchors, see EdgeAnchor.h) would read a STALE
+    // state mid-replay while the extrude below it was rebuilt from the final
+    // one. cascadeFromSketchEdit pins a copy here around the replay; anchor
+    // resolution prefers it over the live sketch.
+    void setCascadeSketchOverride(int id, std::shared_ptr<materializr::Sketch> snap) {
+        m_cascadeSketchOverrides[id] = std::move(snap);
+    }
+    void clearCascadeSketchOverrides() { m_cascadeSketchOverrides.clear(); }
+    std::shared_ptr<materializr::Sketch> cascadeSketchOverride(int id) const {
+        auto it = m_cascadeSketchOverrides.find(id);
+        return it == m_cascadeSketchOverrides.end() ? nullptr : it->second;
+    }
+
     // Construction planes — first-class document objects parallel to sketches.
     // PlaneAddedEvent / PlaneRemovedEvent let the renderer + Items panel
     // react without polling each frame.
@@ -211,6 +228,9 @@ private:
     std::vector<PlaneEntry> m_planes;
     std::vector<AxisEntry> m_axes;
     std::vector<SketchEntry> m_sketches;
+    // See setCascadeSketchOverride — pinned final sketch states during a
+    // cascade history replay. Empty outside cascadeFromSketchEdit.
+    std::map<int, std::shared_ptr<materializr::Sketch>> m_cascadeSketchOverrides;
     std::vector<FolderEntry> m_folders;
     // Tombstones: when a body is removed, its non-geometry metadata (folderId,
     // colour, visibility, name) is stashed here keyed by id. When putBody is
