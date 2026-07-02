@@ -1129,6 +1129,13 @@ private:
     // touch gestures for as long as two-finger pan events keep arriving.
     bool m_panAnchorHeld = false;   // desktop: a camera button hold owns the anchor
     int m_lastTouchPanFrame = -1000; // touch: last frame a two-finger pan applied
+    // Orbit re-anchors its pivot onto the geometry at the VIEW CENTRE at the
+    // start of each orbit gesture, so it spins around the object instead of a
+    // point that drifted behind it (cursor-zoom leaves the target off the
+    // surface → orbit swings the model sideways, reading as pan+rotate). Held
+    // for the gesture's lifetime; the centre pick is on the view axis, so
+    // moving the target along it doesn't shift the image — only the pivot.
+    bool m_orbitAnchorHeld = false;
 
     // Click-cycling state: first click at a spot picks the visible FACE,
     // a second click at the same spot cycles to the sketch region covered

@@ -2476,6 +2476,7 @@ void Application::renderViewport() {
             if (!ImGui::IsMouseDown(m_orbitButton) &&
                 !ImGui::IsMouseDown(m_panButton))
                 m_panAnchorHeld = false;
+            if (!ImGui::IsMouseDown(m_orbitButton)) m_orbitAnchorHeld = false;
             auto anchoredPan = [&](float dx, float dy) {
                 if (!m_panAnchorHeld) {
                     m_panAnchorHeld = true;
@@ -2491,6 +2492,25 @@ void Application::renderViewport() {
                 ImVec2 delta = io.MouseDelta;
                 if (io.KeyShift) anchoredPan(delta.x, delta.y);
                 else {
+                    // Re-anchor the orbit pivot onto the object at the VIEW
+                    // CENTRE, once per gesture. The centre ray is the view axis,
+                    // so moving the target along it to the surface hit shifts
+                    // only the pivot — the image doesn't jump — but the orbit now
+                    // spins around the object instead of a point that drifted
+                    // behind it. Desktop only (touch keeps its existing feel);
+                    // a miss (centre over empty space) leaves the target as-is.
+                    if (!m_orbitAnchorHeld) {
+                        m_orbitAnchorHeld = true;
+                        if (!materializr::touchMode() && m_picker && m_document) {
+                            try {
+                                auto r = m_picker->pick(contentSize.x * 0.5f,
+                                                        contentSize.y * 0.5f,
+                                                        contentSize.x, contentSize.y,
+                                                        cam, *m_document);
+                                if (r.hit) cam.setTarget(r.hitPoint);
+                            } catch (...) {}
+                        }
+                    }
                     // Touch orbit honours the user's sensitivity slider; desktop
                     // mouse orbit is unscaled (factor 1).
                     const float os = materializr::touchMode() ? m_touchOrbitSens : 1.0f;
@@ -6424,6 +6444,14 @@ void Application::renderViewport() {
                 m_moveFaceIsTwist = true; // editing twist switches the gesture to twist
                 updateMoveFace();
             }
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.80f, 0.35f, 1.0f));
+            ImGui::PushTextWrapPos(230.0f);
+            ImGui::TextWrapped(
+                "Tilt and Twist are separate ops — one gesture does either a "
+                "tilt OR a twist, not both. For a tapered-and-twisted face, "
+                "commit one then the other.");
+            ImGui::PopTextWrapPos();
+            ImGui::PopStyleColor();
         } else if (isScl) {
             ImGui::Text("Scale (%%)"); ImGui::Separator();
             bool ch = false;
