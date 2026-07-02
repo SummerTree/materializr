@@ -169,3 +169,8 @@ target_link_libraries(probe_fillet_repair PRIVATE materializr_core)
 # probe_undoredo — repro: phantom fillet via undo/redo cascade
 add_executable(probe_undoredo probe_undoredo.cpp)
 target_link_libraries(probe_undoredo PRIVATE materializr_core)
+
+# probe_twist_face — de-risk: does a ruled ThruSections base->rotated-top loft
+# produce a genuine twist, and at what angle does OCCT refuse?
+add_executable(probe_twist_face probe_twist_face.cpp)
+target_link_libraries(probe_twist_face PRIVATE materializr_core)
