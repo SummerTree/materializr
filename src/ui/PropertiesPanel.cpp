@@ -12,6 +12,7 @@
 #include "../modeling/TransformOp.h"
 #include "../core/EventBus.h"
 #include "../core/Events.h"
+#include "../core/Verbose.h"
 #include <imgui.h>
 #include <cmath>
 #include <cstdio>
@@ -569,11 +570,11 @@ void PropertiesPanel::renderSketchElementPanel(bool& modified) {
 void PropertiesPanel::renderSketchConstraintsPanel(int sketchId, bool& modified) {
     auto sk = m_document->getSketch(sketchId);
     if (!sk) return;
-    // One-shot diagnostic: log when the panel first opens on a sketch so we
-    // can confirm the constraint editor is being reached. Suppress repeat
-    // logs for the same sketch on subsequent frames.
+    // One-shot diagnostic (--verbose only): log when the panel first opens on
+    // a sketch so the constraint editor's reachability can be confirmed in a
+    // field log. Suppress repeat logs for the same sketch on later frames.
     static int s_lastLoggedSketchId = -1;
-    if (sketchId != s_lastLoggedSketchId) {
+    if (materializr::isVerbose() && sketchId != s_lastLoggedSketchId) {
         std::fprintf(stderr, "[Cascade] PropertiesPanel opened on sketchId=%d "
                              "(constraints=%zu",
                      sketchId, sk->getConstraints().size());
@@ -653,9 +654,10 @@ void PropertiesPanel::renderSketchConstraintsPanel(int sketchId, bool& modified)
         // ExtrudeOp downstream of `sketchId` so the body follows the new
         // constraint value. No-op when nobody's subscribed.
         if (m_eventBus) {
-            std::fprintf(stderr, "[Cascade] PropertiesPanel publish SketchEdited sketchId=%d\n", sketchId);
+            if (materializr::isVerbose())
+                std::fprintf(stderr, "[Cascade] PropertiesPanel publish SketchEdited sketchId=%d\n", sketchId);
             m_eventBus->publish(SketchEditedEvent{sketchId});
-        } else {
+        } else if (materializr::isVerbose()) {
             std::fprintf(stderr, "[Cascade] PropertiesPanel has no event bus\n");
         }
     };

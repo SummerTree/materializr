@@ -95,6 +95,7 @@ inline void resetFpuForOcct() {
 #include "android_files.h" // androidLastDocUri/Name + androidOpenUri (Open Recent on SAF)
 #include "core/EventBus.h"
 #include "core/Events.h"
+#include "core/Verbose.h"
 #include "plugin/PluginContext.h"
 #include "plugin/PluginRegistry.h"
 
@@ -3084,19 +3085,24 @@ void Application::rebuildHistoryFromProject(const ProjectHistory& hist,
             if (candidate && candidate->deserializeParams(params) &&
                 candidate->rehydrateFromReload(reload, *m_document)) {
                 op = std::move(candidate);
-                std::fprintf(stderr, "[Reload] step '%s' (%s): rehydrated as "
-                                     "real op (created=%zu modified=%zu)\n",
-                             st.name.c_str(), st.typeId.c_str(),
-                             reload.created.size(), reload.modifiedBefore.size());
+                // Per-step reload tracing is --verbose only (fires once per
+                // history step on every project load); the one-line [Reload]
+                // health summary below stays always-on for bug reports.
+                if (materializr::isVerbose())
+                    std::fprintf(stderr, "[Reload] step '%s' (%s): rehydrated as "
+                                         "real op (created=%zu modified=%zu)\n",
+                                 st.name.c_str(), st.typeId.c_str(),
+                                 reload.created.size(), reload.modifiedBefore.size());
             }
         }
         if (!op) {
             const bool affectsBody = !st.changed.empty() || !st.deleted.empty();
             if (affectsBody) ++bakedBodySteps; else ++bakedSketchSteps;
-            std::fprintf(stderr, "[Reload] step '%s' (%s): baked ReplayOp "
-                                 "(params=%s, affectsBody=%d)\n",
-                         st.name.c_str(), st.typeId.c_str(),
-                         st.params.empty() ? "none" : "present", (int)affectsBody);
+            if (materializr::isVerbose())
+                std::fprintf(stderr, "[Reload] step '%s' (%s): baked ReplayOp "
+                                     "(params=%s, affectsBody=%d)\n",
+                             st.name.c_str(), st.typeId.c_str(),
+                             st.params.empty() ? "none" : "present", (int)affectsBody);
             op = std::make_unique<ReplayOp>(
                 st.typeId, st.name, st.description,
                 std::move(before), std::move(after));

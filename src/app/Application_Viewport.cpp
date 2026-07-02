@@ -35,6 +35,7 @@
 #include "core/Document.h"
 #include "core/History.h"
 #include "core/SelectionManager.h"
+#include "core/Verbose.h"
 #include "ui/Toolbar.h"
 #include "ui/HistoryPanel.h"
 #include "ui/ItemsPanel.h"
@@ -4139,10 +4140,13 @@ void Application::renderViewport() {
 
                     // Click-resolution diagnostic: one line per left click,
                     // stating exactly what the pick decided — body/face hit,
-                    // region hit, and which path consumed the click. Cheap
-                    // (clicks only) and exactly what's needed when a face
-                    // "won't select" in the field.
-                    if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+                    // region hit, and which path consumed the click. This is
+                    // the "face won't select" field tool, so it lives behind
+                    // --verbose: normal launches don't pay the stderr flush
+                    // per click (or the full verbose RE-PICK + slot dump on
+                    // every missed click, which walks the whole document).
+                    if (materializr::isVerbose() &&
+                        ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
                         std::fprintf(stderr,
                             "[Click] hit=%d body=%d shape=%s edgeDist=%.1f | "
                             "region sk=%d idx=%d | consumed=%d\n",

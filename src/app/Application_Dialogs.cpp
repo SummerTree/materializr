@@ -16,6 +16,7 @@
 
 #include "app/Application.h"
 #include "app/Window.h"
+#include "core/Verbose.h"
 #include "viewport/Viewport.h"
 #include "viewport/Grid.h"
 #include "viewport/ShapeRenderer.h"
@@ -2073,14 +2074,16 @@ void Application::beginRevolve() {
     m_revolveActive = true;
     std::snprintf(m_revolveAngleBuf, sizeof(m_revolveAngleBuf), "%.1f",
                   m_revolveAngle);
-    std::fprintf(stderr, "[Revolve] begin: captured %d bodies (primary=%d), "
-                         "sketch=%d, axis=%d\n",
-                 (int)m_revolveBodyIds.size(), m_revolveBodyId,
-                 m_revolveSketchId, m_revolveAxisId);
-    for (size_t i = 0; i < m_revolveBodyIds.size(); ++i)
-        std::fprintf(stderr, "[Revolve]   body[%zu] = id %d (%s)\n",
-                     i, m_revolveBodyIds[i],
-                     m_document->getBodyName(m_revolveBodyIds[i]).c_str());
+    if (materializr::isVerbose()) {
+        std::fprintf(stderr, "[Revolve] begin: captured %d bodies (primary=%d), "
+                             "sketch=%d, axis=%d\n",
+                     (int)m_revolveBodyIds.size(), m_revolveBodyId,
+                     m_revolveSketchId, m_revolveAxisId);
+        for (size_t i = 0; i < m_revolveBodyIds.size(); ++i)
+            std::fprintf(stderr, "[Revolve]   body[%zu] = id %d (%s)\n",
+                         i, m_revolveBodyIds[i],
+                         m_document->getBodyName(m_revolveBodyIds[i]).c_str());
+    }
     revolveLiveBegin();
 }
 
@@ -2184,7 +2187,9 @@ void Application::renderRevolvePopup() {
     // fresh-from-snapshot rotation so the user sees the result without
     // having to Apply. Threshold guards against float jitter triggering a
     // pointless rebuild every frame the slider's parked.
-    if (angleChanged && m_revolveWhatIdx == 0) {
+    // (Per-drag-frame tracing of angle changes lives behind --verbose: an
+    // always-on stderr flush per slider tick is measurable drag cost.)
+    if (materializr::isVerbose() && angleChanged && m_revolveWhatIdx == 0) {
         std::fprintf(stderr, "[Revolve] angle changed to %.2f  liveActive=%d "
                              "lastApplied=%.2f  bodies=%zu\n",
                      m_revolveAngle,
@@ -2343,20 +2348,23 @@ void Application::revolveLiveBegin() {
         revolveLiveRestore();
     }
     if (m_revolveWhatIdx != 0) {
-        std::fprintf(stderr, "[Revolve] revolveLiveBegin: skipped — what=%d\n",
-                     m_revolveWhatIdx);
+        if (materializr::isVerbose())
+            std::fprintf(stderr, "[Revolve] revolveLiveBegin: skipped — what=%d\n",
+                         m_revolveWhatIdx);
         return;
     }
     if (m_revolveBodyIds.empty()) {
-        std::fprintf(stderr, "[Revolve] revolveLiveBegin: skipped — no bodies\n");
+        if (materializr::isVerbose())
+            std::fprintf(stderr, "[Revolve] revolveLiveBegin: skipped — no bodies\n");
         return;
     }
     m_revolveOrigBodyId = m_revolveBodyId;
     m_revolveLastAppliedAngle = m_revolveAngle;
     m_revolveLiveActive = true;
-    std::fprintf(stderr, "[Revolve] revolveLiveBegin: ACTIVATED  bodies=%zu  "
-                         "seed lastAppliedAngle=%.2f\n",
-                 m_revolveBodyIds.size(), m_revolveLastAppliedAngle);
+    if (materializr::isVerbose())
+        std::fprintf(stderr, "[Revolve] revolveLiveBegin: ACTIVATED  bodies=%zu  "
+                             "seed lastAppliedAngle=%.2f\n",
+                     m_revolveBodyIds.size(), m_revolveLastAppliedAngle);
 }
 
 void Application::revolveLiveApply(float angle) {
@@ -2412,11 +2420,13 @@ void Application::revolveLiveApply(float angle) {
         }
         if (found) ++hits; else ++misses;
     }
-    std::fprintf(stderr, "[Revolve] live-apply: angle=%.2f hits=%d misses=%d  "
-                         "axis dir=(%.3f,%.3f,%.3f) origin=(%.2f,%.2f,%.2f)\n",
-                 angle, hits, misses,
-                 axisDir.X(), axisDir.Y(), axisDir.Z(),
-                 axisOrigin.X(), axisOrigin.Y(), axisOrigin.Z());
+    // Per-drag-frame trace — --verbose only (stderr flush per slider tick).
+    if (materializr::isVerbose())
+        std::fprintf(stderr, "[Revolve] live-apply: angle=%.2f hits=%d misses=%d  "
+                             "axis dir=(%.3f,%.3f,%.3f) origin=(%.2f,%.2f,%.2f)\n",
+                     angle, hits, misses,
+                     axisDir.X(), axisDir.Y(), axisDir.Z(),
+                     axisOrigin.X(), axisOrigin.Y(), axisOrigin.Z());
     m_revolveLastAppliedAngle = angle;
 }
 
@@ -2522,12 +2532,13 @@ void Application::applyRevolve() {
             // Ctrl+Z can roll it back via the captured before-state.
             m_history->pushExecuted(std::move(op));
             m_meshesDirty = true;
-            std::fprintf(stderr, "[Revolve] applied: %.1f° dir(%.3f,%.3f,%.3f) "
-                                 "origin(%.2f,%.2f,%.2f) over %d bodies "
-                                 "(single ReplayOp)\n",
-                         m_revolveAngle, axisDir.X(), axisDir.Y(), axisDir.Z(),
-                         axisOrigin.X(), axisOrigin.Y(), axisOrigin.Z(),
-                         rotated);
+            if (materializr::isVerbose())
+                std::fprintf(stderr, "[Revolve] applied: %.1f° dir(%.3f,%.3f,%.3f) "
+                                     "origin(%.2f,%.2f,%.2f) over %d bodies "
+                                     "(single ReplayOp)\n",
+                             m_revolveAngle, axisDir.X(), axisDir.Y(), axisDir.Z(),
+                             axisOrigin.X(), axisOrigin.Y(), axisOrigin.Z(),
+                             rotated);
         }
         return;
     }

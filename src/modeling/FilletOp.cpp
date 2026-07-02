@@ -1,6 +1,7 @@
 #include "FilletOp.h"
 #include "SubShapeIndex.h"
 #include "EdgeAnchor.h"
+#include "../core/Verbose.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cmath>
@@ -79,14 +80,19 @@ void FilletOp::computeAnchors(Document& doc) {
     m_edgeAnchors.clear();
     std::vector<std::shared_ptr<materializr::Sketch>> keep;
     m_edgeAnchors = EdgeAnchor::compute(m_edges, anchorSketches(doc, keep));
-    int corners = 0, rims = 0, arcs = 0, none = 0;
-    for (const auto& a : m_edgeAnchors)
-        (a.kind == EdgeAnchor::Anchor::Corner ? corners :
-         a.kind == EdgeAnchor::Anchor::Rim    ? rims :
-         a.kind == EdgeAnchor::Anchor::None   ? none : arcs)++;
-    std::fprintf(stderr,
-        "[Fillet] anchored %zu edges: %d corner, %d rim, %d arc, %d none\n",
-        m_edges.size(), corners, rims, arcs, none);
+    // Success trace is --verbose only: execute() (and thus this) runs per
+    // PREVIEW FRAME while a fillet is being dragged — an always-on stderr
+    // flush per frame is real drag cost. Failure paths below stay loud.
+    if (materializr::isVerbose()) {
+        int corners = 0, rims = 0, arcs = 0, none = 0;
+        for (const auto& a : m_edgeAnchors)
+            (a.kind == EdgeAnchor::Anchor::Corner ? corners :
+             a.kind == EdgeAnchor::Anchor::Rim    ? rims :
+             a.kind == EdgeAnchor::Anchor::None   ? none : arcs)++;
+        std::fprintf(stderr,
+            "[Fillet] anchored %zu edges: %d corner, %d rim, %d arc, %d none\n",
+            m_edges.size(), corners, rims, arcs, none);
+    }
 }
 
 bool FilletOp::resolveAnchors(Document& doc, const TopoDS_Shape& base) {
@@ -96,8 +102,9 @@ bool FilletOp::resolveAnchors(Document& doc, const TopoDS_Shape& base) {
     if (!EdgeAnchor::resolve(m_edgeAnchors, anchorSketches(doc, keep), base, resolved))
         return false;
     m_edges = std::move(resolved);
-    std::fprintf(stderr, "[Fillet] resolved %zu edge(s) via generative anchors\n",
-                 m_edges.size());
+    if (materializr::isVerbose())
+        std::fprintf(stderr, "[Fillet] resolved %zu edge(s) via generative anchors\n",
+                     m_edges.size());
     return true;
 }
 

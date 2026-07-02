@@ -73,41 +73,6 @@ void Viewport::setSamples(int samples)
     createFramebuffer();
 }
 
-void Viewport::handleInput()
-{
-    if (!m_isHovered) {
-        m_isDragging = false;
-        return;
-    }
-
-    ImGuiIO& io = ImGui::GetIO();
-    glm::vec2 mousePos(io.MousePos.x, io.MousePos.y);
-    glm::vec2 mouseDelta = mousePos - m_lastMousePos;
-
-    // Scroll wheel -> zoom
-    if (io.MouseWheel != 0.0f) {
-        m_camera.zoom(io.MouseWheel);
-    }
-
-    // Middle mouse button interactions
-    bool middleDown = ImGui::IsMouseDown(ImGuiMouseButton_Middle);
-
-    if (middleDown) {
-        if (io.KeyShift) {
-            // Shift + middle mouse drag -> pan
-            m_camera.pan(mouseDelta.x, mouseDelta.y);
-        } else {
-            // Middle mouse drag -> orbit
-            m_camera.orbit(mouseDelta.x, mouseDelta.y);
-        }
-        m_isDragging = true;
-    } else {
-        m_isDragging = false;
-    }
-
-    m_lastMousePos = mousePos;
-}
-
 void Viewport::createFramebuffer()
 {
     // NOTE: These calls require glad or GL 3.0+ extension loading.

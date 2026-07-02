@@ -1,6 +1,7 @@
 #include "History.h"
 #include "EventBus.h"
 #include "Events.h"
+#include "Verbose.h"
 #include "../modeling/Sketch.h"
 #include "../modeling/SketchEditOp.h"
 #include <cstdio>
@@ -97,9 +98,11 @@ bool History::undo(Document& doc) {
     }
 
     Operation* op = m_operations[idx].get();
-    std::fprintf(stderr, "[History] undo step %d '%s' (type=%s reloaded=%d enabled=%d)\n",
-                 idx, op->name().c_str(), op->typeId().c_str(),
-                 op->isReloaded() ? 1 : 0, op->isEnabled() ? 1 : 0);
+    // Per-undo trace is --verbose only; the FAILED path below stays loud.
+    if (materializr::isVerbose())
+        std::fprintf(stderr, "[History] undo step %d '%s' (type=%s reloaded=%d enabled=%d)\n",
+                     idx, op->name().c_str(), op->typeId().c_str(),
+                     op->isReloaded() ? 1 : 0, op->isEnabled() ? 1 : 0);
     if (!op->undo(doc)) {
         std::fprintf(stderr, "[History] undo FAILED at step %d '%s' — op->undo() "
                              "returned false; staying at this step\n",
