@@ -36,6 +36,7 @@ add_library(materializr_core STATIC
     ${CMAKE_SOURCE_DIR}/src/modeling/DuplicateSketchOp.cpp
     ${CMAKE_SOURCE_DIR}/src/modeling/MoveHoleOp.cpp
     ${CMAKE_SOURCE_DIR}/src/modeling/SketchSolver.cpp
+    ${CMAKE_SOURCE_DIR}/src/modeling/ShellOp.cpp
     ${CMAKE_SOURCE_DIR}/src/modeling/SubShapeIndex.cpp
     ${CMAKE_SOURCE_DIR}/src/modeling/EdgeAnchor.cpp
     ${CMAKE_SOURCE_DIR}/src/io/ProjectIO.cpp
@@ -139,3 +140,13 @@ target_link_libraries(probe_anchor_coverage PRIVATE materializr_core)
 add_executable(test_sketch_regions test_sketch_regions.cpp)
 target_link_libraries(test_sketch_regions PRIVATE materializr_core gtest gtest_main)
 add_test(NAME test_sketch_regions COMMAND test_sketch_regions)
+
+# probe_shell — diagnostic: reproduce Shell crash/failure headless (not ctest)
+add_executable(probe_shell probe_shell.cpp)
+target_link_libraries(probe_shell PRIVATE materializr_core)
+target_compile_definitions(probe_shell PRIVATE OCC_CONVERT_SIGNALS)
+
+# test_shell — ShellOp over-thick fails fast (no hang) + open-face rebind
+add_executable(test_shell test_shell.cpp)
+target_link_libraries(test_shell PRIVATE materializr_core gtest gtest_main)
+add_test(NAME test_shell COMMAND test_shell)
