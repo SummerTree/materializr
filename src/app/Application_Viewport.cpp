@@ -163,7 +163,21 @@ void Application::gizmoPreviewApply(const glm::mat4& m) {
 
 void Application::renderViewport() {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-    ImGui::Begin("Viewport");
+    ImGuiWindowFlags vpFlags = 0;
+    if (m_imTouchUi) {
+        // Touch shell: pin the viewport (undocked, chrome-less) into the
+        // center rect renderTouchShell() computed earlier this frame. The
+        // window's saved dock id is left alone, so switching the shell off
+        // re-docks it into the desktop layout.
+        ImGui::SetNextWindowDockID(0, ImGuiCond_Always);
+        ImGui::SetNextWindowPos(ImVec2(m_touchVpX, m_touchVpY), ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(m_touchVpW, m_touchVpH), ImGuiCond_Always);
+        vpFlags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+                  ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
+                  ImGuiWindowFlags_NoDocking |
+                  ImGuiWindowFlags_NoBringToFrontOnFocus;
+    }
+    ImGui::Begin("Viewport", nullptr, vpFlags);
 
     // Cache the viewport window's screen rect so the touch collapse handles can
     // anchor to the panel/viewport boundaries (which move as panels collapse).

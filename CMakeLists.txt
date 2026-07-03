@@ -158,6 +158,7 @@ add_executable(materializr
     src/app/FaceOpControllers.cpp
     src/app/Application_Dialogs.cpp
     src/app/Application_InteractiveOps.cpp
+    src/app/Application_TouchShell.cpp
     src/app/Application_Viewport.cpp
     src/app/Window.cpp
     src/plugin/PluginContext.cpp
@@ -256,6 +257,7 @@ add_executable(materializr
     src/viewport/SectionView.cpp
     src/viewport/SelectionHighlight.cpp
     src/ui/Toolbar.cpp
+    src/ui/TouchWidgets.cpp
     src/ui/HistoryPanel.cpp
     src/ui/ItemsPanel.cpp
     src/ui/StatusBar.cpp

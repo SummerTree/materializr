@@ -18,6 +18,11 @@ struct AppSettings {
 #else
     bool touchMode          = false;
 #endif
+    // "im-touch" tablet shell: top app bar + tool rail + side panel replacing
+    // the desktop menu bar / docked panels / status bar. Orthogonal to
+    // touchMode (layout vs input model); switches live, no restart. See
+    // docs/im-touch-ui-plan.md.
+    bool imTouchUi          = false;
 #if defined(MZ_MOBILE)
     // Touch-first default: trackpad mode (one-finger drag = orbit, two-finger
     // pan/zoom). Just the first-run default — the Settings dialog can rebind to

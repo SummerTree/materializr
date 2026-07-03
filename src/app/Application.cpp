@@ -54,6 +54,7 @@ inline void resetFpuForOcct() {
 #include "core/History.h"
 #include "core/SelectionManager.h"
 #include "ui/Toolbar.h"
+#include "ui/TouchIcons.h"
 #include "ui/HistoryPanel.h"
 #include "ui/ItemsPanel.h"
 #include "ui/StatusBar.h"
@@ -577,11 +578,28 @@ void Application::initImGui() {
     // present, so a font miss never bricks the UI.
     {
         std::string path = resolveBundledFont("JetBrainsMono-Regular.ttf");
+        ImFont* fnt = nullptr;
         if (!path.empty()) {
-            ImFont* fnt = io.Fonts->AddFontFromFileTTF(path.c_str(), 15.0f * uiScale);
+            fnt = io.Fonts->AddFontFromFileTTF(path.c_str(), 15.0f * uiScale);
             if (fnt) std::fprintf(stderr, "Loaded font: %s\n", path.c_str());
         }
         // If nothing loaded, ImGui will lazily fall back to its baked-in default.
+
+        // Merge the Iconoir glyphs (PUA E000..) into the text font so any
+        // string can inline an ICON_IC_* / MZ_ICON_* macro (im-touch shell
+        // chrome; later the tool catalogue). Merging only works onto an
+        // already-added font, so skip when JetBrains Mono itself is missing —
+        // icons then render as '?' rather than bricking the atlas.
+        std::string icons = resolveBundledFont(FONT_ICON_FILE_NAME_IC);
+        if (fnt && !icons.empty()) {
+            static const ImWchar kIconRange[] = { ICON_MIN_IC, ICON_MAX_IC, 0 };
+            ImFontConfig cfg;
+            cfg.MergeMode = true;
+            cfg.GlyphOffset.y = 2.0f * uiScale; // optical baseline alignment
+            if (io.Fonts->AddFontFromFileTTF(icons.c_str(), 15.0f * uiScale,
+                                             &cfg, kIconRange))
+                std::fprintf(stderr, "Loaded font: %s (icon merge)\n", icons.c_str());
+        }
     }
 
     ImGui_ImplSDL2_InitForOpenGL(m_window->handle(), m_window->glContext());
@@ -1035,6 +1053,29 @@ void Application::renderDockspace() {
     ImGui::End();
 }
 
+void Application::undoWithCascade() {
+    const Operation* undone = m_history->getStep(m_history->currentStep());
+    m_history->undo(*m_document);
+    // Keep a sketch-driven body in sync after undoing a sketch edit (the
+    // SketchEditOp undo only reverts geometry; the cascade did the body).
+    // Mirrors the keyboard Ctrl+Z path.
+    if (m_inSketchMode && m_activeSketch && m_activeSketchId >= 0)
+        cascadeFromSketchEdit(m_activeSketchId);
+    if (auto* st = dynamic_cast<const materializr::SketchTransformOp*>(undone))
+        cascadeFromSketchEdit(st->getSketchId());
+    m_meshesDirty = true;
+}
+
+void Application::redoWithCascade() {
+    m_history->redo(*m_document);
+    const Operation* redone = m_history->getStep(m_history->currentStep());
+    if (m_inSketchMode && m_activeSketch && m_activeSketchId >= 0)
+        cascadeFromSketchEdit(m_activeSketchId);
+    if (auto* st = dynamic_cast<const materializr::SketchTransformOp*>(redone))
+        cascadeFromSketchEdit(st->getSketchId());
+    m_meshesDirty = true;
+}
+
 void Application::renderMenuBar() {
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {
@@ -1119,28 +1160,11 @@ void Application::renderMenuBar() {
             const bool histLocked = anyInteractivePreviewActive();
             if (ImGui::MenuItem("Undo", "Ctrl+Z", false,
                                 !histLocked && m_history->canUndo())) {
-                const Operation* undone =
-                    m_history->getStep(m_history->currentStep());
-                m_history->undo(*m_document);
-                // Keep a sketch-driven body in sync after undoing a sketch edit
-                // (the SketchEditOp undo only reverts geometry; the cascade did
-                // the body). Mirrors the keyboard Ctrl+Z path.
-                if (m_inSketchMode && m_activeSketch && m_activeSketchId >= 0)
-                    cascadeFromSketchEdit(m_activeSketchId);
-                if (auto* st = dynamic_cast<const materializr::SketchTransformOp*>(undone))
-                    cascadeFromSketchEdit(st->getSketchId());
-                m_meshesDirty = true;
+                undoWithCascade();
             }
             if (ImGui::MenuItem("Redo", "Ctrl+Y", false,
                                 !histLocked && m_history->canRedo())) {
-                m_history->redo(*m_document);
-                const Operation* redone =
-                    m_history->getStep(m_history->currentStep());
-                if (m_inSketchMode && m_activeSketch && m_activeSketchId >= 0)
-                    cascadeFromSketchEdit(m_activeSketchId);
-                if (auto* st = dynamic_cast<const materializr::SketchTransformOp*>(redone))
-                    cascadeFromSketchEdit(st->getSketchId());
-                m_meshesDirty = true;
+                redoWithCascade();
             }
             ImGui::EndMenu();
         }
@@ -1425,6 +1449,7 @@ AppSettings Application::currentSettings() const {
     AppSettings s;
     s.theme = (m_themeManager->getTheme() == Theme::Light) ? 1 : 0;
     s.touchMode = m_touchMode;
+    s.imTouchUi = m_imTouchUi;
     s.orbitButton = m_orbitButton;
     s.panButton = m_panButton;
     s.levelOrbit = m_viewport->getCamera().isLevelOrbit();
@@ -1486,6 +1511,7 @@ void Application::applyAppSettings(const AppSettings& s) {
     // reads a consistent value within the run.
     materializr::setTouchMode(s.touchMode);
     m_touchMode = s.touchMode;   // staged value for the Settings dialog
+    m_imTouchUi = s.imTouchUi;   // tablet shell — live, no restart needed
     // Camera button bindings are honoured on every platform. Android defaults to
     // trackpad mode (AppSettings sets orbit/pan = Left there) so one-finger touch
     // orbits out of the box, but an attached mouse/trackpad can be rebound via the
@@ -5285,8 +5311,15 @@ void Application::run() {
         ++perfRendered;   // passed the idle skip → this iteration renders a frame
 
         beginFrame();
-        renderDockspace();
-        renderMenuBar();
+        if (m_imTouchUi) {
+            // Tablet shell: fixed bars instead of dockspace + menu bar. The
+            // desktop layout (imgui.ini) is untouched while this is active,
+            // so toggling back restores it exactly.
+            renderTouchShell();
+        } else {
+            renderDockspace();
+            renderMenuBar();
+        }
         renderSmallScreenWarning();
 
         if (m_renderersReady) {
@@ -5410,7 +5443,7 @@ void Application::run() {
             // left edge handle (or Hide Panels). All the setters above are
             // harmless no-ops on an unsubmitted window.
             ToolAction action = ToolAction::None;
-            if (!m_leftPanelHidden && m_showTools) {
+            if (!m_imTouchUi && !m_leftPanelHidden && m_showTools) {
                 action = m_toolbar->render();
                 m_sketchGridStep = m_toolbar->getGridStep();
                 m_snapToGrid = m_toolbar->getSnapToGrid();
@@ -5471,7 +5504,8 @@ void Application::run() {
 
             // The Interactions reference is docked in the RIGHT column (above
             // Items), so it collapses with the right edge handle too.
-            if (!m_rightPanelHidden && m_showInteractions) renderInteractionsPanel();
+            if (!m_imTouchUi && !m_rightPanelHidden && m_showInteractions)
+                renderInteractionsPanel();
             renderSettings();
             renderMirrorPopup();
 
@@ -5597,24 +5631,24 @@ void Application::run() {
                     }
                     m_historyPanel->setHighlightStep(hl);
                 }
-                if (m_showHistory && m_historyPanel->render()) {
+                if (!m_imTouchUi && m_showHistory && m_historyPanel->render()) {
                     m_meshesDirty = true;
                 }
 
-                if (m_showItems && m_itemsPanel->render()) {
+                if (!m_imTouchUi && m_showItems && m_itemsPanel->render()) {
                     m_hoveredBodyId = -1;
                     m_meshesDirty = true;
                 }
                 m_propertiesPanel->setSketchContext(
                     m_inSketchMode, m_activeSketch.get(), m_activeSketchId,
                     m_sketchTool.get());
-                if (m_showProperties && m_propertiesPanel->render()) {
+                if (!m_imTouchUi && m_showProperties && m_propertiesPanel->render()) {
                     m_meshesDirty = true;
                 }
             }
             // Touch edge tabs to collapse/restore each side column (drawn on top
             // of the panels, and still visible when a side is collapsed).
-            renderPanelCollapseHandles();
+            if (!m_imTouchUi) renderPanelCollapseHandles();
 
             // Plugin overlays — free-floating per-frame ImGui windows (e.g. the
             // Tutorial). Drawn after the panels so they float on top; non-modal,
@@ -5650,7 +5684,7 @@ void Application::run() {
             } else {
                 m_statusBar->setMessage("");
             }
-            m_statusBar->render();
+            if (!m_imTouchUi) m_statusBar->render();
             renderTransientToast();
             FileDialogs::render();
             renderSavePrompt();

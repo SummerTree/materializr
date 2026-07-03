@@ -153,6 +153,15 @@ void Application::renderSettings() {
                     }
 
                     ImGui::Spacing();
+                    if (ImGui::Checkbox("im-touch UI (tablet layout)", &m_imTouchUi)) {
+                        changed = true;
+                    }
+                    ImGui::TextWrapped("Experimental tablet shell: a top app bar, "
+                                       "tool rail and side panel replace the desktop "
+                                       "menus and docked windows. Switches immediately; "
+                                       "your desktop panel layout is kept.");
+
+                    ImGui::Spacing();
                     ImGui::SeparatorText("Appearance");
                     // Theme selector (the View menu mirrors this).
                     if (m_themeManager->renderSelector()) {

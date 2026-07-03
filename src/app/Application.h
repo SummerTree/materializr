@@ -137,6 +137,15 @@ private:
     void renderDockspace();
     void renderViewport();
     void renderMenuBar();
+    // "im-touch" tablet shell (Application_TouchShell.cpp): top app bar + tool
+    // rail + right panel replacing dockspace/menu bar/status bar when
+    // m_imTouchUi is on. Computes the viewport rect renderViewport() pins to.
+    void renderTouchShell();
+    // Undo/redo with the sketch-edit cascade (shared by the Edit menu, the
+    // touch shell's top bar, and nothing else — the Ctrl+Z shortcut has its
+    // own copy in handleShortcuts pending a merge).
+    void undoWithCascade();
+    void redoWithCascade();
     void renderInteractionsPanel();
     void renderSettings();
     void loadAppSettings();   // restore persisted preferences at startup
@@ -681,6 +690,17 @@ private:
 #else
     bool m_touchMode = false;
 #endif
+
+    // "im-touch" tablet shell (see AppSettings::imTouchUi). Live-switchable:
+    // read every frame by run()/renderViewport(); persisted on save.
+    bool m_imTouchUi = false;
+    // Center rect the touch shell leaves for the viewport window this frame
+    // (screen coords, points). Written by renderTouchShell(), read by
+    // renderViewport() to pin the undocked "Viewport" window.
+    float m_touchVpX = 0.0f, m_touchVpY = 0.0f, m_touchVpW = 0.0f, m_touchVpH = 0.0f;
+    // Active tab of the touch shell's right panel (0 = Items, 1 = History).
+    // Session-local for now; persisted in Phase 2.
+    int m_touchRightTab = 0;
 
     // Autosave: once the project has been saved at least once (has a path on
     // disk), periodically re-save dirty changes. Toggled in File > Settings.
