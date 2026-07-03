@@ -27,6 +27,7 @@ void HistoryPanel::setDocument(Document* doc) {
 }
 
 bool HistoryPanel::render() {
+    m_showUndoRedo = true;   // the desktop window always shows its own row
     ImGui::Begin("History", nullptr, ImGuiWindowFlags_NoCollapse);
     const bool modified = renderContent();
     ImGui::End();
@@ -42,12 +43,19 @@ bool HistoryPanel::renderContent() {
         return false;
     }
 
-    ImGui::TextColored(materializr::accentText(), "Operation History");
-    ImGui::Separator();
-
     int stepCount = m_history->stepCount();
     int currentStep = m_history->currentStep();
     int breakpoint = m_history->getBreakpoint();
+
+    ImGui::TextColored(materializr::accentText(), "Operation History");
+    if (!m_showUndoRedo) {
+        // No bottom button row (the host provides undo/redo) — the step
+        // counter rides beside the label instead.
+        ImGui::SameLine();
+        ImGui::TextColored(materializr::dimText(), "%d/%d",
+                           currentStep + 1, stepCount);
+    }
+    ImGui::Separator();
 
     // If any step came from a reopened project, explain that those steps replay
     // saved geometry and can't have their parameters re-edited.
@@ -396,32 +404,34 @@ bool HistoryPanel::renderContent() {
         }
     };
 
-    ImGui::BeginDisabled(m_historyLocked || !m_history->canUndo());
-    if (ImGui::Button("Undo")) {
-        const Operation* undone =
-            m_history->getStep(m_history->currentStep());
-        m_history->undo(*m_document);
-        publishIfSketchEdit(undone);
-        modified = true;
+    if (m_showUndoRedo) {
+        ImGui::BeginDisabled(m_historyLocked || !m_history->canUndo());
+        if (ImGui::Button("Undo")) {
+            const Operation* undone =
+                m_history->getStep(m_history->currentStep());
+            m_history->undo(*m_document);
+            publishIfSketchEdit(undone);
+            modified = true;
+        }
+        ImGui::EndDisabled();
+
+        ImGui::SameLine();
+
+        ImGui::BeginDisabled(m_historyLocked || !m_history->canRedo());
+        if (ImGui::Button("Redo")) {
+            m_history->redo(*m_document);
+            publishIfSketchEdit(m_history->getStep(m_history->currentStep()));
+            modified = true;
+        }
+        ImGui::EndDisabled();
+
+        ImGui::SameLine();
+
+        // Step counter
+        char stepText[64];
+        std::snprintf(stepText, sizeof(stepText), "Step %d/%d", currentStep + 1, stepCount);
+        ImGui::Text("%s", stepText);
     }
-    ImGui::EndDisabled();
-
-    ImGui::SameLine();
-
-    ImGui::BeginDisabled(m_historyLocked || !m_history->canRedo());
-    if (ImGui::Button("Redo")) {
-        m_history->redo(*m_document);
-        publishIfSketchEdit(m_history->getStep(m_history->currentStep()));
-        modified = true;
-    }
-    ImGui::EndDisabled();
-
-    ImGui::SameLine();
-
-    // Step counter
-    char stepText[64];
-    std::snprintf(stepText, sizeof(stepText), "Step %d/%d", currentStep + 1, stepCount);
-    ImGui::Text("%s", stepText);
 
     return modified;
 }

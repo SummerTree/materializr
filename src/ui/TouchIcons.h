@@ -58,10 +58,11 @@
 #define MZ_ICON_LATHE      ICON_IC_ROTATE_CAMERA_RIGHT
 #define MZ_ICON_SUBTRACT   ICON_IC_MINUS
 #define MZ_ICON_LOOK       ICON_IC_EYE
-// Rail "Primitive" group: no single Iconoir glyph reads as "basic solids", so
-// compose square+circle side by side (drawIconCentered renders the pair as one
-// centered string). Deliberately distinct from MZ_ICON_EXTRUDE.
-#define MZ_ICON_PRIMITIVE  ICON_IC_SQUARE ICON_IC_CIRCLE
+// Rail "Primitive" group — sentinel (PUA U+E001): no Iconoir glyph reads as
+// "basic solids", so drawIconCentered (TouchWidgets.cpp) draws a square
+// overlapping a circle (Steve's CAD-sketch reference: square top-left, larger
+// circle through its bottom-right corner). Distinct from MZ_ICON_EXTRUDE.
+#define MZ_ICON_PRIMITIVE  "\xee\x80\x81"
 
 // Sketch-mode drawing tools (Phase 3 rail)
 #define MZ_ICON_SELECT     ICON_IC_CURSOR_POINTER

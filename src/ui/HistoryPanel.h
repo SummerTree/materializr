@@ -29,6 +29,12 @@ public:
     // Panel body without the "History" window wrapper — for hosting inside
     // another container (im-touch shell right panel). Same return contract.
     bool renderContent();
+    // Hide the bottom Undo/Redo button row and show the step counter inline
+    // beside the "Operation History" label instead. The im-touch shell hosts
+    // undo/redo in its top bar, so the row was redundant there (and its
+    // clipped remnant at the panel split looked broken). render() — the
+    // desktop window — resets this to true each frame.
+    void setShowUndoRedo(bool show) { m_showUndoRedo = show; }
 
     // Open a given step in the inline editor (e.g. when the user clicks the face
     // a fillet/chamfer produced). -1 closes the editor.
@@ -43,6 +49,7 @@ public:
 private:
     History* m_history = nullptr;
     bool m_historyLocked = false;
+    bool m_showUndoRedo = true;   // see setShowUndoRedo
     Document* m_document = nullptr;
     materializr::EventBus* m_eventBus = nullptr;
     int m_editingStep = -1;

@@ -18,6 +18,20 @@ namespace {
 // bitmap-scaled; fine at the small deltas we use — revisit if soft).
 void drawIconCentered(ImDrawList* dl, const ImVec2& center, float size,
                       const char* icon, ImU32 col) {
+    // MZ_ICON_PRIMITIVE sentinel (U+E001): a square overlapping a larger
+    // circle (the CAD-sketch look — square top-left, circle through its
+    // bottom-right corner). No Iconoir glyph reads as "basic solids".
+    if (std::strcmp(icon, "\xee\x80\x81") == 0) {
+        const float th = std::max(1.5f, size * 0.075f);
+        const float hs = size * 0.28f;                       // square half-side
+        const ImVec2 sc(center.x - size * 0.17f, center.y - size * 0.17f);
+        const float r = size * 0.30f;                        // circle radius
+        const ImVec2 cc(center.x + size * 0.15f, center.y + size * 0.15f);
+        dl->AddRect(ImVec2(sc.x - hs, sc.y - hs), ImVec2(sc.x + hs, sc.y + hs),
+                    col, 0.0f, 0, th);
+        dl->AddCircle(cc, r, col, 0, th);
+        return;
+    }
     // MZ_ICON_CHAMFER sentinel (U+E000): Iconoir has no straight-corner-cut
     // glyph, so draw one — a square outline with its top-right corner
     // chamfered off. Matches Iconoir's 1.5px-at-24px stroke look.

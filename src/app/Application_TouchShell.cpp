@@ -400,8 +400,13 @@ void Application::renderTouchShell() {
                     // so it gets the bottom third at most.
                     const float histH = ImGui::GetContentRegionAvail().y * 0.667f;
                     if (ImGui::BeginChild("##histHalf", ImVec2(0, histH), false)) {
-                        if (m_historyPanel && m_historyPanel->renderContent())
-                            m_meshesDirty = true;
+                        if (m_historyPanel) {
+                            // Undo/redo live in the shell's top bar; the panel
+                            // shows its step counter beside the label instead.
+                            m_historyPanel->setShowUndoRedo(false);
+                            if (m_historyPanel->renderContent())
+                                m_meshesDirty = true;
+                        }
                     }
                     ImGui::EndChild();
                     ImGui::Separator();
