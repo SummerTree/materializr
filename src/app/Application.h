@@ -721,6 +721,8 @@ private:
     // Lite variant: near-zero chrome (full-bleed viewport + floating
     // overlays). Only meaningful while m_imTouchUi is on.
     bool m_imTouchLite = false;
+    // Lite-only: the transparent model tree on the right edge.
+    bool m_imTouchLiteTree = true;
     // Center rect the touch shell leaves for the viewport window this frame
     // (screen coords, points). Written by renderTouchShell(), read by
     // renderViewport() to pin the undocked "Viewport" window.

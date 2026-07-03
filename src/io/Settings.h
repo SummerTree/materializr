@@ -27,6 +27,10 @@ struct AppSettings {
     // viewport, floating project/selection chip, contextual tool bar at the
     // bottom, "+" create button. Only meaningful while imTouchUi is on.
     bool imTouchLite        = false;
+    // Lite shell only: the transparent model tree (Bodies/Sketches/
+    // Construction) floating on the right edge. Toggled by the list button
+    // in the lite top-right cluster.
+    bool imTouchLiteTree    = true;
     int  touchRightTab      = 0;    // shell right panel: 0 = Items, 1 = History
 #if defined(MZ_MOBILE)
     // Touch-first default: trackpad mode (one-finger drag = orbit, two-finger

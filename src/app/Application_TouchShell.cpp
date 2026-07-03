@@ -14,6 +14,7 @@
 
 #include "app/Application.h"
 #include "app/Window.h"
+#include "core/Document.h"
 #include "core/History.h"
 #include "core/SelectionManager.h"
 #include "modeling/SketchTool.h"   // SketchToolMode for the select-mode gate
@@ -29,6 +30,7 @@
 
 #include <cfloat> // FLT_MAX (lite tool bar height constraint)
 #include <imgui.h>
+#include <set>
 #include <string>
 
 namespace {
@@ -398,9 +400,141 @@ void Application::renderTouchShellLite() {
             if (touchui::iconButton("kb", MZ_ICON_KEYBOARD, bh))
                 m_softKeyboardForced = !m_softKeyboardForced;
         }
+        // Model-tree toggle (the transparent Bodies/Sketches/Construction
+        // overlay on the right edge).
+        ImGui::SameLine(0.0f, 8.0f * s);
+        if (touchui::iconButton("tree", MZ_ICON_ITEMS, bh)) {
+            m_imTouchLiteTree = !m_imTouchLiteTree;
+            saveAppSettings();
+        }
         // (The ⋯ menu moved to the top-left chip.)
     }
     ImGui::End();
+
+    // ── Transparent model tree (right edge) — the structure the full shell's
+    //    Items panel shows, display-focused: visibility checkbox + name +
+    //    tap-to-select. Deep actions (rename, folders, export) live in the
+    //    full shell; this stays a lite-only overlay.
+    if (m_imTouchLiteTree && m_document) {
+        ImGui::SetNextWindowPos(ImVec2(wp.x + ws.x - m, wp.y + ws.y * 0.5f),
+                                ImGuiCond_Always, ImVec2(1.0f, 0.5f));
+        const float treeW = 250.0f * s;
+        ImGui::SetNextWindowSizeConstraints(ImVec2(treeW, 0),
+                                            ImVec2(treeW, ws.y - 2.0f * m));
+        ImGui::SetNextWindowBgAlpha(0.35f);
+        if (ImGui::Begin("##LiteTree", nullptr,
+                         kFloat & ~ImGuiWindowFlags_NoScrollbar)) {
+            // Selected ids per kind, collected once.
+            std::set<int> selB, selS, selP, selA;
+            if (m_selection)
+                for (const auto& e : m_selection->getSelection()) {
+                    if (e.type == SelectionType::Body   && e.bodyId   >= 0) selB.insert(e.bodyId);
+                    if (e.type == SelectionType::Sketch && e.sketchId >= 0) selS.insert(e.sketchId);
+                    if (e.type == SelectionType::Plane  && e.planeId  >= 0) selP.insert(e.planeId);
+                    if (e.type == SelectionType::Axis   && e.axisId   >= 0) selA.insert(e.axisId);
+                }
+            // Plain tap = single-select; with the Multi toggle armed, bodies
+            // toggle in/out of the selection (same semantics as the Items
+            // panel's Ctrl+click). Body picks are navigation-only, exactly
+            // like the Items panel's rows; other kinds select plainly.
+            auto pick = [&](SelectionEntry entry, bool multiOk) {
+                if (!m_selection) return;
+                if (multiOk && m_multiSelectToggle) m_selection->toggleSelection(entry);
+                else                                m_selection->select(entry);
+                if (entry.type == SelectionType::Body)
+                    m_selection->setNavigationOnly(true);
+            };
+
+            bool any = false;
+            const auto bodyIds = m_document->getAllBodyIds();
+            if (!bodyIds.empty()) {
+                any = true;
+                touchui::sectionHeader("Bodies");
+                for (int id : bodyIds) {
+                    ImGui::PushID(id);
+                    bool visible = m_document->isBodyVisible(id);
+                    auto act = touchui::listRow("body", &visible,
+                                                m_document->getBodyName(id).c_str(),
+                                                selB.count(id) > 0,
+                                                /*withOverflow=*/false);
+                    if (act.toggled) m_document->setBodyVisible(id, visible);
+                    if (act.clicked) {
+                        SelectionEntry e;
+                        e.type = SelectionType::Body;
+                        e.bodyId = id;
+                        pick(e, /*multiOk=*/true);
+                    }
+                    ImGui::PopID();
+                }
+            }
+            const auto sketchIds = m_document->getAllSketchIds();
+            if (!sketchIds.empty()) {
+                any = true;
+                touchui::sectionHeader("Sketches");
+                for (int id : sketchIds) {
+                    ImGui::PushID(id);
+                    bool visible = m_document->isSketchVisible(id);
+                    auto act = touchui::listRow("sketch", &visible,
+                                                m_document->getSketchName(id).c_str(),
+                                                selS.count(id) > 0,
+                                                /*withOverflow=*/false);
+                    if (act.toggled) m_document->setSketchVisible(id, visible);
+                    if (act.clicked) {
+                        SelectionEntry e;
+                        e.type = SelectionType::Sketch;
+                        e.sketchId = id;
+                        pick(e, /*multiOk=*/false);
+                    }
+                    ImGui::PopID();
+                }
+            }
+            const auto planeIds = m_document->getAllPlaneIds();
+            const auto axisIds  = m_document->getAllAxisIds();
+            if (!planeIds.empty() || !axisIds.empty()) {
+                any = true;
+                touchui::sectionHeader("Construction");
+                for (int id : planeIds) {
+                    ImGui::PushID(id + 100000); // avoid plane/axis id collisions
+                    const auto* p = m_document->getPlane(id);
+                    std::string label = p ? p->name
+                                          : std::string("Plane ") + std::to_string(id);
+                    bool visible = m_document->isPlaneVisible(id);
+                    auto act = touchui::listRow("plane", &visible, label.c_str(),
+                                                selP.count(id) > 0,
+                                                /*withOverflow=*/false);
+                    if (act.toggled) m_document->setPlaneVisible(id, visible);
+                    if (act.clicked) {
+                        SelectionEntry e;
+                        e.type = SelectionType::Plane;
+                        e.planeId = id;
+                        pick(e, /*multiOk=*/false);
+                    }
+                    ImGui::PopID();
+                }
+                for (int id : axisIds) {
+                    ImGui::PushID(id + 200000);
+                    const auto* a = m_document->getAxis(id);
+                    std::string label = a ? a->name
+                                          : std::string("Axis ") + std::to_string(id);
+                    bool visible = m_document->isAxisVisible(id);
+                    auto act = touchui::listRow("axis", &visible, label.c_str(),
+                                                selA.count(id) > 0,
+                                                /*withOverflow=*/false);
+                    if (act.toggled) m_document->setAxisVisible(id, visible);
+                    if (act.clicked) {
+                        SelectionEntry e;
+                        e.type = SelectionType::Axis;
+                        e.axisId = id;
+                        pick(e, /*multiOk=*/false);
+                    }
+                    ImGui::PopID();
+                }
+            }
+            if (!any)
+                ImGui::TextColored(touchui::textDim(), "Nothing here yet");
+        }
+        ImGui::End();
+    }
 
     // ── Contextual tool bar — the same catalogue the full shell's rail uses,
     //    floating on the LEFT edge, vertically centered. Sketch mode appends

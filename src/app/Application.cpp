@@ -1605,6 +1605,7 @@ AppSettings Application::currentSettings() const {
     s.touchMode = m_touchMode;
     s.imTouchUi = m_imTouchUi;
     s.imTouchLite = m_imTouchLite;
+    s.imTouchLiteTree = m_imTouchLiteTree;
     s.touchRightTab = m_touchRightTab;
     s.orbitButton = m_orbitButton;
     s.panButton = m_panButton;
@@ -1669,6 +1670,7 @@ void Application::applyAppSettings(const AppSettings& s) {
     m_touchMode = s.touchMode;   // staged value for the Settings dialog
     m_imTouchUi = s.imTouchUi;   // tablet shell — live, no restart needed
     m_imTouchLite = s.imTouchLite;
+    m_imTouchLiteTree = s.imTouchLiteTree;
     m_touchRightTab = (s.touchRightTab == 1) ? 1 : 0;
     // Camera button bindings are honoured on every platform. Android defaults to
     // trackpad mode (AppSettings sets orbit/pan = Left there) so one-finger touch
