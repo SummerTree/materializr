@@ -55,10 +55,11 @@ void drawIconCentered(ImDrawList* dl, const ImVec2& center, float size,
     if (std::strcmp(icon, "\xee\x80\x82") == 0) {
         const float cell = size * 0.22f;
         const float th   = std::max(1.2f, size * 0.05f);
-        const ImVec2 o(center.x - cell * 1.5f, center.y - cell * 2.0f); // grid TL
-        // (col,row) cells: a vertical strip of 4 with two arms on the 2nd row.
+        const ImVec2 o(center.x - cell * 2.0f, center.y - cell * 1.5f); // grid TL
+        // (col,row) cells: a horizontal strip of 4 with two arms on the 3rd
+        // column (the cross laid on its side, so it doesn't read as a crucifix).
         static const int cells[6][2] =
-            {{1,0},{0,1},{1,1},{2,1},{1,2},{1,3}};
+            {{2,0},{0,1},{1,1},{2,1},{3,1},{2,2}};
         for (const auto& c : cells)
             dl->AddRect(ImVec2(o.x + c[0] * cell,       o.y + c[1] * cell),
                         ImVec2(o.x + (c[0]+1) * cell,   o.y + (c[1]+1) * cell),
