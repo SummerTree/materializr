@@ -118,6 +118,7 @@ void applyKv(const std::map<std::string, std::string>& kv, AppSettings& s) {
     readFloat(kv, "touchPanSens",        s.touchPanSens);
     readFloat(kv, "touchZoomSens",       s.touchZoomSens);
     readBool(kv, "showToolbarTooltips",  s.showToolbarTooltips);
+    readBool(kv, "showFps",              s.showFps);
     readBool(kv, "autoOpenLastProject",  s.autoOpenLastProject);
     readString(kv, "lastProjectPath",    s.lastProjectPath);
     readString(kv, "lastFileDir",        s.lastFileDir);
@@ -338,6 +339,7 @@ bool SettingsIO::save(const std::string& path, const AppSettings& s) {
     ofs << "touchPanSens = "        << s.touchPanSens        << "\n";
     ofs << "touchZoomSens = "       << s.touchZoomSens       << "\n";
     ofs << "showToolbarTooltips = " << (s.showToolbarTooltips ? "true" : "false") << "\n";
+    ofs << "showFps = "             << (s.showFps ? "true" : "false") << "\n";
     ofs << "autoOpenLastProject = " << (s.autoOpenLastProject ? "true" : "false") << "\n";
     ofs << "lastProjectPath = "     << s.lastProjectPath     << "\n";
     ofs << "lastFileDir = "         << s.lastFileDir         << "\n";
@@ -427,6 +429,7 @@ bool SettingsIO::exportJson(const std::string& path, const AppSettings& s) {
     ofs << "  \"touchPanSens\": "             << s.touchPanSens          << ",\n";
     ofs << "  \"touchZoomSens\": "            << s.touchZoomSens         << ",\n";
     ofs << "  \"showToolbarTooltips\": "     << b(s.showToolbarTooltips)<< ",\n";
+    ofs << "  \"showFps\": "                  << b(s.showFps)            << ",\n";
     ofs << "  \"autoOpenLastProject\": "     << b(s.autoOpenLastProject)<< ",\n";
     ofs << "  \"checkForUpdatesOnLaunch\": " << b(s.checkForUpdatesOnLaunch) << ",\n";
     ofs << "  \"includePrereleases\": " << b(s.includePrereleases) << ",\n";

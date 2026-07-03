@@ -101,7 +101,7 @@ void drawIconCentered(ImDrawList* dl, const ImVec2& center, float size,
 } // namespace
 
 bool railButton(const char* id, const char* icon, const char* label, bool active,
-                float width) {
+                float width, bool solid) {
     const float s = uiScale();
     const float w = width > 0.0f ? width : ImGui::GetContentRegionAvail().x;
     // 52 (was 62): shorter so the whole tool set fits with less scrolling,
@@ -121,6 +121,9 @@ bool railButton(const char* id, const char* icon, const char* label, bool active
     } else if (hovered || ImGui::IsItemActive()) {
         dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h),
                           ImGui::GetColorU32(rowBg()), 12.0f * s);
+    } else if (solid) {
+        dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h),
+                          ImGui::GetColorU32(panelBg()), 12.0f * s);
     }
 
     const ImU32 fg = ImGui::GetColorU32(active ? onAccent() : textPrimary());

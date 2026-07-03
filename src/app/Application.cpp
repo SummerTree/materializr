@@ -1187,6 +1187,7 @@ AppSettings Application::currentSettings() const {
     s.touchPanSens = m_touchPanSens;
     s.touchZoomSens = m_touchZoomSens;
     s.showToolbarTooltips = m_showToolbarTooltips;
+    s.showFps = m_showFps;
     s.autoOpenLastProject = m_autoOpenLastProject;
     s.recentProjects = m_recentProjects;
     s.lastProjectPath = m_currentProjectPath; // empty after closeProject()
@@ -1222,6 +1223,7 @@ void Application::applyAppSettings(const AppSettings& s) {
     m_uiLayout = s.uiLayout;     // interface layout — live, no restart needed
     m_imTouchTree = s.imTouchTree;
     m_imTouchTimeline = s.imTouchTimeline;
+    m_showFps = s.showFps;
     m_touchRightTab = (s.touchRightTab == 1) ? 1 : 0;
     m_touchRightW = s.touchRightW;
     if (m_touchRightW < 200.0f) m_touchRightW = 200.0f;

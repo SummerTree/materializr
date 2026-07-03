@@ -11,9 +11,12 @@ namespace touchui {
 
 // Vertical rail entry: icon over a small label, accent-filled rounded rect
 // when active. Fills the current content width (or `width` when > 0 — used
-// by the lite shell's horizontal tool bar). Returns true on press.
+// by the lite shell's horizontal tool bar). `solid` gives the inactive state
+// a panel-coloured fill too, so the button reads as solid standing alone on
+// the viewport (not just when hovered/active) without a separate backing
+// window. Returns true on press.
 bool railButton(const char* id, const char* icon, const char* label, bool active,
-                float width = 0.0f);
+                float width = 0.0f, bool solid = false);
 
 // Floating action button: filled accent circle with a centered icon
 // (im-touch-lite's "+ create"). Returns true on press.

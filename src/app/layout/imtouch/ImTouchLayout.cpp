@@ -107,6 +107,10 @@ void Application::renderImTouchLayout() {
         (layoutui::kShellWindowFlags & ~ImGuiWindowFlags_NoBringToFrontOnFocus) |
         ImGuiWindowFlags_AlwaysAutoResize;
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 14.0f * s);
+    // No window borders on any of the floating overlays — the 1px frame reads
+    // as a faint "ghost" rectangle around transparent windows (the +, the
+    // chip, the buttons). Their rounded fill is the only chrome we want.
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
 
     // ── Project / selection chip (top-left) ─────────────────────────────────
     ImGui::SetNextWindowPos(ImVec2(wp.x + m, wp.y + m));
@@ -188,36 +192,57 @@ void Application::renderImTouchLayout() {
                 m_softKeyboardForced = !m_softKeyboardForced;
             tip("Toggle the on-screen keyboard");
         }
-        // Model-tree toggle (the transparent Bodies/Sketches/Construction
-        // overlay on the right edge).
-        ImGui::SameLine(0.0f, 8.0f * s);
-        if (touchui::iconButton("tree", MZ_ICON_ITEMS, bh)) {
-            m_imTouchTree = !m_imTouchTree;
-            saveAppSettings();
-        }
-        // History-timeline toggle (the Fusion-style step boxes at the bottom).
-        ImGui::SameLine(0.0f, 8.0f * s);
-        if (touchui::iconButton("hist", MZ_ICON_HISTORY, bh)) {
-            m_imTouchTimeline = !m_imTouchTimeline;
-            saveAppSettings();
-        }
-        // (The ⋯ menu moved to the top-left chip.)
+        // (Items toggle moved to the persistent right-edge button below;
+        // History has its own bottom toggle; the ⋯ menu lives on the top-left
+        // chip.)
     }
     ImGui::End();
+
+    // ── Persistent right-edge Items button: tap to open the model tree (which
+    //    appears just left of it), tap again — or the tree's header chevron —
+    //    to collapse it back. Accent-filled while the tree is open. Vertically
+    //    centred so it clears the top-right cluster, the ViewCube and the FAB.
+    //    (History is NOT here — it lives at the bottom next to the timeline; see
+    //    below — so its reopen button sits where its minimize chevron does.)
+    const float railBtnW = 60.0f * s;
+    {
+        ImGui::SetNextWindowPos(ImVec2(wp.x + ws.x - m, wp.y + ws.y * 0.5f),
+                                ImGuiCond_Always, ImVec2(1.0f, 0.5f));
+        ImGui::SetNextWindowBgAlpha(0.0f);   // the button draws its own solid fill
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+        if (ImGui::Begin("##LiteItemsButton", nullptr, kFloat)) {
+            if (touchui::railButton("railItems", MZ_ICON_ITEMS, "Items",
+                                    m_imTouchTree, railBtnW, /*solid=*/true)) {
+                m_imTouchTree = !m_imTouchTree;
+                saveAppSettings();
+            }
+            tip(m_imTouchTree ? "Hide the model tree"
+                              : "Show the model tree (bodies, sketches, construction)");
+        }
+        ImGui::End();
+        ImGui::PopStyleVar();
+    }
 
     // ── Transparent model tree (right edge) — the structure the modern
     //    layout's Items panel shows, display-focused: visibility checkbox +
     //    name + tap-to-select. Deep actions (rename, folders, export) live in
     //    the other layouts; this stays an im-touch-only overlay.
     if (m_imTouchTree && m_document) {
-        ImGui::SetNextWindowPos(ImVec2(wp.x + ws.x - m, wp.y + ws.y * 0.5f),
-                                ImGuiCond_Always, ImVec2(1.0f, 0.5f));
+        // Anchored just LEFT of the right-edge rail so its Items button stays
+        // visible and tappable while the tree is open.
+        ImGui::SetNextWindowPos(
+            ImVec2(wp.x + ws.x - m - railBtnW - 8.0f * s, wp.y + ws.y * 0.5f),
+            ImGuiCond_Always, ImVec2(1.0f, 0.5f));
         const float treeW = 250.0f * s;
         ImGui::SetNextWindowSizeConstraints(ImVec2(treeW, 0),
                                             ImVec2(treeW, ws.y - 2.0f * m));
         ImGui::SetNextWindowBgAlpha(0.35f);
         if (ImGui::Begin("##LiteTree", nullptr,
                          kFloat & ~ImGuiWindowFlags_NoScrollbar)) {
+            // "Items" title. No in-panel minimize control — the right-edge
+            // Items button (which opened it) toggles it closed again.
+            ImGui::TextColored(touchui::textPrimary(), "Items");
+            ImGui::Separator();
             // Selected ids per kind, collected once.
             std::set<int> selB, selS, selP, selA;
             if (m_selection)
@@ -456,29 +481,66 @@ void Application::renderImTouchLayout() {
     }
     ImGui::End();
 
-    // ── History timeline (bottom-center) — Fusion-360-style boxes, one per
-    //    history step, oldest → newest. Tap a box for its properties popup:
-    //    edit the op's parameters (Apply replays downstream steps, same code
-    //    path as the desktop History panel), roll the model back/forward to
-    //    it, toggle it, or delete it. Hidden while a sketch is open: rolling
-    //    the host body back under a live sketch is forbidden (see
-    //    History::setUndoFloor).
+    // ── History: a bottom toggle whose REOPEN button sits exactly where its
+    //    minimize chevron is (not up on the Items rail). The toggle is a fixed
+    //    left-anchored button — a chevron to hide while the strip is open, the
+    //    History clock to reopen while collapsed — and the Fusion-360-style
+    //    step strip (tap a box for its properties popup: edit params, roll
+    //    to it, toggle/delete) is a separate scrolling window to its right.
+    //    Hidden in sketch mode: rolling the host body back under a live sketch
+    //    is forbidden (see History::setUndoFloor).
     const int steps = m_history ? m_history->stepCount() : 0;
-    if (m_imTouchTimeline && !m_inSketchMode && m_document && m_history) {
-        ImGui::SetNextWindowPos(ImVec2(wp.x + ws.x * 0.5f, wp.y + ws.y - m),
-                                ImGuiCond_Always, ImVec2(0.5f, 1.0f));
-        // Keep clear of the fps readout (left) and the create FAB (right).
-        const float inset = 96.0f * s;
+    const bool histAvail = !m_inSketchMode && m_document && m_history;
+    const float histX   = wp.x + m;   // bottom-left corner (fps moved to top)
+    const float histGap = 8.0f * s;
+    // Last frame's measured strip height, so the toggle can be centred on the
+    // strip's vertical middle — the strip window carries padding the
+    // borderless button doesn't, so plain bottom-alignment left it sitting low.
+    // The height persists once the strip has rendered, so the button holds that
+    // same centred position when collapsed instead of snapping back down.
+    static float s_histStripH = 0.0f;
+    if (histAvail) {
+        if (s_histStripH > 0.0f)
+            ImGui::SetNextWindowPos(
+                ImVec2(histX, (wp.y + ws.y - m) - s_histStripH * 0.5f),
+                ImGuiCond_Always, ImVec2(0.0f, 0.5f));
+        else
+            ImGui::SetNextWindowPos(ImVec2(histX, wp.y + ws.y - m),
+                                    ImGuiCond_Always, ImVec2(0.0f, 1.0f));
+        ImGui::SetNextWindowBgAlpha(0.0f);   // the button draws its own solid fill
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+        if (ImGui::Begin("##LiteHistoryToggle", nullptr, kFloat)) {
+            // Clock icon + "History" label — mirrors the Items button, and
+            // accent-fills while the timeline is open. The button is the same
+            // open or closed, so the reopen state sits exactly where the
+            // collapse state was.
+            if (touchui::railButton("histToggle", MZ_ICON_HISTORY, "History",
+                                    m_imTouchTimeline, railBtnW, /*solid=*/true)) {
+                m_imTouchTimeline = !m_imTouchTimeline;
+                saveAppSettings();
+            }
+            tip(m_imTouchTimeline ? "Hide the history timeline"
+                                  : "Show the history timeline");
+        }
+        ImGui::End();
+        ImGui::PopStyleVar();
+    }
+    if (m_imTouchTimeline && histAvail) {
+        const float stripX = histX + railBtnW + histGap;
+        ImGui::SetNextWindowPos(ImVec2(stripX, wp.y + ws.y - m),
+                                ImGuiCond_Always, ImVec2(0.0f, 1.0f));
+        // End before the create FAB (bottom-right).
+        const float fabClear = m + 76.0f * s;
         ImGui::SetNextWindowSizeConstraints(
-            ImVec2(0, 0), ImVec2(ws.x - 2.0f * (m + inset), FLT_MAX));
+            ImVec2(0, 0), ImVec2((wp.x + ws.x - fabClear) - stripX, FLT_MAX));
         ImGui::SetNextWindowBgAlpha(0.92f);
         ImGui::PushStyleColor(ImGuiCol_WindowBg, touchui::panelBg());
         if (ImGui::Begin("##LiteTimeline", nullptr,
                          (kFloat & ~ImGuiWindowFlags_NoScrollbar) |
                              ImGuiWindowFlags_HorizontalScrollbar)) {
-            // Empty history: keep the bar visible with a hint instead of
-            // vanishing — otherwise toggling the clock button in a fresh
-            // project looks like it does nothing.
+            s_histStripH = ImGui::GetWindowSize().y;  // for centring the toggle
+            // Empty history still shows a hint so toggling History in a fresh
+            // project doesn't look like it did nothing.
             if (steps == 0)
                 ImGui::TextColored(touchui::textDim(),
                                    "History: no steps yet");
@@ -648,17 +710,26 @@ void Application::renderImTouchLayout() {
         ImGui::PopStyleColor();
     }
 
-    // ── fps readout (bottom-left, like the mockup's "60 fps") ───────────────
-    ImGui::SetNextWindowPos(ImVec2(wp.x + m, wp.y + ws.y - m),
-                            ImGuiCond_Always, ImVec2(0.0f, 1.0f));
-    ImGui::SetNextWindowBgAlpha(0.0f);
-    if (ImGui::Begin("##LiteFps", nullptr, kFloat)) {
-        ImGui::TextColored(touchui::textDim(), "%.0f fps",
-                           ImGui::GetIO().Framerate);
+    // ── fps readout — a small solid chip at the top-centre. Hidden entirely
+    //    via Settings → Appearance → "Show FPS counter".
+    if (m_showFps) {
+        ImGui::SetNextWindowPos(ImVec2(wp.x + ws.x * 0.5f, wp.y + m),
+                                ImGuiCond_Always, ImVec2(0.5f, 0.0f));
+        ImGui::SetNextWindowBgAlpha(0.92f);
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, touchui::panelBg());
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(9.0f * s, 4.0f * s));
+        if (ImGui::Begin("##LiteFps", nullptr, kFloat)) {
+            ImGui::SetWindowFontScale(0.82f);   // smaller than the shell text
+            ImGui::TextColored(touchui::textDim(), "%.0f fps",
+                               ImGui::GetIO().Framerate);
+            ImGui::SetWindowFontScale(1.0f);
+        }
+        ImGui::End();
+        ImGui::PopStyleVar();
+        ImGui::PopStyleColor();
     }
-    ImGui::End();
 
-    ImGui::PopStyleVar(); // WindowRounding
+    ImGui::PopStyleVar(2); // WindowRounding + WindowBorderSize
 }
 
 } // namespace materializr

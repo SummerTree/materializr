@@ -236,6 +236,14 @@ void Application::renderSettings() {
                                        "Turn off if you already know the tools and find the pop-ups distracting.");
 
                     ImGui::Spacing();
+                    ImGui::SeparatorText("Overlays");
+                    if (ImGui::Checkbox("Show FPS counter", &m_showFps)) {
+                        changed = true;
+                    }
+                    ImGui::TextWrapped("Show a small frames-per-second readout at the top of the "
+                                       "screen (im-touch layout). Turn off to hide it entirely.");
+
+                    ImGui::Spacing();
                     ImGui::SeparatorText("Selection");
                     // Selection line width — how boldly picked edges/bodies are outlined.
                     if (ImGui::SliderFloat("Selection line width", &m_selectionLineWidth, 1.0f, 10.0f, "%.1f px")) {

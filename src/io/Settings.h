@@ -97,6 +97,7 @@ struct AppSettings {
     float touchPanSens      = 1.0f;
     float touchZoomSens     = 1.0f;
     bool  showToolbarTooltips = true; // hover-tip describing each toolbar button
+    bool  showFps           = true;   // small FPS readout (im-touch layout, top-centre)
 
     // --- Session ---
     bool  autoOpenLastProject = false;     // re-open the most recent project on launch
