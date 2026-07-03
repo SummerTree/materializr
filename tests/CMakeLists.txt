@@ -218,3 +218,9 @@ add_test(NAME test_twist_face COMMAND test_twist_face)
 add_executable(test_topo_shell test_topo_shell.cpp)
 target_link_libraries(test_topo_shell PRIVATE materializr_core gtest gtest_main)
 add_test(NAME test_topo_shell COMMAND test_topo_shell)
+
+# test_topo_fillet_gen — FilletOp publishes a generation ledger; a blend face
+# named by lineage survives a corner-moving resize (general-kernel on real op)
+add_executable(test_topo_fillet_gen test_topo_fillet_gen.cpp)
+target_link_libraries(test_topo_fillet_gen PRIVATE materializr_core gtest gtest_main)
+add_test(NAME test_topo_fillet_gen COMMAND test_topo_fillet_gen)
