@@ -143,11 +143,8 @@ private:
     // under File. The desktop menu bar keeps it (default true).
     void renderFileMenuItems(bool withSettings = true);
     void renderEditMenuItems();
-    // The overflow's Tools submenu (touch shell): the create/start tools that
-    // otherwise live only on the selection rail, with construction + sketch-on
-    // options nested. Selection-aware (mirrors the rail's context).
-    void renderToolsMenuItems();
-    // Derived construction Plane/Axis items (nested under Tools ▸ Construction).
+    // Derived construction Plane/Axis items — the popup behind the touch rail's
+    // "Construct" group. Selection-aware (mirrors Toolbar's Add Plane/Axis).
     void renderConstructionMenuItems();
     void renderViewMenuItems();
     void renderHelpMenuItems();

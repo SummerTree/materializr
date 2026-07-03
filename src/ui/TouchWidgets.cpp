@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cfloat>
+#include <cstring>
 
 namespace materializr {
 namespace touchui {
@@ -17,6 +18,23 @@ namespace {
 // bitmap-scaled; fine at the small deltas we use — revisit if soft).
 void drawIconCentered(ImDrawList* dl, const ImVec2& center, float size,
                       const char* icon, ImU32 col) {
+    // MZ_ICON_CHAMFER sentinel (U+E000): Iconoir has no straight-corner-cut
+    // glyph, so draw one — a square outline with its top-right corner
+    // chamfered off. Matches Iconoir's 1.5px-at-24px stroke look.
+    if (std::strcmp(icon, "\xee\x80\x80") == 0) {
+        const float h = size * 0.40f;          // half side
+        const float c = h * 0.95f;             // chamfer leg length
+        const ImVec2 pts[5] = {
+            ImVec2(center.x - h,     center.y - h),      // TL
+            ImVec2(center.x + h - c, center.y - h),      // top edge, cut start
+            ImVec2(center.x + h,     center.y - h + c),  // right edge, cut end
+            ImVec2(center.x + h,     center.y + h),      // BR
+            ImVec2(center.x - h,     center.y + h),      // BL
+        };
+        dl->AddPolyline(pts, 5, col, ImDrawFlags_Closed,
+                        std::max(1.5f, size * 0.075f));
+        return;
+    }
     ImFont* font = ImGui::GetFont();
     const ImVec2 ts = font->CalcTextSizeA(size, FLT_MAX, 0.0f, icon);
     dl->AddText(font, size, ImVec2(center.x - ts.x * 0.5f, center.y - ts.y * 0.5f),
@@ -29,7 +47,10 @@ bool railButton(const char* id, const char* icon, const char* label, bool active
                 float width) {
     const float s = uiScale();
     const float w = width > 0.0f ? width : ImGui::GetContentRegionAvail().x;
-    const float h = 62.0f * s;
+    // 52 (was 62): shorter so the whole tool set fits with less scrolling,
+    // still comfortably above the 44pt touch floor. If this changes, update
+    // the lite shell's bottom-bar pill alignment (hardcodes the same height).
+    const float h = 52.0f * s;
 
     ImGui::PushID(id);
     const ImVec2 p = ImGui::GetCursorScreenPos();

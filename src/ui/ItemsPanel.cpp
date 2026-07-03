@@ -118,9 +118,13 @@ bool ItemsPanel::renderContent() {
             ImGui::SetNextItemOpen(wantExpanded, ImGuiCond_Always);
 
             std::string fname = m_document->getFolderName(folderId);
-            // Reserve room for the colour swatch on the right.
+            // Reserve room for the colour swatch on the right. The gap must be
+            // the style's ItemSpacing.x — that's what SameLine() actually
+            // advances by — or the swatch overhangs the panel edge under a
+            // theme with wider spacing (the im-touch shell clipped it).
             float swatchW = ImGui::GetFrameHeight();
-            float nameW = ImGui::GetContentRegionAvail().x - swatchW - 6.0f;
+            float nameW = ImGui::GetContentRegionAvail().x - swatchW -
+                          ImGui::GetStyle().ItemSpacing.x;
             bool open = ImGui::TreeNodeEx(("##fnode" + std::to_string(folderId)).c_str(),
                                           fflags | (wantExpanded ? ImGuiTreeNodeFlags_DefaultOpen : 0));
             if (open != wantExpanded) {
@@ -605,8 +609,11 @@ bool ItemsPanel::renderBodyRow(int id, bool& colorChanged) {
         return true;
     }
 
+    // Gap = ItemSpacing.x (what SameLine() advances by), not a hardcoded 6 —
+    // else the swatch overhangs the right edge under wider-spacing themes.
     float swatchW = ImGui::GetFrameHeight();
-    float nameW = ImGui::GetContentRegionAvail().x - swatchW - 6.0f;
+    float nameW = ImGui::GetContentRegionAvail().x - swatchW -
+                  ImGui::GetStyle().ItemSpacing.x;
     std::string name = m_document->getBodyName(id);
     // Auto-scroll into view ONLY when this is the lone selected body and it's
     // newly selected (typically a viewport pick changing selection). With

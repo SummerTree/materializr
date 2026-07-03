@@ -34,11 +34,20 @@ inline void push() {
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding,   10.0f * s);
     ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding,   12.0f * s);
     ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding,   10.0f * s);
+    // Dialogs & floating windows share the shell look — rounded and padded.
+    // (The theme is pushed for the WHOLE frame while im-touch is on, so every
+    // dialog inherits it; the shell's edge-flush bars opt back out with a
+    // local WindowRounding=0 push.)
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding,  12.0f * s);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,   ImVec2(16.0f * s, 13.0f * s));
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,    ImVec2(14.0f * s, 9.0f * s));
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,     ImVec2(10.0f * s, 10.0f * s));
     ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarSize,   14.0f * s);
     ImGui::PushStyleVar(ImGuiStyleVar_GrabMinSize,     24.0f * s);
 
+    ImGui::PushStyleColor(ImGuiCol_TitleBg,          chromeBg());
+    ImGui::PushStyleColor(ImGuiCol_TitleBgActive,    panelBg());
+    ImGui::PushStyleColor(ImGuiCol_TitleBgCollapsed, chromeBg());
     ImGui::PushStyleColor(ImGuiCol_WindowBg,       chromeBg());
     ImGui::PushStyleColor(ImGuiCol_PopupBg,        panelBg());
     ImGui::PushStyleColor(ImGuiCol_Border,         hairline());
@@ -58,8 +67,8 @@ inline void push() {
 }
 
 inline void pop() {
-    ImGui::PopStyleColor(16);
-    ImGui::PopStyleVar(7);
+    ImGui::PopStyleColor(19);
+    ImGui::PopStyleVar(9);
 }
 
 struct Scope {

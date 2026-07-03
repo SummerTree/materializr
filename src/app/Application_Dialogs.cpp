@@ -153,13 +153,14 @@ void Application::renderSettings() {
                     }
 
                     ImGui::Spacing();
-                    if (ImGui::Checkbox("im-touch UI (tablet layout)", &m_imTouchUi)) {
+                    if (ImGui::Checkbox("im-touch UI (modern layout)", &m_imTouchUi)) {
                         changed = true;
                     }
-                    ImGui::TextWrapped("Experimental tablet shell: a top app bar, "
-                                       "tool rail and side panel replace the desktop "
-                                       "menus and docked windows. Switches immediately; "
-                                       "your desktop panel layout is kept.");
+                    ImGui::TextWrapped("Experimental modern shell — tablet and "
+                                       "desktop: a top app bar, tool rail and side "
+                                       "panel replace the classic menus and docked "
+                                       "windows. Switches immediately; your classic "
+                                       "panel layout is kept.");
                     ImGui::BeginDisabled(!m_imTouchUi);
                     ImGui::Indent();
                     if (ImGui::Checkbox("im-touch-lite (near-zero chrome)",

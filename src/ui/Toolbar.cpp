@@ -92,13 +92,16 @@ std::vector<Toolbar::RailTool> Toolbar::railTools() const {
         add(MZ_ICON_SELECT,  "Select",  ToolAction::SelectSketch, m_activeSketchMode == 1);
         add(MZ_ICON_LINE,    "Line",    ToolAction::Line,         m_activeSketchMode == 2);
         add(MZ_ICON_CIRCLE,  "Circle",  ToolAction::Circle,       m_activeSketchMode == 3);
-        add(MZ_ICON_RECT,    "Rect",    ToolAction::Rectangle,    m_activeSketchMode == 4);
+        add(MZ_ICON_RECT,    "Rectangle", ToolAction::Rectangle,  m_activeSketchMode == 4);
         add(MZ_ICON_ARC,     "Arc",     ToolAction::Arc,          m_activeSketchMode == 5);
         add(MZ_ICON_SPLINE,  "Spline",  ToolAction::Spline,       m_activeSketchMode == 6);
         add(MZ_ICON_POLYGON, "Polygon", ToolAction::Polygon,      m_activeSketchMode == 7);
         add(MZ_ICON_TRIM,    "Trim",    ToolAction::Trim,         m_activeSketchMode == 8);
     } else if (!m_selection || !m_selection->hasSelection()) {
-        add(MZ_ICON_SKETCH,  "Sketch",  ToolAction::StartSketch);
+        // No bare "Sketch" here: with nothing selected it just duplicated
+        // "Sketch on… > XY plane". Sketch appears once a face or construction
+        // plane is picked (the branches below); world-plane starts live in
+        // the rail's "Sketch on…" group.
         add(MZ_ICON_MEASURE, "Measure", ToolAction::Measure);
     } else if (m_selection->hasSelectedSketchRegions()) {
         add(MZ_ICON_PUSHPULL, "Push",     ToolAction::PushPull);
@@ -146,7 +149,8 @@ std::vector<Toolbar::RailTool> Toolbar::railTools() const {
         if (m_canEditDiameter)
             add(MZ_ICON_CIRCLE, "Diameter", ToolAction::EditDiameter);
     } else {
-        add(MZ_ICON_SKETCH,  "Sketch",  ToolAction::StartSketch);
+        // Fallback (vertex or other selection): same rule as no-selection —
+        // no bare "Sketch" (it duplicated Sketch on… > world plane).
         add(MZ_ICON_MEASURE, "Measure", ToolAction::Measure);
     }
     return t;

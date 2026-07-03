@@ -55,6 +55,7 @@ inline void resetFpuForOcct() {
 #include "core/SelectionManager.h"
 #include "ui/Toolbar.h"
 #include "ui/TouchIcons.h"
+#include "ui/TouchTheme.h"
 #include "ui/HistoryPanel.h"
 #include "ui/ItemsPanel.h"
 #include "ui/StatusBar.h"
@@ -1203,50 +1204,6 @@ void Application::renderEditMenuItems() {
     }
 }
 
-void Application::renderToolsMenuItems() {
-    if (ImGui::MenuItem("New Sketch"))
-        handleToolAction(static_cast<int>(ToolAction::StartSketch));
-
-    // Sketch on ▸ — the world planes always, the selected face when one's picked.
-    if (ImGui::BeginMenu("Sketch on")) {
-        if (ImGui::MenuItem("XY plane"))
-            handleToolAction(static_cast<int>(ToolAction::StartSketchXY));
-        if (ImGui::MenuItem("XZ plane"))
-            handleToolAction(static_cast<int>(ToolAction::StartSketchXZ));
-        if (ImGui::MenuItem("YZ plane"))
-            handleToolAction(static_cast<int>(ToolAction::StartSketchYZ));
-        const bool haveFace = m_selection && m_selection->hasSelectedFaces();
-        if (ImGui::MenuItem("Selected face", nullptr, false, haveFace))
-            handleToolAction(static_cast<int>(ToolAction::SketchOnFace));
-        ImGui::EndMenu();
-    }
-
-    // Primitive ▸ — the same interactive ops the create FAB / toolbar fire.
-    if (m_pluginContext && ImGui::BeginMenu("Primitive")) {
-        if (ImGui::MenuItem("Box"))
-            m_pluginContext->requestInteractiveOp("PrimitiveBox");
-        if (ImGui::MenuItem("Cylinder"))
-            m_pluginContext->requestInteractiveOp("PrimitiveCylinder");
-        if (ImGui::MenuItem("Sphere"))
-            m_pluginContext->requestInteractiveOp("PrimitiveSphere");
-        if (ImGui::MenuItem("Cone"))
-            m_pluginContext->requestInteractiveOp("PrimitiveCone");
-        if (ImGui::MenuItem("Torus"))
-            m_pluginContext->requestInteractiveOp("PrimitiveTorus");
-        ImGui::EndMenu();
-    }
-
-    // Construction ▸ — Plane + Axis, both derived from the current selection.
-    if (ImGui::BeginMenu("Construction")) {
-        renderConstructionMenuItems();
-        ImGui::EndMenu();
-    }
-
-    ImGui::Separator();
-    if (ImGui::MenuItem("Measure"))
-        handleToolAction(static_cast<int>(ToolAction::Measure));
-}
-
 void Application::renderConstructionMenuItems() {
     // Detect which plane/axis derivations the current selection supports —
     // mirrors Toolbar::renderAddPlaneMenu / renderAddAxisMenu (keep in sync).
@@ -1281,37 +1238,49 @@ void Application::renderConstructionMenuItems() {
     const bool anyAxis  = m_pluginContext &&
                           (haveCyl || straightEdge || twoVerts || faceNormal || midplane);
 
-    if (!anyPlane && !anyAxis) {
-        ImGui::MenuItem("Select geometry to derive from", nullptr, false, false);
-        return;
-    }
-    if (anyPlane && ImGui::BeginMenu("Plane")) {
-        if (midplane && ImGui::MenuItem("Midplane (between the 2 selected)"))
-            m_pluginContext->requestInteractiveOp("Midplane");
-        if (haveCyl) {
-            if (ImGui::MenuItem("Tangent to cylinder"))
-                m_pluginContext->requestInteractiveOp("TangentPlane");
-            if (ImGui::MenuItem("Perpendicular to cylinder axis"))
-                m_pluginContext->requestInteractiveOp("PlaneNormalToAxis");
-            if (ImGui::MenuItem("Through cylinder axis (longitudinal)"))
-                m_pluginContext->requestInteractiveOp("PlaneThroughAxis");
-        } else if (haveAxis || straightEdge) {
-            if (ImGui::MenuItem(straightEdge ? "Normal to edge" : "Normal to axis"))
-                m_pluginContext->requestInteractiveOp("PlaneNormalToAxis");
+    // Plane ▸ and Axis ▸ are always present so the catalogue is discoverable;
+    // every mode is derived FROM the selection, so with nothing suitable
+    // selected the submenu explains what to pick instead of vanishing.
+    if (ImGui::BeginMenu("Plane")) {
+        if (!anyPlane) {
+            ImGui::MenuItem("Select what to derive from:", nullptr, false, false);
+            ImGui::MenuItem("2 flat faces/planes  - midplane", nullptr, false, false);
+            ImGui::MenuItem("a cylinder  - tangent / normal", nullptr, false, false);
+            ImGui::MenuItem("an edge or axis  - normal plane", nullptr, false, false);
+        } else {
+            if (midplane && ImGui::MenuItem("Midplane (between the 2 selected)"))
+                m_pluginContext->requestInteractiveOp("Midplane");
+            if (haveCyl) {
+                if (ImGui::MenuItem("Tangent to cylinder"))
+                    m_pluginContext->requestInteractiveOp("TangentPlane");
+                if (ImGui::MenuItem("Perpendicular to cylinder axis"))
+                    m_pluginContext->requestInteractiveOp("PlaneNormalToAxis");
+                if (ImGui::MenuItem("Through cylinder axis (longitudinal)"))
+                    m_pluginContext->requestInteractiveOp("PlaneThroughAxis");
+            } else if (haveAxis || straightEdge) {
+                if (ImGui::MenuItem(straightEdge ? "Normal to edge" : "Normal to axis"))
+                    m_pluginContext->requestInteractiveOp("PlaneNormalToAxis");
+            }
         }
         ImGui::EndMenu();
     }
-    if (anyAxis && ImGui::BeginMenu("Axis")) {
-        if (haveCyl && ImGui::MenuItem("From cylinder axis"))
-            m_pluginContext->requestInteractiveOp("AxisFromCylinder");
-        if (straightEdge && ImGui::MenuItem("Along edge"))
-            m_pluginContext->requestInteractiveOp("AxisAlongEdge");
-        if (twoVerts && ImGui::MenuItem("Through two vertices"))
-            m_pluginContext->requestInteractiveOp("AxisTwoPoints");
-        if (faceNormal && ImGui::MenuItem("Normal to face"))
-            m_pluginContext->requestInteractiveOp("AxisNormalToFace");
-        if (midplane && ImGui::MenuItem("Intersection of two planes"))
-            m_pluginContext->requestInteractiveOp("AxisTwoPlanes");
+    if (ImGui::BeginMenu("Axis")) {
+        if (!anyAxis) {
+            ImGui::MenuItem("Select what to derive from:", nullptr, false, false);
+            ImGui::MenuItem("a cylinder or straight edge", nullptr, false, false);
+            ImGui::MenuItem("2 vertices / a flat face / 2 planes", nullptr, false, false);
+        } else {
+            if (haveCyl && ImGui::MenuItem("From cylinder axis"))
+                m_pluginContext->requestInteractiveOp("AxisFromCylinder");
+            if (straightEdge && ImGui::MenuItem("Along edge"))
+                m_pluginContext->requestInteractiveOp("AxisAlongEdge");
+            if (twoVerts && ImGui::MenuItem("Through two vertices"))
+                m_pluginContext->requestInteractiveOp("AxisTwoPoints");
+            if (faceNormal && ImGui::MenuItem("Normal to face"))
+                m_pluginContext->requestInteractiveOp("AxisNormalToFace");
+            if (midplane && ImGui::MenuItem("Intersection of two planes"))
+                m_pluginContext->requestInteractiveOp("AxisTwoPlanes");
+        }
         ImGui::EndMenu();
     }
 }
@@ -5490,6 +5459,13 @@ void Application::run() {
         ++perfRendered;   // passed the idle skip → this iteration renders a frame
 
         beginFrame();
+        // With the im-touch shell on, the touch theme wraps the WHOLE frame so
+        // every dialog / interactive-op popup matches the shell look (rounded,
+        // padded, dark) instead of the classic desktop style. Latched once per
+        // frame: the flag can flip mid-frame (Settings checkbox) and the pop
+        // below must match this push, not the new value.
+        const bool frameTouchTheme = m_imTouchUi;
+        if (frameTouchTheme) touchui::push();
         if (m_imTouchUi) {
             // Tablet shell: fixed bars instead of dockspace + menu bar. The
             // desktop layout (imgui.ini) is untouched while this is active,
@@ -5874,6 +5850,8 @@ void Application::run() {
 
             handleShortcuts();
         }
+
+        if (frameTouchTheme) touchui::pop();
 
         glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);

@@ -66,6 +66,9 @@ public:
 
     // Render. Returns true if a parameter was changed (needs history replay).
     bool render();
+    // Body only, no ImGui::Begin/End — for hosts that place it themselves
+    // (the im-touch right panel's Props tab). Same return as render().
+    bool renderContent();
 
 private:
     // Constraint editor for whichever sketch is currently selected (or for

@@ -56,16 +56,20 @@ int PropertiesPanel::getEditingStep() const {
 }
 
 bool PropertiesPanel::render() {
-    bool modified = false;
-
     ImGui::Begin("Properties", nullptr, ImGuiWindowFlags_NoCollapse);
+    const bool modified = renderContent();
+    ImGui::End();
+    return modified;
+}
+
+bool PropertiesPanel::renderContent() {
+    bool modified = false;
 
     // Case 0: In sketch mode — show the editable size of the selected element.
     // Takes priority: while sketching, the panel is about the sketch, not the
     // history step or a 3D selection.
     if (m_inSketchMode && m_activeSketch && m_sketchTool) {
         renderSketchElementPanel(modified);
-        ImGui::End();
         return modified;
     }
 
@@ -349,7 +353,6 @@ bool PropertiesPanel::render() {
                            "Select an object or operation");
     }
 
-    ImGui::End();
     return modified;
 }
 
