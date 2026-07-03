@@ -239,10 +239,27 @@ AppSettings SettingsIO::load(const std::string& path) {
 }
 
 bool SettingsIO::save(const std::string& path, const AppSettings& s) {
-    ensureParentDir(path);
+    // Preserve keys written by OTHER builds: parse the existing file up front
+    // and re-emit any key this build doesn't itself write at the end. Without
+    // this, running two versions side by side silently drops the newer one's
+    // settings whenever the older one saves (e.g. a stable build erased the
+    // im-touch branch's imTouchUi flag on every recent-projects update).
+    std::map<std::string, std::string> oldKv;
+    {
+        std::ifstream in(path);
+        std::string line;
+        while (in.is_open() && std::getline(in, line)) {
+            std::string t = trim(line);
+            if (t.empty() || t[0] == '#' || t[0] == ';') continue;
+            auto eq = t.find('=');
+            if (eq == std::string::npos) continue;
+            std::string key = trim(t.substr(0, eq));
+            if (!key.empty()) oldKv[key] = trim(t.substr(eq + 1));
+        }
+    }
 
-    std::ofstream ofs(path, std::ios::out | std::ios::trunc);
-    if (!ofs.is_open()) return false;
+    ensureParentDir(path);
+    std::ostringstream ofs;   // buffered; flushed to disk at the end
 
     ofs << "# Materializr settings. Unknown keys are ignored; missing keys use\n"
            "# defaults. Safe to edit by hand or to carry across versions.\n";
@@ -301,7 +318,31 @@ bool SettingsIO::save(const std::string& path, const AppSettings& s) {
     ofs << "stlImportAccuracy = "        << s.stlImportAccuracy   << "\n";
     ofs << "meshShowWireframe = "        << (s.meshShowWireframe ? "true" : "false") << "\n";
 
-    return ofs.good();
+    // Re-emit keys from the old file that this build didn't write (another
+    // version's settings) so they round-trip instead of vanishing.
+    {
+        std::map<std::string, bool> written;
+        std::istringstream body(ofs.str());
+        std::string line;
+        while (std::getline(body, line)) {
+            auto eq = line.find('=');
+            if (eq != std::string::npos) written[trim(line.substr(0, eq))] = true;
+        }
+        bool first = true;
+        for (const auto& kvp : oldKv) {
+            if (written.count(kvp.first)) continue;
+            if (first) {
+                ofs << "# preserved from another Materializr version\n";
+                first = false;
+            }
+            ofs << kvp.first << " = " << kvp.second << "\n";
+        }
+    }
+
+    std::ofstream out(path, std::ios::out | std::ios::trunc);
+    if (!out.is_open()) return false;
+    out << ofs.str();
+    return out.good();
 }
 
 bool SettingsIO::exportJson(const std::string& path, const AppSettings& s) {

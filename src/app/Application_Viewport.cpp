@@ -76,6 +76,7 @@
 namespace materializr { namespace force_link { void linkAll(); } }
 
 #include <imgui.h>
+#include <imgui_internal.h> // FindWindowByName/DockBuilder: viewport re-dock after im-touch
 #include <imgui_impl_sdl2.h>
 #include <imgui_impl_opengl3.h>
 #include <BRepPrimAPI_MakeBox.hxx>
@@ -166,9 +167,7 @@ void Application::renderViewport() {
     ImGuiWindowFlags vpFlags = 0;
     if (m_imTouchUi) {
         // Touch shell: pin the viewport (undocked, chrome-less) into the
-        // center rect renderTouchShell() computed earlier this frame. The
-        // window's saved dock id is left alone, so switching the shell off
-        // re-docks it into the desktop layout.
+        // center rect renderTouchShell() computed earlier this frame.
         ImGui::SetNextWindowDockID(0, ImGuiCond_Always);
         ImGui::SetNextWindowPos(ImVec2(m_touchVpX, m_touchVpY), ImGuiCond_Always);
         ImGui::SetNextWindowSize(ImVec2(m_touchVpW, m_touchVpH), ImGuiCond_Always);
@@ -176,6 +175,22 @@ void Application::renderViewport() {
                   ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
                   ImGuiWindowFlags_NoDocking |
                   ImGuiWindowFlags_NoBringToFrontOnFocus;
+    } else {
+        // Classic shell self-heal: the viewport always lives in the
+        // dockspace's central node (its tab bar is off, so the user can't
+        // re-dock it by hand). The touch shell actively UNDOCKS it every
+        // frame (SetNextWindowDockID(0) above) and that undocked state can
+        // even reach imgui.ini — so coming back from im-touch (or launching
+        // classic with such an ini) found the viewport floating over the
+        // Tools panel. If it's floating here, put it back.
+        if (ImGuiWindow* w = ImGui::FindWindowByName("Viewport")) {
+            if (w->DockId == 0) {
+                // 0x08BD597D = the dockspace id (see renderDockspace()).
+                if (const ImGuiDockNode* central =
+                        ImGui::DockBuilderGetCentralNode(0x08BD597Du))
+                    ImGui::SetNextWindowDockID(central->ID, ImGuiCond_Always);
+            }
+        }
     }
     ImGui::Begin("Viewport", nullptr, vpFlags);
 

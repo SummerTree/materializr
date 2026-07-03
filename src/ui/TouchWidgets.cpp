@@ -93,16 +93,23 @@ bool railButton(const char* id, const char* icon, const char* label, bool active
     return pressed;
 }
 
+float pillButtonWidth(const char* icon, const char* label) {
+    const float s = uiScale();
+    const float h = std::max(ImGui::GetFrameHeight(), 44.0f * s);
+    const float is = 17.0f * s;                       // icon size
+    ImFont* font = ImGui::GetFont();
+    float w = 20.0f * s; // horizontal padding total
+    if (icon)  w += font->CalcTextSizeA(is, FLT_MAX, 0.0f, icon).x;
+    if (label) w += ImGui::CalcTextSize(label).x + (icon ? 7.0f * s : 0.0f);
+    return std::max(w, h); // never narrower than tall
+}
+
 bool pillButton(const char* id, const char* icon, const char* label, bool accent) {
     const float s = uiScale();
     const float h = std::max(ImGui::GetFrameHeight(), 44.0f * s);
     const float is = 17.0f * s;                       // icon size
     ImFont* font = ImGui::GetFont();
-
-    float w = 20.0f * s; // horizontal padding total
-    if (icon)  w += font->CalcTextSizeA(is, FLT_MAX, 0.0f, icon).x;
-    if (label) w += ImGui::CalcTextSize(label).x + (icon ? 7.0f * s : 0.0f);
-    w = std::max(w, h); // never narrower than tall
+    const float w = pillButtonWidth(icon, label);
 
     ImGui::PushID(id);
     const ImVec2 p = ImGui::GetCursorScreenPos();
@@ -287,6 +294,25 @@ ListRowAction listRow(const char* id, bool* checked, const char* label,
     ImDrawList* dl = ImGui::GetWindowDrawList();
     const float lead = checked ? pad + box + pad : pad;
 
+    // Claim the WHOLE row rect first. The internals below are placed with
+    // SetCursorScreenPos, and ImGui flags any such jump past the window's
+    // current content max at the next item ("uses SetCursorPos to extend
+    // window boundaries — submit an item e.g. Dummy()"). With the row rect
+    // claimed up front, every internal placement stays within bounds. The
+    // max() guards the FIRST frame of an auto-resize host, where the content
+    // region reports ~0 wide — claim at least the internals' extent or the
+    // checkbox placement still lands out of bounds (and the warning banner
+    // it trips sticks for the whole session).
+    ImGui::Dummy(ImVec2(std::max(w, lead + ovW + 1.0f), h));
+    // ImGui TRUNCATES item advances to whole pixels, so the claimed row
+    // bottom is trunc-based — recompute it exactly the way ItemSize() does
+    // (post-Dummy cursor minus spacing) instead of the raw p.y + h, which at
+    // a fractional uiScale overshoots the claim by the fraction and trips
+    // the boundary warning on EVERY row (found via instrumented logcat:
+    // cur.y 673.80 vs max.y 673.00 at s = 1.7).
+    const float rowBottom =
+        ImGui::GetCursorScreenPos().y - ImGui::GetStyle().ItemSpacing.y;
+
     // Checkbox (visibility) FIRST, with its own exclusive hit area — a row
     // button submitted before it would claim its clicks (ImGui gives the
     // press to the first hovered item), leaving the checkbox untappable.
@@ -350,7 +376,9 @@ ListRowAction listRow(const char* id, bool* checked, const char* label,
                          ImGui::GetColorU32(ovHov ? textPrimary() : textDim()));
     }
 
-    ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + h));
+    // Next row starts right below (tight stacking). rowBottom is bit-exact
+    // with the Dummy's claimed max, so this never extends boundaries.
+    ImGui::SetCursorScreenPos(ImVec2(p.x, rowBottom));
     ImGui::PopID();
     return act;
 }

@@ -224,9 +224,6 @@ void Application::renderTouchShell() {
         // Square icon buttons in the right cluster: undo, redo, [keyboard].
         // (The ⋯ overflow moved to the top-left.)
         const int nSquare = showKb ? 3 : 2;
-        auto pillW = [&](const char* label) {
-            return bh + ImGui::CalcTextSize(label).x + 27.0f * s;
-        };
         // Multi-Select toggle (the touch Ctrl stand-in): shown for 3D selection
         // and in sketch Select/move mode, hidden in the sketch draw tools where
         // adding to a selection is meaningless. Its old home was the bottom-left
@@ -241,12 +238,16 @@ void Application::renderTouchShell() {
                                  m_sketchTool->isPlacing();
         const char* finishLbl = toolRunning ? "Finish" : "Finish Sketch";
         const char* exitLbl   = toolRunning ? "Cancel" : "Discard Sketch";
-        const float focusW = pillW("Focus");
-        float total = bh * nSquare + focusW + sp * nSquare;
+        // Right-align the cluster with EXACT widths (touchui::pillButtonWidth
+        // shares pillButton's sizing) — the previous estimate overshot per
+        // pill, leaving an awkward gap against the right edge.
+        float total = bh * nSquare + sp * nSquare +
+                      touchui::pillButtonWidth(MZ_ICON_FOCUS, "Focus");
         if (m_inSketchMode)
-            total += pillW(finishLbl) + pillW(exitLbl) + sp * 2;
+            total += touchui::pillButtonWidth(MZ_ICON_FINISH, finishLbl) +
+                     touchui::pillButtonWidth(MZ_ICON_DISCARD, exitLbl) + sp * 2;
         if (showMulti)
-            total += pillW("Multi") + sp;
+            total += touchui::pillButtonWidth(MZ_ICON_SELECT, "Multi") + sp;
         float x = ws.x - pad - total;
         ImGui::SetCursorPos(ImVec2(x, cy));
 

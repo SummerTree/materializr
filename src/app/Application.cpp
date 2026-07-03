@@ -5471,7 +5471,7 @@ void Application::run() {
         // frame: the flag can flip mid-frame (Settings checkbox) and the pop
         // below must match this push, not the new value.
         const bool frameTouchTheme = m_imTouchUi;
-        if (frameTouchTheme) touchui::push();
+        if (frameTouchTheme) touchui::pushChrome();
         if (m_imTouchUi) {
             // Tablet shell: fixed bars instead of dockspace + menu bar. The
             // desktop layout (imgui.ini) is untouched while this is active,
@@ -5857,7 +5857,7 @@ void Application::run() {
             handleShortcuts();
         }
 
-        if (frameTouchTheme) touchui::pop();
+        if (frameTouchTheme) touchui::popChrome();
 
         glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);

@@ -26,22 +26,20 @@ inline ImVec4 textPrimary()  { return ImVec4(0.933f, 0.941f, 0.953f, 1.0f); } //
 inline ImVec4 textDim()      { return ImVec4(0.541f, 0.561f, 0.596f, 1.0f); } // #8A8F98
 inline ImVec4 onAccent()     { return ImVec4(0.051f, 0.075f, 0.125f, 1.0f); } // text on accent
 
-// Push the shell style. Pair with pop(); prefer the Scope below.
-inline void push() {
+// Chrome-only subset: colors + rounding + window padding, but NOT the
+// content metrics (FramePadding / ItemSpacing). This is what wraps the WHOLE
+// frame while im-touch is on, so dialogs / popups / the context menu pick up
+// the dark rounded padded look — without inflating the metrics that classic
+// dialog code sized its fixed-width buttons and windows against (which
+// clipped their labels off the right edge).
+inline void pushChrome() {
     const float s = uiScale();
-    ImGuiStyle& st = ImGui::GetStyle();
-    (void)st;
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding,   10.0f * s);
     ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding,   12.0f * s);
     ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding,   10.0f * s);
-    // Dialogs & floating windows share the shell look — rounded and padded.
-    // (The theme is pushed for the WHOLE frame while im-touch is on, so every
-    // dialog inherits it; the shell's edge-flush bars opt back out with a
-    // local WindowRounding=0 push.)
+    // The shell's edge-flush bars opt back out with a local WindowRounding=0.
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding,  12.0f * s);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,   ImVec2(16.0f * s, 13.0f * s));
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,    ImVec2(14.0f * s, 9.0f * s));
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,     ImVec2(10.0f * s, 10.0f * s));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,   ImVec2(14.0f * s, 12.0f * s));
     ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarSize,   14.0f * s);
     ImGui::PushStyleVar(ImGuiStyleVar_GrabMinSize,     24.0f * s);
 
@@ -66,9 +64,24 @@ inline void push() {
     ImGui::PushStyleColor(ImGuiCol_Header,         rowBg());
 }
 
-inline void pop() {
+inline void popChrome() {
     ImGui::PopStyleColor(19);
-    ImGui::PopStyleVar(9);
+    ImGui::PopStyleVar(7);
+}
+
+// Full shell style: the chrome plus the touch-comfy content metrics. Only
+// the shell (and its own popups) render under this — classic dialog code
+// sized against classic metrics must NOT (see pushChrome).
+inline void push() {
+    const float s = uiScale();
+    pushChrome();
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(14.0f * s, 9.0f * s));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,  ImVec2(10.0f * s, 10.0f * s));
+}
+
+inline void pop() {
+    ImGui::PopStyleVar(2);
+    popChrome();
 }
 
 struct Scope {

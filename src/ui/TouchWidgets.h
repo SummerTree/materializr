@@ -23,6 +23,9 @@ bool fab(const char* id, const char* icon, float diameter = 0.0f);
 // true on press. `accent` fills it with the accent color (primary action).
 bool pillButton(const char* id, const char* icon, const char* label = nullptr,
                 bool accent = false);
+// Exact width pillButton(icon, label) will occupy — for right-aligned layout
+// math (the top bar). Shares the sizing code so the two can't drift.
+float pillButtonWidth(const char* icon, const char* label = nullptr);
 
 // Square icon-only button (undo/redo/⋯). Side defaults to frame height.
 bool iconButton(const char* id, const char* icon, float side = 0.0f);
