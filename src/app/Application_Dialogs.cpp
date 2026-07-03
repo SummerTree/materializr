@@ -186,8 +186,29 @@ void Application::renderSettings() {
                 // old General / Sketch / Rendering tabs into one place.
                 if (ImGui::BeginTabItem("Appearance")) {
                     ImGui::SeparatorText("Layout");
-                    // Touch mode: large UI + touch-gesture input. Baked at
-                    // startup, so it takes full effect on the next launch.
+                    // Interface layout is ONE mutually-exclusive choice, not two
+                    // coupled checkboxes — a dropdown so the modes can never
+                    // combine into an inconsistent state. Derive the index from
+                    // the two persisted flags; picking sets both together.
+                    //   0 Classic  1 Modern (im-touch shell)  2 im-touch (lite)
+                    int layoutMode = !m_imTouchUi ? 0 : (m_imTouchLite ? 2 : 1);
+                    const char* layoutNames[] = { "Classic", "Modern", "im-touch" };
+                    if (ImGui::Combo("Interface", &layoutMode, layoutNames, 3)) {
+                        m_imTouchUi   = (layoutMode >= 1);
+                        m_imTouchLite = (layoutMode == 2);
+                        changed = true;
+                    }
+                    ImGui::TextWrapped(
+                        "Classic: the traditional docked panels and menu bar. "
+                        "Modern: a top app bar, tool rail and side panel. "
+                        "im-touch: a near-zero-chrome full-screen viewport with "
+                        "floating controls only. Switches immediately; each "
+                        "layout keeps its own arrangement.");
+
+                    ImGui::Spacing();
+                    // Touch mode is a separate axis (input model), independent of
+                    // the layout above — it swaps mouse/keyboard for finger
+                    // gestures + larger targets and takes full effect on restart.
                     if (ImGui::Checkbox("Touch mode (large UI + touch gestures)", &m_touchMode)) {
                         changed = true;
                     }
@@ -199,28 +220,6 @@ void Application::renderSettings() {
                         ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f),
                             "Restart Materializr to apply the new mode.");
                     }
-
-                    ImGui::Spacing();
-                    if (ImGui::Checkbox("im-touch UI (modern layout)", &m_imTouchUi)) {
-                        changed = true;
-                    }
-                    ImGui::TextWrapped("Experimental modern shell — tablet and "
-                                       "desktop: a top app bar, tool rail and side "
-                                       "panel replace the classic menus and docked "
-                                       "windows. Switches immediately; your classic "
-                                       "panel layout is kept.");
-                    ImGui::BeginDisabled(!m_imTouchUi);
-                    ImGui::Indent();
-                    if (ImGui::Checkbox("im-touch-lite (near-zero chrome)",
-                                        &m_imTouchLite)) {
-                        changed = true;
-                    }
-                    ImGui::TextWrapped("Full-screen viewport with floating "
-                                       "controls only: contextual tools at the "
-                                       "bottom, project/selection chip, undo and "
-                                       "menu buttons, and a + button to create.");
-                    ImGui::Unindent();
-                    ImGui::EndDisabled();
 
                     ImGui::Spacing();
                     ImGui::SeparatorText("Theme");
@@ -1781,17 +1780,30 @@ void Application::applySketchMove() {
 }
 
 void Application::renderSnapWidget() {
-    // Tucked just under the ViewCube. We borrow the ViewCube's window-anchor
-    // arithmetic (top-right of the viewport window) so the widget sits in a
-    // consistent spot regardless of dock layout.
-    // Match the ViewCube's touch enlargement so the square keeps pace with the
-    // cube on tablets. Anchor directly under the cube's real bottom (the cube
-    // caches it post-render): this tracks touch scaling AND the im-touch
-    // vertical offsets, so the widget no longer lands on top of the cube.
-    const float tScale = materializr::touchMode() ? 1.5f : 1.0f;
-    const float size   = 28.0f * tScale;
-    ImVec2 widgetPos(m_viewCube->widgetCenterX() - size * 0.5f,
-                     m_viewCube->widgetBottomY() + 10.0f * tScale);
+    // The snap square tucks just under the ViewCube. Only the cases where the
+    // cube itself moved need the cube-tracking anchor: TOUCH mode enlarges the
+    // cube (1.5x) and im-touch-LITE drops it below the floating button cluster —
+    // there the widget follows the cube's cached bottom, scaled to match. In
+    // classic and modern on desktop the cube is at its default size and spot, so
+    // keep the ORIGINAL fixed tuck (the position Steve is used to) unchanged.
+    ImVec2 wp = ImGui::GetWindowPos();
+    ImVec2 ws = ImGui::GetWindowSize();
+    const bool anchorToCube =
+        materializr::touchMode() || (m_imTouchUi && m_imTouchLite);
+    float  size;
+    ImVec2 widgetPos;
+    if (anchorToCube) {
+        const float tScale = materializr::touchMode() ? 1.5f : 1.0f;
+        size = 28.0f * tScale;
+        widgetPos = ImVec2(m_viewCube->widgetCenterX() - size * 0.5f,
+                           m_viewCube->widgetBottomY() + 10.0f * tScale);
+    } else {
+        const float pad = 10.0f, widgetR = 38.0f, xNudge = 20.0f;
+        size = 28.0f;
+        widgetPos = ImVec2(
+            wp.x + ws.x - pad - widgetR - 26.0f - size * 0.5f + xNudge,
+            wp.y + pad + widgetR * 2.0f + 96.0f);
+    }
     ImVec2 widgetEnd(widgetPos.x + size, widgetPos.y + size);
 
     // Manual hit-test — same pattern the ViewCube uses to anchor in a corner

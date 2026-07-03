@@ -1023,9 +1023,16 @@ void Application::renderDockspace() {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+    // Transparent host + a pass-through central node so the OpenGL scene shows
+    // through. This matters now that the host is submitted EVERY frame (incl.
+    // im-touch): there the viewport is undocked, leaving the central node empty
+    // — an opaque host/node would paint dark over the 3D view. Docked classic
+    // windows cover the host anyway, so it looks identical there.
+    ImGui::SetNextWindowBgAlpha(0.0f);
     ImGui::Begin("DockHost", nullptr, hostFlags);
     ImGui::PopStyleVar(3);
-    ImGui::DockSpace(0x08BD597Du, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None);
+    ImGui::DockSpace(0x08BD597Du, ImVec2(0.0f, 0.0f),
+                     ImGuiDockNodeFlags_PassthruCentralNode);
 
     // Per-node tab-bar policy. The viewport's tab bar is permanently OFF
     // (NoTabBar = no tab AND no re-show triangle) — it's the whole app, never
@@ -5476,13 +5483,20 @@ void Application::run() {
         // below must match this push, not the new value.
         const bool frameTouchTheme = m_imTouchUi;
         if (frameTouchTheme) touchui::pushChrome();
+        // Always submit the dockspace host — even under im-touch. ImGui only
+        // keeps a dock node alive while its DockSpace() is submitted each frame;
+        // skipping it (the old else-only path) dropped the classic nodes, so on
+        // switch-BACK the panels returned FLOATING at their last spot instead of
+        // docked. The viewport then spanned the full width UNDER them, drawing
+        // the ViewCube behind the panel. Kept alive here, the layout restores
+        // exactly. In im-touch the host sits behind the shell + pinned viewport
+        // (NoBringToFrontOnFocus) and its panels aren't submitted, so it's
+        // invisible — it only preserves the node tree.
+        renderDockspace();
         if (m_imTouchUi) {
-            // Tablet shell: fixed bars instead of dockspace + menu bar. The
-            // desktop layout (imgui.ini) is untouched while this is active,
-            // so toggling back restores it exactly.
+            // Tablet shell: fixed bars over the (now dormant) dockspace.
             renderTouchShell();
         } else {
-            renderDockspace();
             renderMenuBar();
         }
         renderSmallScreenWarning();
