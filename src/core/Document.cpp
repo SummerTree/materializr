@@ -52,6 +52,7 @@ void Document::removeBody(int id) {
 }
 
 void Document::updateBody(int id, const TopoDS_Shape& shape) {
+    m_bodyLedgers.erase(id);  // producing op re-publishes after
     int idx = findBodyIndex(id);
     if (idx >= 0) {
         m_bodies[idx].shape = shape;

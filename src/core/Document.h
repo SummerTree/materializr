@@ -10,7 +10,8 @@
 #include <gp_Dir.hxx>
 #include "SheetSpec.h"
 
-namespace materializr { class Sketch; class EventBus; }
+namespace materializr { class Sketch; class EventBus;
+namespace topo { struct GenerationLedger; } }
 
 struct BodyEntry {
     int id;
@@ -92,6 +93,20 @@ public:
     void addOrPutBody(int& id, const TopoDS_Shape& shape, const std::string& name = "");
     void removeBody(int id);
     void updateBody(int id, const TopoDS_Shape& shape);
+
+    // The generation ledger of the op that PRODUCED a body's current shape
+    // (published by ops after updateBody; the pointer is owned by the
+    // history-held op). Lets a downstream op's topo::Ref resolve a sub-shape
+    // by lineage — e.g. a fillet re-finding a boolean SEAM edge, which no
+    // geometric scheme can name. updateBody clears the entry (a stale ledger
+    // is worse than none); the producing op re-publishes right after.
+    void setBodyLedger(int id, const materializr::topo::GenerationLedger* l) {
+        if (l) m_bodyLedgers[id] = l; else m_bodyLedgers.erase(id);
+    }
+    const materializr::topo::GenerationLedger* bodyLedger(int id) const {
+        auto it = m_bodyLedgers.find(id);
+        return it == m_bodyLedgers.end() ? nullptr : it->second;
+    }
     // Add a body with an explicit id, or update the body that already has that
     // id. Keeps ids stable across save/load and history replay; bumps the id
     // counter so later auto-assigned ids don't collide.
@@ -231,6 +246,8 @@ private:
     // See setCascadeSketchOverride — pinned final sketch states during a
     // cascade history replay. Empty outside cascadeFromSketchEdit.
     std::map<int, std::shared_ptr<materializr::Sketch>> m_cascadeSketchOverrides;
+    // See setBodyLedger — non-owning, cleared on updateBody.
+    std::map<int, const materializr::topo::GenerationLedger*> m_bodyLedgers;
     std::vector<FolderEntry> m_folders;
     // Tombstones: when a body is removed, its non-geometry metadata (folderId,
     // colour, visibility, name) is stashed here keyed by id. When putBody is

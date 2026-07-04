@@ -3,6 +3,7 @@
 #include "../core/Document.h"
 #include "EdgeAnchor.h"
 #include "GenerationLedger.h"
+#include "TopoName.h"
 #include <TopoDS_Shape.hxx>
 #include <TopoDS_Edge.hxx>
 #include <vector>
@@ -74,6 +75,13 @@ private:
     // (corner vertex / rim line) each edge came from (see EdgeAnchor.h).
     int m_sourceSketchId = -1;
     std::vector<EdgeAnchor::Anchor> m_edgeAnchors;
+    // Topological names of the filleted edges — the LAST-RESORT resolution
+    // after rebindEdges and resolveAnchors both fail. That is exactly the
+    // boolean-SEAM case (a seam edge sits over no sketch feature, so anchors
+    // can't name it; its "gen" lineage name — via the producing boolean's
+    // ledger published on the Document — can). Minted on the first valid
+    // execute with the body's producing ledger in context.
+    std::vector<materializr::topo::Ref> m_edgeRefs;
 
     // Generation map of the last execute(): the input EDGE -> the blend FACE(S)
     // it produced. Lets the "gen" naming strategy name a blend face by the edge

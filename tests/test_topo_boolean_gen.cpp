@@ -123,3 +123,84 @@ TEST(TopoBooleanGen, SeamEdgeNameSurvivesSketchEdit) {
     EXPECT_NEAR(mid.X(), 13.0, 1e-6) << "the MOVED seam (x=13), not the old x=15";
     EXPECT_NEAR(mid.Z(), 10.0, 1e-6) << "still the top-face seam";
 }
+
+#include "modeling/FilletOp.h"
+#include "modeling/EdgeAnchor.h"
+#include <BRepAdaptor_Surface.hxx>
+
+// THE PAYOFF: a FILLET on a boolean seam edge survives an upstream sketch
+// edit. The vertical seam at (20,3) — where the post's y=3 wall crosses the
+// slab's x=20 wall — sits over NO sketch vertex (proven in-test: EdgeAnchor
+// classifies it None), so the proven anchor path fails by construction and
+// the new topo-ref last resort (gen lineage via the boolean's ledger,
+// republished on the Document by the replay) is what re-finds it.
+TEST(TopoBooleanGen, FilletOnSeamSurvivesSketchEdit) {
+    Document doc;
+    int pa[4], pb[4];
+    auto skA = makeRect(0, 0, 20, 10, pa);
+    auto skB = makeRect(15, 3, 25, 7, pb);
+    int sidA = doc.addSketch(skA), sidB = doc.addSketch(skB);
+    ExtrudeOp extA; extA.setSketchSource(sidA); extA.setDistance(10.0);
+    ASSERT_TRUE(extA.rebuildProfileFromSketch(doc));
+    ASSERT_TRUE(extA.execute(doc));
+    int bodyA = doc.getAllBodyIds().front();
+    ExtrudeOp extB; extB.setSketchSource(sidB); extB.setDistance(15.0);
+    ASSERT_TRUE(extB.rebuildProfileFromSketch(doc));
+    ASSERT_TRUE(extB.execute(doc));
+    int bodyB = -1;
+    for (int id : doc.getAllBodyIds()) if (id != bodyA) bodyB = id;
+
+    BooleanOp fuse;
+    fuse.setTargetBodyId(bodyA);
+    fuse.setToolBodyId(bodyB);
+    fuse.setMode(BooleanMode::Union);
+    ASSERT_TRUE(fuse.execute(doc));
+
+    // The VERTICAL seam edge at (20, 3, ~5).
+    TopoDS_Edge seam = edgeNear(doc.getBody(bodyA), gp_Pnt(20, 3, 5), 0.6);
+    ASSERT_FALSE(seam.IsNull());
+    // Prove the anchor path CANNOT name it (no sketch vertex at (20,3)).
+    {
+        std::vector<TopoDS_Edge> one{seam};
+        auto an = EdgeAnchor::compute(one, {{sidA, skA.get()}, {sidB, skB.get()}});
+        ASSERT_EQ(an.size(), 1u);
+        EXPECT_EQ(an[0].kind, EdgeAnchor::Anchor::None)
+            << "seam must be un-anchorable, or this test proves nothing";
+    }
+
+    FilletOp fil;
+    fil.setBody(bodyA);
+    fil.setEdges({seam});
+    fil.setRadius(1.0);
+    ASSERT_TRUE(fil.execute(doc)) << "initial fillet on the seam";
+
+    // UPSTREAM EDIT: shift the post -1 in Y (3..7 -> 2..6); the seam moves to
+    // (20,2). Replay the chain like the cascade: undo back, rebuild, re-run.
+    ASSERT_TRUE(fil.undo(doc));
+    ASSERT_TRUE(fuse.undo(doc));
+    skB->movePoint(pb[0], {15.0f, 2.0f});
+    skB->movePoint(pb[1], {25.0f, 2.0f});
+    skB->movePoint(pb[2], {25.0f, 6.0f});
+    skB->movePoint(pb[3], {15.0f, 6.0f});
+    ASSERT_TRUE(extB.rebuildProfileFromSketch(doc));
+    ASSERT_TRUE(extB.execute(doc));
+    ASSERT_TRUE(fuse.execute(doc));
+    ASSERT_TRUE(fil.execute(doc))
+        << "fillet must re-find the MOVED seam via its topo ref";
+
+    // The blend is a vertical-axis cylinder near (20, 2).
+    bool found = false;
+    for (TopExp_Explorer ex(doc.getBody(bodyA), TopAbs_FACE); ex.More(); ex.Next()) {
+        BRepAdaptor_Surface s(TopoDS::Face(ex.Current()));
+        if (s.GetType() != GeomAbs_Cylinder) continue;
+        gp_Pnt loc = s.Cylinder().Position().Location();
+        if (std::abs(std::abs(s.Cylinder().Axis().Direction().Z()) - 1.0) > 1e-3)
+            continue;
+        // Moved corner (20,2) -> blend axis (21,1); the UN-moved corner
+        // would put it at (21,2), outside the Y tolerance.
+        if (std::abs(loc.X() - 21.0) < 0.1 && std::abs(loc.Y() - 1.0) < 0.1) {
+            found = true; break;
+        }
+    }
+    EXPECT_TRUE(found) << "blend cylinder must sit at the MOVED seam corner";
+}

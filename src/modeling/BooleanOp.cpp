@@ -131,6 +131,7 @@ bool BooleanOp::execute(Document& doc) {
 
         // Update target body with the result
         doc.updateBody(m_targetBodyId, resultShape);
+        doc.setBodyLedger(m_targetBodyId, &m_ledger);
 
         // Remove the tool body — unless we're keeping it (the "keep cutters"
         // option, or a cutter still needed by another target).

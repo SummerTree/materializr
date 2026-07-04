@@ -141,17 +141,54 @@ bool FilletOp::execute(Document& doc) {
             // DIMENSION edit relocated a filleted corner). Try re-finding them
             // by the sketch vertex they sit over (generative anchoring).
             if (!resolveAnchors(doc, m_previousShape)) {
-                std::fprintf(stderr,
-                    "[Fillet] rebindEdges + anchors failed (R=%.2f, %zu edges) — "
-                    "selected edge isn't in the current body's edge map.\n",
-                    m_radius, m_edges.size());
-                return false;
+                // LAST RESORT: topological names. Seam edges from a boolean
+                // sit over no sketch feature (anchors fail by construction);
+                // their gen-lineage refs resolve through the producing op's
+                // ledger, republished on the body by the upstream replay.
+                bool topoOk = false;
+                if (!m_edgeRefs.empty() &&
+                    m_edgeRefs.size() == m_edges.size()) {
+                    materializr::topo::Context rc;
+                    rc.doc = &doc;
+                    rc.shape = m_previousShape;
+                    rc.type = TopAbs_EDGE;
+                    rc.gen = doc.bodyLedger(m_bodyId);
+                    rc.crossRebuild = true;
+                    std::vector<TopoDS_Shape> out;
+                    if (materializr::topo::resolveSet(m_edgeRefs, rc, out) &&
+                        out.size() == m_edges.size()) {
+                        for (size_t i = 0; i < out.size(); ++i)
+                            m_edges[i] = TopoDS::Edge(out[i]);
+                        topoOk = true;
+                        std::fprintf(stderr, "[Fillet] edges re-found by "
+                                             "topo refs (gen/seam path)\n");
+                    }
+                }
+                if (!topoOk) {
+                    std::fprintf(stderr,
+                        "[Fillet] rebindEdges + anchors + topo refs failed "
+                        "(R=%.2f, %zu edges) — selected edge isn't in the "
+                        "current body's edge map.\n",
+                        m_radius, m_edges.size());
+                    return false;
+                }
             }
         }
 
         // Capture generative anchors from the (now-valid) edges the first time
         // we run — so a later dimension edit can re-find them by sketch feature.
         if (m_edgeAnchors.empty()) computeAnchors(doc);
+        // And topological names (with the body's producing ledger in context,
+        // so a SEAM edge gets its gen-lineage name).
+        if (m_edgeRefs.empty() && !m_edges.empty()) {
+            materializr::topo::Context mc;
+            mc.doc = &doc;
+            mc.shape = m_previousShape;
+            mc.type = TopAbs_EDGE;
+            mc.gen = doc.bodyLedger(m_bodyId);
+            for (const auto& e : m_edges)
+                m_edgeRefs.push_back(materializr::topo::mint(e, mc));
+        }
 
         // Create fillet on the body shape
         BRepFilletAPI_MakeFillet fillet(m_previousShape);
@@ -272,6 +309,7 @@ bool FilletOp::execute(Document& doc) {
         // serializeParams can index the generated faces against the result).
         m_resultShape = candidate;
         doc.updateBody(m_bodyId, m_resultShape);
+        doc.setBodyLedger(m_bodyId, &m_ledger);
         return true;
     } catch (...) {
         return false;

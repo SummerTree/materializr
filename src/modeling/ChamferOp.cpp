@@ -235,6 +235,7 @@ bool ChamferOp::execute(Document& doc) {
         // serializeParams can index the generated faces against the result).
         m_resultShape = candidate;
         doc.updateBody(m_bodyId, m_resultShape);
+        doc.setBodyLedger(m_bodyId, &m_ledger);
         return true;
     } catch (...) {
         return false;
