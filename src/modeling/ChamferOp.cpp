@@ -123,9 +123,43 @@ bool ChamferOp::execute(Document& doc) {
         if (!SubShapeIndex::rebindEdges(m_previousShape, m_edges)) {
             // Ordinal/carrier match failed (a sketch dimension edit moved the
             // edges) — re-find them by their sketch feature. See EdgeAnchor.
-            if (!resolveAnchors(doc, m_previousShape)) return false;
+            if (!resolveAnchors(doc, m_previousShape)) {
+                // LAST RESORT: topological names — the boolean-SEAM case,
+                // where anchors fail by construction. Mirrors FilletOp.
+                bool topoOk = false;
+                if (!m_edgeRefs.empty() &&
+                    m_edgeRefs.size() == m_edges.size()) {
+                    materializr::topo::Context rc;
+                    rc.doc = &doc;
+                    rc.shape = m_previousShape;
+                    rc.type = TopAbs_EDGE;
+                    rc.gen = doc.bodyLedger(m_bodyId);
+                    rc.crossRebuild = true;
+                    std::vector<TopoDS_Shape> out;
+                    if (materializr::topo::resolveSet(m_edgeRefs, rc, out) &&
+                        out.size() == m_edges.size()) {
+                        for (size_t i = 0; i < out.size(); ++i)
+                            m_edges[i] = TopoDS::Edge(out[i]);
+                        topoOk = true;
+                        std::fprintf(stderr, "[Chamfer] edges re-found by "
+                                             "topo refs (gen/seam path)\n");
+                    }
+                }
+                if (!topoOk) return false;
+            }
         }
         if (m_edgeAnchors.empty()) computeAnchors(doc);
+        // Topological names, minted with the body's producing ledger in
+        // context so a SEAM edge gets its gen-lineage name.
+        if (m_edgeRefs.empty() && !m_edges.empty()) {
+            materializr::topo::Context mc;
+            mc.doc = &doc;
+            mc.shape = m_previousShape;
+            mc.type = TopAbs_EDGE;
+            mc.gen = doc.bodyLedger(m_bodyId);
+            for (const auto& e : m_edges)
+                m_edgeRefs.push_back(materializr::topo::mint(e, mc));
+        }
 
         // Build an edge-face map so we can find a face adjacent to each edge
         TopTools_IndexedDataMapOfShapeListOfShape edgeFaceMap;

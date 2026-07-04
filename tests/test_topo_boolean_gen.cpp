@@ -14,6 +14,8 @@
 
 #include <gtest/gtest.h>
 #include <BRepAdaptor_Curve.hxx>
+#include <BRepGProp.hxx>
+#include <GProp_GProps.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
 #include <gp_Ax3.hxx>
@@ -203,4 +205,57 @@ TEST(TopoBooleanGen, FilletOnSeamSurvivesSketchEdit) {
         }
     }
     EXPECT_TRUE(found) << "blend cylinder must sit at the MOVED seam corner";
+}
+
+#include "modeling/ChamferOp.h"
+
+// Mirror of FilletOnSeamSurvivesSketchEdit for ChamferOp.
+TEST(TopoBooleanGen, ChamferOnSeamSurvivesSketchEdit) {
+    Document doc;
+    int pa[4], pb[4];
+    auto skA = makeRect(0, 0, 20, 10, pa);
+    auto skB = makeRect(15, 3, 25, 7, pb);
+    int sidA = doc.addSketch(skA), sidB = doc.addSketch(skB);
+    ExtrudeOp extA; extA.setSketchSource(sidA); extA.setDistance(10.0);
+    ASSERT_TRUE(extA.rebuildProfileFromSketch(doc));
+    ASSERT_TRUE(extA.execute(doc));
+    int bodyA = doc.getAllBodyIds().front();
+    ExtrudeOp extB; extB.setSketchSource(sidB); extB.setDistance(15.0);
+    ASSERT_TRUE(extB.rebuildProfileFromSketch(doc));
+    ASSERT_TRUE(extB.execute(doc));
+    int bodyB = -1;
+    for (int id : doc.getAllBodyIds()) if (id != bodyA) bodyB = id;
+
+    BooleanOp fuse;
+    fuse.setTargetBodyId(bodyA);
+    fuse.setToolBodyId(bodyB);
+    fuse.setMode(BooleanMode::Union);
+    ASSERT_TRUE(fuse.execute(doc));
+
+    TopoDS_Edge seam = edgeNear(doc.getBody(bodyA), gp_Pnt(20, 3, 5), 0.6);
+    ASSERT_FALSE(seam.IsNull());
+
+    ChamferOp ch;
+    ch.setBody(bodyA);
+    ch.setEdges({seam});
+    ch.setDistance(1.0);
+    ASSERT_TRUE(ch.execute(doc)) << "initial chamfer on the seam";
+    const double chamferedV = [&]{ GProp_GProps g;
+        BRepGProp::VolumeProperties(doc.getBody(bodyA), g); return g.Mass(); }();
+
+    ASSERT_TRUE(ch.undo(doc));
+    ASSERT_TRUE(fuse.undo(doc));
+    skB->movePoint(pb[0], {15.0f, 2.0f});
+    skB->movePoint(pb[1], {25.0f, 2.0f});
+    skB->movePoint(pb[2], {25.0f, 6.0f});
+    skB->movePoint(pb[3], {15.0f, 6.0f});
+    ASSERT_TRUE(extB.rebuildProfileFromSketch(doc));
+    ASSERT_TRUE(extB.execute(doc));
+    ASSERT_TRUE(fuse.execute(doc));
+    ASSERT_TRUE(ch.execute(doc))
+        << "chamfer must re-find the MOVED seam via its topo ref";
+    // Same-size bevel on the same-size seam: volume ~unchanged vs original.
+    GProp_GProps g; BRepGProp::VolumeProperties(doc.getBody(bodyA), g);
+    EXPECT_NEAR(g.Mass(), chamferedV, chamferedV * 0.02)
+        << "re-chamfered body ~ the original chamfered volume, relocated";
 }
