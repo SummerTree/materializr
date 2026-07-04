@@ -6856,9 +6856,20 @@ void Application::renderViewport() {
     if (m_inSketchMode && m_sketchTool && m_sketchTool->hasPreview() &&
         !m_sketchShapeConfirmPending) {
         SketchToolMode mode = m_sketchTool->getPreviewType();
+        // im-touch on touch: circles and rectangles get the near-shape
+        // confirm bubble on lift (their exact-value input) — the top-right
+        // dialog would be a SECOND diameter/size input flashing during the
+        // drag, so it doesn't show for them at all. Lines keep it (no
+        // bubble). Desktop im-touch (mouse, click-click placement) keeps it
+        // too — the bubble only exists on the touch release path.
+        const bool bubbleOwnsInput =
+            imTouchLayout() && materializr::touchMode() &&
+            (mode == SketchToolMode::Circle ||
+             mode == SketchToolMode::Rectangle);
         const char* dimLabel = nullptr;
         const char* dimHint  =
             "Type a value and press Enter. The shape extends from your first click toward the cursor.";
+        if (!bubbleOwnsInput)
         switch (mode) {
             case SketchToolMode::Line:      dimLabel = "Length (mm)"; break;
             case SketchToolMode::Circle:    dimLabel = "Diameter (mm)"; break;

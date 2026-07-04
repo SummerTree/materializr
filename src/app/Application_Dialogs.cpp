@@ -1857,6 +1857,13 @@ void Application::applySketchMove() {
 }
 
 void Application::renderSnapWidget() {
+    // im-touch hosts snap in its top button cluster instead (next to Multi)
+    // — no corner widget there, and no hover latch keeping viewport picks
+    // away from a square that isn't drawn.
+    if (imTouchLayout()) {
+        m_snapWidgetHovered = false;
+        return;
+    }
     // The snap square tucks just under the ViewCube. Only the cases where the
     // cube itself moved need the cube-tracking anchor: TOUCH mode enlarges the
     // cube (1.5x) and im-touch-LITE drops it below the floating button cluster —
@@ -1936,6 +1943,12 @@ void Application::renderSnapWidget() {
 
     // Settings popup — checkbox + radio buttons. Each change saves to the
     // settings file immediately so the choice survives the next launch.
+    renderSnapSettingsPopup();
+
+    ImGui::PopID();
+}
+
+void Application::renderSnapSettingsPopup() {
     if (ImGui::BeginPopup("SnapSettings")) {
         ImGui::TextColored(materializr::accentText(), "Snap & Grid");
         ImGui::Separator();
@@ -1967,8 +1980,6 @@ void Application::renderSnapWidget() {
         ImGui::TextDisabled("Settings persist across launches.");
         ImGui::EndPopup();
     }
-
-    ImGui::PopID();
 }
 
 void Application::renderConstructionPlanePanel() {

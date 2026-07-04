@@ -729,6 +729,11 @@ private:
     bool imTouchLayout() const { return m_uiLayout == UiLayout::ImTouch; }
     // im-touch only: the transparent model tree on the right edge.
     bool m_imTouchTree = true;
+    // im-touch only: browser-tree group expansion (session-local; boots
+    // fully expanded like Fusion's browser). No other layout reads these.
+    bool m_imTouchTreeOpenBodies = true;
+    bool m_imTouchTreeOpenSketches = true;
+    bool m_imTouchTreeOpenConstruction = true;
     // im-touch only: the Fusion-style history timeline along the bottom edge.
     bool m_imTouchTimeline = true;
     // im-touch timeline: step whose properties popup is open (-1 = none).
@@ -1550,6 +1555,10 @@ private:
     // opens a small popup with the snap toggle + step radios. Changes save
     // immediately so the choice persists across launches.
     void renderSnapWidget();
+    // The snap settings popup body (checkbox + step radios), shared by the
+    // viewport corner widget and the im-touch top cluster's Snap button.
+    // Caller does OpenPopup("SnapSettings") in its own window context.
+    void renderSnapSettingsPopup();
 
     // Sketch-mode Linear / Radial patterns. Simpler than body patterns: the
     // sketch is on a fixed 2D plane so there's no axis radio. Linear copies

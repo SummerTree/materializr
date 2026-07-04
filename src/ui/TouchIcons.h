@@ -65,6 +65,8 @@
 #define MZ_ICON_LOOK       ICON_IC_EYE
 #define MZ_ICON_COPY       ICON_IC_COPY
 #define MZ_ICON_PATTERN    ICON_IC_DOTS_GRID_3X3
+#define MZ_ICON_BODY       ICON_IC_CUBE    // browser tree: solid body row
+#define MZ_ICON_PLANE      ICON_IC_SQUARE  // browser tree: construction plane
 #define MZ_ICON_TEXT       ICON_IC_TEXT
 #define MZ_ICON_SVG        ICON_IC_SVG_FORMAT
 #define MZ_ICON_UNION      ICON_IC_UNION

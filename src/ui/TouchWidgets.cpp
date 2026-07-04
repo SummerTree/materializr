@@ -513,6 +513,99 @@ bool amountField(const char* id, const char* label, float* v,
     return changed;
 }
 
+bool treeGroup(const char* id, const char* label, int count, bool open) {
+    const float s = uiScale();
+    const float h = 40.0f * s;
+    const float w = ImGui::GetContentRegionAvail().x;
+
+    ImGui::PushID(id);
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const bool pressed = ImGui::InvisibleButton("##grp", ImVec2(w, h));
+    const bool hovered = ImGui::IsItemHovered();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    if (hovered)
+        dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h),
+                          ImGui::GetColorU32(rowHoverBg()), radius(6.0f * s));
+
+    // Disclosure triangle, drawn (font glyphs for ▶/▼ look mismatched at
+    // this size). Open points down, closed points right.
+    const float tri = 5.0f * s;
+    const ImVec2 c(p.x + 14.0f * s, p.y + h * 0.5f);
+    const ImU32 fg = ImGui::GetColorU32(textPrimary());
+    if (open)
+        dl->AddTriangleFilled(ImVec2(c.x - tri, c.y - tri * 0.6f),
+                              ImVec2(c.x + tri, c.y - tri * 0.6f),
+                              ImVec2(c.x, c.y + tri), fg);
+    else
+        dl->AddTriangleFilled(ImVec2(c.x - tri * 0.6f, c.y - tri),
+                              ImVec2(c.x + tri, c.y),
+                              ImVec2(c.x - tri * 0.6f, c.y + tri), fg);
+
+    char buf[80];
+    std::snprintf(buf, sizeof(buf), "%s (%d)", label, count);
+    const ImVec2 ts = ImGui::CalcTextSize(buf);
+    dl->AddText(ImVec2(p.x + 28.0f * s, p.y + (h - ts.y) * 0.5f), fg, buf);
+    ImGui::PopID();
+    return pressed;
+}
+
+TreeLeafAction treeLeaf(const char* id, const char* icon, const char* label,
+                        bool* visible, bool selected) {
+    TreeLeafAction act;
+    const float s = uiScale();
+    const float h = 40.0f * s;
+    const float w = ImGui::GetContentRegionAvail().x;
+    const float indent = 26.0f * s;   // children sit under the group text
+    const float eyeW = 34.0f * s;
+
+    ImGui::PushID(id);
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+
+    // Eye first — its own exclusive hit area (a row button submitted before
+    // it would swallow the taps; same lesson as listRow's checkbox).
+    ImGui::SetCursorScreenPos(ImVec2(p.x + indent, p.y));
+    if (ImGui::InvisibleButton("##eye", ImVec2(eyeW, h))) {
+        if (visible) { *visible = !*visible; act.eyeToggled = true; }
+    }
+    const bool eyeHov = ImGui::IsItemHovered();
+
+    // Row body (select) — after the eye to the right edge.
+    ImGui::SetCursorScreenPos(ImVec2(p.x + indent + eyeW, p.y));
+    act.clicked = ImGui::InvisibleButton(
+        "##row", ImVec2(std::max(1.0f, w - indent - eyeW), h));
+    const bool rowHov = ImGui::IsItemHovered();
+
+    if (selected) {
+        ImVec4 selBg = accentFill();
+        selBg.w = 0.30f;   // soft fill — the tree stays see-through
+        dl->AddRectFilled(ImVec2(p.x + indent, p.y), ImVec2(p.x + w, p.y + h),
+                          ImGui::GetColorU32(selBg), radius(6.0f * s));
+    } else if (rowHov) {
+        dl->AddRectFilled(ImVec2(p.x + indent, p.y), ImVec2(p.x + w, p.y + h),
+                          ImGui::GetColorU32(rowHoverBg()), radius(6.0f * s));
+    }
+
+    const bool shown = !visible || *visible;
+    const ImU32 dimCol  = ImGui::GetColorU32(textDim());
+    const ImU32 mainCol = ImGui::GetColorU32(shown ? textPrimary() : textDim());
+    if (visible)
+        drawIconCentered(dl, ImVec2(p.x + indent + eyeW * 0.5f, p.y + h * 0.5f),
+                         15.0f * s, shown ? MZ_ICON_VISIBLE : MZ_ICON_HIDDEN,
+                         eyeHov ? ImGui::GetColorU32(textPrimary()) : dimCol);
+    // Type icon + name.
+    const float ix = p.x + indent + eyeW + 4.0f * s;
+    drawIconCentered(dl, ImVec2(ix + 9.0f * s, p.y + h * 0.5f), 15.0f * s,
+                     icon, mainCol);
+    const ImVec2 ts = ImGui::CalcTextSize(label);
+    dl->AddText(ImVec2(ix + 24.0f * s, p.y + (h - ts.y) * 0.5f), mainCol,
+                label);
+
+    ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + h));
+    ImGui::PopID();
+    return act;
+}
+
 ListRowAction listRow(const char* id, bool* checked, const char* label,
                       bool selected, bool withOverflow) {
     ListRowAction act;

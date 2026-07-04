@@ -86,6 +86,20 @@ bool amountField(const char* id, const char* label, float* v,
                  bool allowSign = false, float minV = 0.0f, float maxV = 0.0f,
                  const ImVec2* padPos = nullptr);
 
+// Fusion-style browser tree rows (the im-touch transparent Items overlay).
+// Group header: disclosure triangle + label + count. Returns true on tap —
+// the caller flips its open flag.
+bool treeGroup(const char* id, const char* label, int count, bool open);
+// Leaf under a group: eye visibility toggle (own hit area) + type icon +
+// name, indented. Row tap = select; selected rows get a soft accent fill;
+// hidden items render dimmed.
+struct TreeLeafAction {
+    bool eyeToggled = false;  // *visible already flipped
+    bool clicked    = false;  // row body tapped (select)
+};
+TreeLeafAction treeLeaf(const char* id, const char* icon, const char* label,
+                        bool* visible, bool selected);
+
 // 44pt list row: leading visibility checkbox, label, trailing ⋯ button.
 // Returns which part was pressed this frame.
 struct ListRowAction {

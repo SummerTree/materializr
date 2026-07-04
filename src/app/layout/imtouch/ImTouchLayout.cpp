@@ -112,53 +112,76 @@ void Application::renderImTouchLayout() {
     // chip, the buttons). Their rounded fill is the only chrome we want.
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
 
-    // ── Project / selection chip (top-left) ─────────────────────────────────
+    // ── Top-left: [Logo] [Menu] [Project name] — three INDIVIDUAL boxes of
+    //    equal height (matching the top-right cluster's button boxes), on a
+    //    fully transparent host window so each box carries its own fill.
     ImGui::SetNextWindowPos(ImVec2(wp.x + m, wp.y + m));
-    ImGui::SetNextWindowBgAlpha(0.55f);
+    ImGui::SetNextWindowBgAlpha(0.0f);
     if (ImGui::Begin("##LiteChip", nullptr, kFloat)) {
-        // ⋯ menu at the far left (moved off the top-right cluster).
-        if (touchui::iconButton("menu", MZ_ICON_MENU_BARS, 30.0f * s))
+        const float bh = 44.0f * s;
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+
+        // Logo box.
+        {
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            dl->AddRectFilled(p, ImVec2(p.x + bh, p.y + bh),
+                              ImGui::GetColorU32(touchui::rowBg()),
+                              touchui::radius(10.0f * s));
+            const float lg = 26.0f * s;
+            const ImVec2 c0(p.x + (bh - lg) * 0.5f, p.y + (bh - lg) * 0.5f);
+            dl->AddImageRounded(layoutui::logoTexture(), c0,
+                                ImVec2(c0.x + lg, c0.y + lg),
+                                ImVec2(0, 0), ImVec2(1, 1),
+                                IM_COL32_WHITE, touchui::radius(4.0f * s));
+            ImGui::Dummy(ImVec2(bh, bh));
+        }
+        ImGui::SameLine(0.0f, 8.0f * s);
+
+        // Menu box.
+        if (touchui::iconButton("menu", MZ_ICON_MENU_BARS, bh))
             ImGui::OpenPopup("##TouchOverflow");
         tip("Menu: file, edit, view, help and settings");
         renderTouchOverflowPopup();
         ImGui::SameLine(0.0f, 8.0f * s);
-        ImDrawList* dl = ImGui::GetWindowDrawList();
-        const float chip = 18.0f * s;
-        const ImVec2 c0 = ImGui::GetCursorScreenPos();
-        dl->AddImageRounded(layoutui::logoTexture(), c0,
-                            ImVec2(c0.x + chip, c0.y + chip),
-                            ImVec2(0, 0), ImVec2(1, 1),
-                            IM_COL32_WHITE, 4.0f * s);
-        ImGui::Dummy(ImVec2(chip, chip));
-        ImGui::SameLine();
 
-        std::string pn = "New project";
-        if (!m_currentProjectPath.empty()) {
-            pn = m_currentProjectPath;
-            auto slash = pn.find_last_of("/\\");
-            if (slash != std::string::npos) pn = pn.substr(slash + 1);
-        }
-        // Selection summary: "· Face (2)" of the primary type, mirroring the
-        // mockup's "mug.mzr · Face (1)".
-        std::string sel;
-        if (m_selection && m_selection->hasSelection()) {
-            const SelectionType t = m_selection->primaryType();
-            int n = 0;
-            for (const auto& e : m_selection->getSelection())
-                if (e.type == t) ++n;
-            static const char* kNames[] = { "None", "Body", "Face", "Edge",
-                                            "Vertex", "Sketch", "Region",
-                                            "Plane", "Axis" };
-            const int ti = static_cast<int>(t);
-            if (ti > 0 && ti < 9) {
-                sel = std::string("  ·  ") + kNames[ti] +
-                      " (" + std::to_string(n) + ")";
+        // Project-name box (name + selection summary, e.g. "mug.mzr · Face (1)").
+        {
+            std::string pn = "New project";
+            if (!m_currentProjectPath.empty()) {
+                pn = m_currentProjectPath;
+                auto slash = pn.find_last_of("/\\");
+                if (slash != std::string::npos) pn = pn.substr(slash + 1);
             }
-        }
-        ImGui::TextColored(touchui::textPrimary(), "%s", pn.c_str());
-        if (!sel.empty()) {
-            ImGui::SameLine(0.0f, 0.0f);
-            ImGui::TextColored(touchui::textDim(), "%s", sel.c_str());
+            std::string sel;
+            if (m_selection && m_selection->hasSelection()) {
+                const SelectionType t = m_selection->primaryType();
+                int n = 0;
+                for (const auto& e : m_selection->getSelection())
+                    if (e.type == t) ++n;
+                static const char* kNames[] = { "None", "Body", "Face", "Edge",
+                                                "Vertex", "Sketch", "Region",
+                                                "Plane", "Axis" };
+                const int ti = static_cast<int>(t);
+                if (ti > 0 && ti < 9) {
+                    sel = std::string("  ·  ") + kNames[ti] +
+                          " (" + std::to_string(n) + ")";
+                }
+            }
+            const float padX = 14.0f * s;
+            const ImVec2 tn = ImGui::CalcTextSize(pn.c_str());
+            const ImVec2 tsl = sel.empty() ? ImVec2(0.0f, 0.0f)
+                                           : ImGui::CalcTextSize(sel.c_str());
+            const float bw = padX * 2.0f + tn.x + tsl.x;
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            dl->AddRectFilled(p, ImVec2(p.x + bw, p.y + bh),
+                              ImGui::GetColorU32(touchui::rowBg()),
+                              touchui::radius(10.0f * s));
+            dl->AddText(ImVec2(p.x + padX, p.y + (bh - tn.y) * 0.5f),
+                        ImGui::GetColorU32(touchui::textPrimary()), pn.c_str());
+            if (!sel.empty())
+                dl->AddText(ImVec2(p.x + padX + tn.x, p.y + (bh - tsl.y) * 0.5f),
+                            ImGui::GetColorU32(touchui::textDim()), sel.c_str());
+            ImGui::Dummy(ImVec2(bw, bh));
         }
     }
     ImGui::End();
@@ -181,6 +204,30 @@ void Application::renderImTouchLayout() {
                 "(the touch equivalent of holding Ctrl)");
             ImGui::SameLine(0.0f, 8.0f * s);
         }
+        // Snap-to-grid — the corner square's im-touch home (renderSnapWidget
+        // skips itself in this layout). Label shows the current step; accent
+        // fill while snap is on; tap opens the shared settings popup.
+        {
+            char snapLbl[16];
+            std::snprintf(snapLbl, sizeof(snapLbl), "%.3g", m_sketchGridStep);
+            if (touchui::pillButton("snap", MZ_ICON_GUIDES, snapLbl,
+                                    m_snapToGrid))
+                ImGui::OpenPopup("SnapSettings");
+            tip(m_snapToGrid ? "Snap ON — tap for step / toggle"
+                             : "Snap off — tap for step / toggle");
+            renderSnapSettingsPopup();
+            ImGui::SameLine(0.0f, 8.0f * s);
+        }
+        // Items (model tree) reveal/hide — moved up from the right-edge rail
+        // button so the whole toggle row lives in one place.
+        if (touchui::pillButton("items", MZ_ICON_ITEMS, nullptr,
+                                m_imTouchTree)) {
+            m_imTouchTree = !m_imTouchTree;
+            saveAppSettings();
+        }
+        tip(m_imTouchTree ? "Hide the model tree"
+                          : "Show the model tree (bodies, sketches, construction)");
+        ImGui::SameLine(0.0f, 8.0f * s);
         const bool histLocked = anyInteractivePreviewActive();
         ImGui::BeginDisabled(histLocked || !touchCanUndo());
         if (touchui::iconButton("undo", MZ_ICON_UNDO, bh)) touchUndo();
@@ -192,56 +239,40 @@ void Application::renderImTouchLayout() {
                 m_softKeyboardForced = !m_softKeyboardForced;
             tip("Toggle the on-screen keyboard");
         }
-        // (Items toggle moved to the persistent right-edge button below;
-        // History has its own bottom toggle; the ⋯ menu lives on the top-left
-        // chip.)
+        // (History has its own bottom toggle; the ⋯ menu lives on the
+        // top-left chip.)
     }
     ImGui::End();
 
-    // ── Persistent right-edge Items button: tap to open the model tree (which
-    //    appears just left of it), tap again — or the tree's header chevron —
-    //    to collapse it back. Accent-filled while the tree is open. Vertically
-    //    centred so it clears the top-right cluster, the ViewCube and the FAB.
-    //    (History is NOT here — it lives at the bottom next to the timeline; see
-    //    below — so its reopen button sits where its minimize chevron does.)
+    // (The Items toggle now lives in the top cluster; railBtnW is still the
+    // History toggle's size at the bottom.)
     const float railBtnW = 60.0f * s;
-    {
-        ImGui::SetNextWindowPos(ImVec2(wp.x + ws.x - m, wp.y + ws.y * 0.5f),
-                                ImGuiCond_Always, ImVec2(1.0f, 0.5f));
-        ImGui::SetNextWindowBgAlpha(0.0f);   // the button draws its own solid fill
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-        if (ImGui::Begin("##LiteItemsButton", nullptr, kFloat)) {
-            if (touchui::railButton("railItems", MZ_ICON_ITEMS, "Items",
-                                    m_imTouchTree, railBtnW, /*solid=*/true)) {
-                m_imTouchTree = !m_imTouchTree;
-                saveAppSettings();
-            }
-            tip(m_imTouchTree ? "Hide the model tree"
-                              : "Show the model tree (bodies, sketches, construction)");
-        }
-        ImGui::End();
-        ImGui::PopStyleVar();
-    }
 
     // ── Transparent model tree (right edge) — the structure the modern
-    //    layout's Items panel shows, display-focused: visibility checkbox +
-    //    name + tap-to-select. Deep actions (rename, folders, export) live in
+    //    layout's Items panel shows, display-focused: visibility eye + name
+    //    + tap-to-select. Deep actions (rename, folders, export) live in
     //    the other layouts; this stays an im-touch-only overlay.
     if (m_imTouchTree && m_document) {
-        // Anchored just LEFT of the right-edge rail so its Items button stays
-        // visible and tappable while the tree is open.
+        // Flush to the right edge, below the top cluster's reach.
         ImGui::SetNextWindowPos(
-            ImVec2(wp.x + ws.x - m - railBtnW - 8.0f * s, wp.y + ws.y * 0.5f),
+            ImVec2(wp.x + ws.x - m, wp.y + ws.y * 0.5f),
             ImGuiCond_Always, ImVec2(1.0f, 0.5f));
-        const float treeW = 250.0f * s;
+        const float treeW = 260.0f * s;
         ImGui::SetNextWindowSizeConstraints(ImVec2(treeW, 0),
                                             ImVec2(treeW, ws.y - 2.0f * m));
-        ImGui::SetNextWindowBgAlpha(0.35f);
+        ImGui::SetNextWindowBgAlpha(0.25f);   // Fusion-browser translucency
         if (ImGui::Begin("##LiteTree", nullptr,
                          kFloat & ~ImGuiWindowFlags_NoScrollbar)) {
-            // "Items" title. No in-panel minimize control — the right-edge
-            // Items button (which opened it) toggles it closed again.
-            ImGui::TextColored(touchui::textPrimary(), "Items");
+            // Root node: the document name, like Fusion's browser top row.
+            // No in-panel minimize control — the right-edge Items button
+            // (which opened it) toggles it closed again.
+            std::string docName = "New project";
+            if (!m_currentProjectPath.empty()) {
+                docName = m_currentProjectPath;
+                auto slash = docName.find_last_of("/\\");
+                if (slash != std::string::npos) docName = docName.substr(slash + 1);
+            }
+            ImGui::TextColored(touchui::textPrimary(), "%s", docName.c_str());
             ImGui::Separator();
             // Selected ids per kind, collected once.
             std::set<int> selB, selS, selP, selA;
@@ -268,89 +299,103 @@ void Application::renderImTouchLayout() {
             const auto bodyIds = m_document->getAllBodyIds();
             if (!bodyIds.empty()) {
                 any = true;
-                touchui::sectionHeader("Bodies");
-                for (int id : bodyIds) {
-                    ImGui::PushID(id);
-                    bool visible = m_document->isBodyVisible(id);
-                    auto act = touchui::listRow("body", &visible,
-                                                m_document->getBodyName(id).c_str(),
-                                                selB.count(id) > 0,
-                                                /*withOverflow=*/false);
-                    if (act.toggled) m_document->setBodyVisible(id, visible);
-                    if (act.clicked) {
-                        SelectionEntry e;
-                        e.type = SelectionType::Body;
-                        e.bodyId = id;
-                        // Parity with ItemsPanel::makeEntry — downstream code
-                        // (highlight outline, ops) expects body entries to
-                        // carry the shape.
-                        try { e.shape = m_document->getBody(id); } catch (...) {}
-                        pick(e, /*multiOk=*/true);
+                if (touchui::treeGroup("grpBodies", "Bodies",
+                                       static_cast<int>(bodyIds.size()),
+                                       m_imTouchTreeOpenBodies))
+                    m_imTouchTreeOpenBodies = !m_imTouchTreeOpenBodies;
+                if (m_imTouchTreeOpenBodies)
+                    for (int id : bodyIds) {
+                        ImGui::PushID(id);
+                        bool visible = m_document->isBodyVisible(id);
+                        auto act = touchui::treeLeaf(
+                            "body", MZ_ICON_BODY,
+                            m_document->getBodyName(id).c_str(), &visible,
+                            selB.count(id) > 0);
+                        if (act.eyeToggled) m_document->setBodyVisible(id, visible);
+                        if (act.clicked) {
+                            SelectionEntry e;
+                            e.type = SelectionType::Body;
+                            e.bodyId = id;
+                            // Parity with ItemsPanel::makeEntry — downstream
+                            // code (highlight outline, ops) expects body
+                            // entries to carry the shape.
+                            try { e.shape = m_document->getBody(id); } catch (...) {}
+                            pick(e, /*multiOk=*/true);
+                        }
+                        ImGui::PopID();
                     }
-                    ImGui::PopID();
-                }
             }
             const auto sketchIds = m_document->getAllSketchIds();
             if (!sketchIds.empty()) {
                 any = true;
-                touchui::sectionHeader("Sketches");
-                for (int id : sketchIds) {
-                    ImGui::PushID(id);
-                    bool visible = m_document->isSketchVisible(id);
-                    auto act = touchui::listRow("sketch", &visible,
-                                                m_document->getSketchName(id).c_str(),
-                                                selS.count(id) > 0,
-                                                /*withOverflow=*/false);
-                    if (act.toggled) m_document->setSketchVisible(id, visible);
-                    if (act.clicked) {
-                        SelectionEntry e;
-                        e.type = SelectionType::Sketch;
-                        e.sketchId = id;
-                        pick(e, /*multiOk=*/false);
+                if (touchui::treeGroup("grpSketches", "Sketches",
+                                       static_cast<int>(sketchIds.size()),
+                                       m_imTouchTreeOpenSketches))
+                    m_imTouchTreeOpenSketches = !m_imTouchTreeOpenSketches;
+                if (m_imTouchTreeOpenSketches)
+                    for (int id : sketchIds) {
+                        ImGui::PushID(id);
+                        bool visible = m_document->isSketchVisible(id);
+                        auto act = touchui::treeLeaf(
+                            "sketch", MZ_ICON_SKETCH,
+                            m_document->getSketchName(id).c_str(), &visible,
+                            selS.count(id) > 0);
+                        if (act.eyeToggled) m_document->setSketchVisible(id, visible);
+                        if (act.clicked) {
+                            SelectionEntry e;
+                            e.type = SelectionType::Sketch;
+                            e.sketchId = id;
+                            pick(e, /*multiOk=*/false);
+                        }
+                        ImGui::PopID();
                     }
-                    ImGui::PopID();
-                }
             }
             const auto planeIds = m_document->getAllPlaneIds();
             const auto axisIds  = m_document->getAllAxisIds();
             if (!planeIds.empty() || !axisIds.empty()) {
                 any = true;
-                touchui::sectionHeader("Construction");
-                for (int id : planeIds) {
-                    ImGui::PushID(id + 100000); // avoid plane/axis id collisions
-                    const auto* p = m_document->getPlane(id);
-                    std::string label = p ? p->name
-                                          : std::string("Plane ") + std::to_string(id);
-                    bool visible = m_document->isPlaneVisible(id);
-                    auto act = touchui::listRow("plane", &visible, label.c_str(),
-                                                selP.count(id) > 0,
-                                                /*withOverflow=*/false);
-                    if (act.toggled) m_document->setPlaneVisible(id, visible);
-                    if (act.clicked) {
-                        SelectionEntry e;
-                        e.type = SelectionType::Plane;
-                        e.planeId = id;
-                        pick(e, /*multiOk=*/false);
+                if (touchui::treeGroup(
+                        "grpConstruction", "Construction",
+                        static_cast<int>(planeIds.size() + axisIds.size()),
+                        m_imTouchTreeOpenConstruction))
+                    m_imTouchTreeOpenConstruction = !m_imTouchTreeOpenConstruction;
+                if (m_imTouchTreeOpenConstruction) {
+                    for (int id : planeIds) {
+                        ImGui::PushID(id + 100000); // avoid plane/axis id collisions
+                        const auto* p = m_document->getPlane(id);
+                        std::string label = p ? p->name
+                                              : std::string("Plane ") + std::to_string(id);
+                        bool visible = m_document->isPlaneVisible(id);
+                        auto act = touchui::treeLeaf("plane", MZ_ICON_PLANE,
+                                                     label.c_str(), &visible,
+                                                     selP.count(id) > 0);
+                        if (act.eyeToggled) m_document->setPlaneVisible(id, visible);
+                        if (act.clicked) {
+                            SelectionEntry e;
+                            e.type = SelectionType::Plane;
+                            e.planeId = id;
+                            pick(e, /*multiOk=*/false);
+                        }
+                        ImGui::PopID();
                     }
-                    ImGui::PopID();
-                }
-                for (int id : axisIds) {
-                    ImGui::PushID(id + 200000);
-                    const auto* a = m_document->getAxis(id);
-                    std::string label = a ? a->name
-                                          : std::string("Axis ") + std::to_string(id);
-                    bool visible = m_document->isAxisVisible(id);
-                    auto act = touchui::listRow("axis", &visible, label.c_str(),
-                                                selA.count(id) > 0,
-                                                /*withOverflow=*/false);
-                    if (act.toggled) m_document->setAxisVisible(id, visible);
-                    if (act.clicked) {
-                        SelectionEntry e;
-                        e.type = SelectionType::Axis;
-                        e.axisId = id;
-                        pick(e, /*multiOk=*/false);
+                    for (int id : axisIds) {
+                        ImGui::PushID(id + 200000);
+                        const auto* a = m_document->getAxis(id);
+                        std::string label = a ? a->name
+                                              : std::string("Axis ") + std::to_string(id);
+                        bool visible = m_document->isAxisVisible(id);
+                        auto act = touchui::treeLeaf("axis", MZ_ICON_AXES,
+                                                     label.c_str(), &visible,
+                                                     selA.count(id) > 0);
+                        if (act.eyeToggled) m_document->setAxisVisible(id, visible);
+                        if (act.clicked) {
+                            SelectionEntry e;
+                            e.type = SelectionType::Axis;
+                            e.axisId = id;
+                            pick(e, /*multiOk=*/false);
+                        }
+                        ImGui::PopID();
                     }
-                    ImGui::PopID();
                 }
             }
             if (!any)
