@@ -1142,10 +1142,13 @@ private:
         int bodyId = -1;
         TopoDS_Shape launchedFrom;   // doc body at launch — stale-guard
         std::future<TopoDS_Shape> fut;
+        int attempts = 1;            // relaunch-on-stale counter (cap 3)
     };
     std::vector<PendingThreadRecut> m_threadRecuts;
     void installThreadRecutHook();
-    void pollThreadRecuts();   // per-frame: apply/discard landed results
+    // Launch (or relaunch) the worker for this op against the CURRENT body.
+    bool launchThreadRecut(ThreadOp& op, int attempts);
+    void pollThreadRecuts();   // per-frame: apply/relaunch/discard results
     void flushThreadRecuts();  // block until drained (save path)
 
     // Section View — render-only clipping of the scene by a plane so the
