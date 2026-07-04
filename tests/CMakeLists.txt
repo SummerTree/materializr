@@ -256,3 +256,7 @@ target_link_libraries(probe_thread_loft PRIVATE materializr_core)
 # probe_thread_chunk — diagnostic: >40-turn rods as chunked swept segments
 add_executable(probe_thread_chunk probe_thread_chunk.cpp)
 target_link_libraries(probe_thread_chunk PRIVATE materializr_core)
+
+# probe_thread_hole — diagnostic: boolean-path cost for internal threads
+add_executable(probe_thread_hole probe_thread_hole.cpp)
+target_link_libraries(probe_thread_hole PRIVATE materializr_core)

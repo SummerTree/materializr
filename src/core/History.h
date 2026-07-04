@@ -75,6 +75,10 @@ public:
     // against the thread's thousands of faces every frame and freeze,
     // never reaching the commit-time refusal in pushOperation.
     bool isBodyThreaded(int bodyId) const;
+    // True if a Shell step in the applied history modified this body — the
+    // face-op UI uses it to explain that the drag preview stays put on a
+    // hollow body (the transform applies pre-shell on release).
+    bool isBodyShelled(int bodyId) const;
     // Insert `op` at `index`, executing it against the state rolled back to
     // just before `index`, then replay the displaced steps (the threads
     // re-cut parametrically on the new geometry). Returns false only if the

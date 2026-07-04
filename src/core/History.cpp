@@ -577,6 +577,22 @@ bool History::isBodyThreaded(int bodyId) const {
     return false;
 }
 
+bool History::isBodyShelled(int bodyId) const {
+    if (bodyId < 0) return false;
+    int limit = m_currentIndex;
+    for (int i = 0; i <= limit && i < static_cast<int>(m_operations.size());
+         ++i) {
+        const Operation* s = m_operations[i].get();
+        if (!s || !s->isEnabled() || s->typeId() != "shell") continue;
+        OperationDiff d = s->captureDiff();
+        for (const auto& [id, shp] : d.modifiedBefore)
+            if (id == bodyId) return true;
+        for (int id : d.created)
+            if (id == bodyId) return true;
+    }
+    return false;
+}
+
 int History::reflowInsertionIndex(const Operation& op) const {
     if (op.typeId() == "thread") return -1; // stacking threads is fine as-is
     std::vector<int> planned = op.plannedBodyIds();

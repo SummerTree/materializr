@@ -2035,6 +2035,14 @@ void Application::beginMoveFace(FaceXform kind) {
         if (mx > 1e-3f) m_moveFaceHalfExtent = mx;
     }
 
+    // Hollow (shelled) body: the per-frame preview refuses (the loft engine
+    // can't shear a cavity), so the body won't follow the drag — but the
+    // commit reflows beneath the Shell and lands correctly. Say so up front
+    // instead of looking broken.
+    if (m_history && m_history->isBodyShelled(m_moveFaceBodyId))
+        showToast("Hollow body: the preview stays put \xE2\x80\x94 the change "
+                  "applies when you release (re-shelled automatically).");
+
     m_moveFaceActive = true;
 }
 
