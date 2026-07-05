@@ -98,12 +98,19 @@ target_link_libraries(materializr PRIVATE ${OCCT_A_PATHS} "${MATERIALIZR_IOS_PRE
 # System libs + frameworks. The SDL2 static config carries its own framework
 # deps; the explicit list below covers our direct uses (GLES, pickers, share
 # sheet) and doubles as insurance if the config's interface is incomplete.
+# CoreBluetooth/CoreMotion/CoreHaptics are deliberately absent: they were only
+# referenced by SDL's joystick/haptic/sensor subsystems, which
+# ios/scripts/setup-deps.sh now builds OFF (App Store validation demands
+# purpose strings for APIs the binary references — ITMS-90683). A prefix built
+# before that change needs them back to link. GameController stays: SDL's
+# UIKit event backend uses GCKeyboard/GCMouse for iPad hardware keyboard and
+# mouse support (independent of the joystick subsystem), and that framework
+# needs no purpose string.
 target_link_libraries(materializr PRIVATE z iconv
     "-framework UIKit" "-framework Foundation" "-framework CoreGraphics"
     "-framework QuartzCore" "-framework OpenGLES" "-framework Metal"
     "-framework AVFoundation" "-framework AudioToolbox" "-framework CoreAudio"
-    "-framework CoreHaptics" "-framework CoreMotion" "-framework GameController"
-    "-framework CoreBluetooth" "-framework CoreVideo" "-framework ImageIO"
+    "-framework GameController" "-framework CoreVideo" "-framework ImageIO"
     "-framework UniformTypeIdentifiers" "-framework StoreKit")
 
 # Version: pass -DMATERIALIZR_VERSION_NAME=<x.y.z[-suffix]> to override;

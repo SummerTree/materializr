@@ -109,9 +109,15 @@ cmake --build "$BUILD/occt-$PLATFORM" --target install -j"$JOBS"
 fetch "https://github.com/libsdl-org/SDL/releases/download/release-$SDL_VER/SDL2-$SDL_VER.tar.gz" "$DL/sdl2.tar.gz" "$SDL2_SHA256"
 [ -d "$SRC/SDL2-$SDL_VER" ] || tar -xzf "$DL/sdl2.tar.gz" -C "$SRC"
 rm -rf "$BUILD/sdl2-$PLATFORM"
+# Joystick/haptic/sensor/hidapi OFF: a CAD app uses none of them, and their
+# iOS backends reference CoreBluetooth/CoreMotion/CoreHaptics/GameController —
+# App Store validation (ITMS-90683) demands purpose strings for APIs the
+# binary merely references. SDL keeps its public API as stubs, so callers
+# (e.g. ImGui's gamepad path) still link; the subsystems just report absent.
 cmake -S "$SRC/SDL2-$SDL_VER" -B "$BUILD/sdl2-$PLATFORM" \
     "${IOS_CMAKE_FLAGS[@]}" \
-    -DSDL_STATIC=ON -DSDL_SHARED=OFF -DSDL_TEST=OFF
+    -DSDL_STATIC=ON -DSDL_SHARED=OFF -DSDL_TEST=OFF \
+    -DSDL_JOYSTICK=OFF -DSDL_HAPTIC=OFF -DSDL_SENSOR=OFF -DSDL_HIDAPI=OFF
 cmake --build "$BUILD/sdl2-$PLATFORM" --target install -j"$JOBS"
 
 echo
