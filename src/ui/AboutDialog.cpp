@@ -76,7 +76,12 @@ void AboutDialog::render() {
         ImGui::Spacing();
         ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
                            "Built with OpenCASCADE, Dear ImGui, SDL2, GLM, libcurl.");
-        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "License: MIT");
+        // GPLv3 since 0.9.8 (the old "MIT" line survived the relicense);
+        // section-7 additional permissions live in LICENSE-EXCEPTIONS.md.
+        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+                           "License: GNU GPLv3, with additional permissions");
+        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+                           "(see LICENSE and LICENSE-EXCEPTIONS.md in the source repository)");
 
         ImGui::Spacing();
         ImGui::Separator();

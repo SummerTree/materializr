@@ -153,8 +153,11 @@ A walkthrough from a first sketch to a printable part:
 
 ## License
 
-GNU GPLv3 — see [LICENSE](LICENSE). (Releases through 0.9.7.1 were MIT; the
-project is GPLv3 from here on.)
+GNU GPLv3 — see [LICENSE](LICENSE) — with additional permissions under GPLv3
+section 7 covering app-store distribution and platform-SDK linking; see
+[LICENSE-EXCEPTIONS.md](LICENSE-EXCEPTIONS.md). (Releases through 0.9.7.1
+were MIT; the project is GPLv3 from here on, and code first published in
+those releases also remains available under MIT.)
 
 ## Contributing
 
