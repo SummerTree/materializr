@@ -274,6 +274,25 @@ void Application::renderModernLayout() {
             ImGui::SetCursorPosX(10.0f * s);
             touchui::sectionHeader("Tools");
 
+            // TWO-COLUMN GRID when the rail is dragged wide: dragging wider
+            // used to just stretch the same buttons into slabs; past the
+            // threshold the catalogue reflows into two half-width cells per
+            // row (left->right, top->bottom), halving the scroll length. Each
+            // cell keeps the narrow rail's icon-over-label proportions.
+            const float railInnerW = ImGui::GetContentRegionAvail().x;
+            const int   railCols   = (m_touchRailW >= 118.0f) ? 2 : 1;
+            const float railCellW  = railCols == 2
+                ? (railInnerW - ImGui::GetStyle().ItemSpacing.x) * 0.5f
+                : 0.0f;                        // 0 = railButton full width
+            int railCellIdx = 0;
+            // Evaluated as the width argument of each railButton: places the
+            // cell (SameLine for the right column) and returns its width.
+            auto cell = [&]() -> float {
+                if (railCols == 2 && (railCellIdx & 1)) ImGui::SameLine();
+                ++railCellIdx;
+                return railCellW;
+            };
+
             // Grouped popups for the create tools the contextual rail omits —
             // one tap away (not buried in the ⋯ menu). On a touch screen they
             // get roomier rows (bigger padding + row gap) for finger targets.
@@ -290,7 +309,7 @@ void Application::renderModernLayout() {
             auto popPopupPad = [&] { if (touchPad) ImGui::PopStyleVar(2); };
             auto constructGroup = [&] {
                 if (touchui::railButton("constructGroup", MZ_ICON_FOCUS,
-                                        "Construct", false))
+                                        "Construct", false, cell()))
                     ImGui::OpenPopup("##railConstruct");
                 tip("Create a construction plane or axis derived from the selection");
                 pushPopupPad();
@@ -306,7 +325,7 @@ void Application::renderModernLayout() {
             // selection the contextual tools lead and Construct follows.
             if (nothingSel) {
                 if (touchui::railButton("sketchOnGroup", MZ_ICON_SKETCH,
-                                        "Sketch on...", false))
+                                        "Sketch on...", false, cell()))
                     ImGui::OpenPopup("##railSketchOn");
                 tip("Start a sketch on a world plane (XY / XZ / YZ)");
                 pushPopupPad();
@@ -321,7 +340,7 @@ void Application::renderModernLayout() {
                 }
                 popPopupPad();
                 if (touchui::railButton("primGroup", MZ_ICON_PRIMITIVE,
-                                        "Primitive", false))
+                                        "Primitive", false, cell()))
                     ImGui::OpenPopup("##railPrimitive");
                 tip("Add a primitive solid: box, cylinder, sphere, cone or torus");
                 pushPopupPad();
@@ -398,7 +417,7 @@ void Application::renderModernLayout() {
                         const char* gLabel = g == 1 ? "Transform" : "Pattern";
                         const char* gPopup = g == 1 ? "##railTransform" : "##railPattern";
                         ImGui::PushID(2000 + g);
-                        if (touchui::railButton(gLabel, gIcon, gLabel, false))
+                        if (touchui::railButton(gLabel, gIcon, gLabel, false, cell()))
                             ImGui::OpenPopup(gPopup);
                         tip(g == 1 ? "Copy or mirror the selection"
                                    : "Linear or circular pattern of the selection");
@@ -416,7 +435,8 @@ void Application::renderModernLayout() {
                     }
                     ImGui::PushID(railIdx++); // labels can repeat across groups
                     const bool clicked = touchui::railButton(
-                        tool.label, tool.icon, tool.label, tool.active);
+                        tool.label, tool.icon, tool.label, tool.active,
+                        cell());
                     tip(tool.tip);
                     if (tool.pluginIndex >= 0) {
                         if (clicked) m_toolbar->fireRailPlugin(tool.pluginIndex);
@@ -640,7 +660,7 @@ void Application::renderModernEdgeTabs() {
         ImGui::PopStyleVar(3);
     };
     edgeTab("##railTab", m_touchVpX, -1, &m_leftPanelHidden,
-            &m_touchRailW, 64.0f, 160.0f, &m_railTabDragged);
+            &m_touchRailW, 64.0f, 208.0f, &m_railTabDragged);
     edgeTab("##rightTab", m_touchVpX + m_touchVpW, +1, &m_rightPanelHidden,
             &m_touchRightW, 200.0f, 520.0f, &m_rightTabDragged);
 }

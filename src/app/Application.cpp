@@ -1303,7 +1303,7 @@ void Application::applyAppSettings(const AppSettings& s) {
     if (m_touchRightW > 520.0f) m_touchRightW = 520.0f;
     m_touchRailW = s.touchRailW;
     if (m_touchRailW < 64.0f)  m_touchRailW = 64.0f;
-    if (m_touchRailW > 160.0f) m_touchRailW = 160.0f;
+    if (m_touchRailW > 208.0f) m_touchRailW = 208.0f;   // 2-column rail range
     // Camera button bindings are honoured on every platform. Android defaults to
     // trackpad mode (AppSettings sets orbit/pan = Left there) so one-finger touch
     // orbits out of the box, but an attached mouse/trackpad can be rebound via the
