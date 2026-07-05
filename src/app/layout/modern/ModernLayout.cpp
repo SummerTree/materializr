@@ -101,12 +101,7 @@ void Application::renderModernLayout() {
             ImGui::SetCursorPos(ImVec2(lx + chip + 10.0f * s,
                                        (topH - ImGui::GetTextLineHeight()) * 0.5f));
             ImGui::TextColored(touchui::textPrimary(), "Materializr");
-            std::string pn = "New project";
-            if (!m_currentProjectPath.empty()) {
-                pn = m_currentProjectPath;
-                auto slash = pn.find_last_of("/\\");
-                if (slash != std::string::npos) pn = pn.substr(slash + 1);
-            }
+            std::string pn = projectDisplayName();
             ImGui::SameLine();
             ImGui::TextColored(touchui::textDim(), "/ %s", pn.c_str());
         }

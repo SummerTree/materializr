@@ -79,13 +79,31 @@ public class MaterializrActivity extends SDLActivity {
         });
     }
 
+    // Overwrite an ALREADY-PICKED document in place (quick-save): we hold a
+    // persistable write grant on the URI from the original picker, so no new
+    // picker — and no "name (1)" dedup copies — is involved. "wt" truncates.
+    public static boolean nativeCommitSaveToUri(String uriStr, String tempPath) {
+        MaterializrActivity a = sInstance;
+        if (a == null || uriStr == null || uriStr.isEmpty()) return false;
+        try (InputStream in = new FileInputStream(tempPath);
+             OutputStream out = a.getContentResolver()
+                                 .openOutputStream(Uri.parse(uriStr), "wt")) {
+            copy(in, out);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     // After native has written tempPath, copy it into the save destination the
     // user picked. Returns true on success.
     public static boolean nativeCommitSave(String tempPath) {
         MaterializrActivity a = sInstance;
         if (a == null || a.mPendingSaveUri == null) return false;
+        // "wt" (truncate), not "w": some providers keep the old tail when the
+        // new content is shorter, corrupting the gzip container.
         try (InputStream in = new FileInputStream(tempPath);
-             OutputStream out = a.getContentResolver().openOutputStream(a.mPendingSaveUri, "w")) {
+             OutputStream out = a.getContentResolver().openOutputStream(a.mPendingSaveUri, "wt")) {
             copy(in, out);
             return true;
         } catch (Exception e) {

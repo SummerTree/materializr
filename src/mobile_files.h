@@ -31,6 +31,12 @@ bool mobilePollFileResult(std::string& outValue);
 // it into the user's chosen destination. Returns true on success.
 bool mobileCommitSave(const std::string& tempPath);
 
+// Overwrite an already-picked document ref IN PLACE (quick-save, no picker).
+// Android: content:// URI with a persisted write grant. iOS: not implemented
+// yet (returns false — callers fall back to the Save As picker), so iOS
+// behaviour is unchanged while it's under App Store review/testing.
+bool mobileCommitSaveToRef(const std::string& ref, const std::string& tempPath);
+
 // Hand a just-written file to the system share sheet.
 void mobileShareFile(const std::string& path, const std::string& mime);
 
@@ -58,6 +64,7 @@ inline bool mobileStartOpenDocument(const std::string&) { return false; }
 inline bool mobileStartCreateDocument(const std::string&, const std::string&) { return false; }
 inline bool mobilePollFileResult(std::string&) { return false; }
 inline bool mobileCommitSave(const std::string&) { return false; }
+inline bool mobileCommitSaveToRef(const std::string&, const std::string&) { return false; }
 inline void mobileShareFile(const std::string&, const std::string&) {}
 inline std::string mobileLastDocUri() { return {}; }
 inline std::string mobileLastDocName() { return {}; }

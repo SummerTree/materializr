@@ -1185,7 +1185,29 @@ void Application::loadAppSettings() {
         // already up) — otherwise the synchronous load froze startup with the
         // OS flagging "not responding".
         std::string p = s.lastProjectPath;
-        m_deferredHeavyTask = [this, p]() { loadProjectWithProgress(p); };
+        m_deferredHeavyTask = [this, p]() {
+#if defined(__ANDROID__)
+            if (p.rfind("content:", 0) == 0) {
+                // A persisted document URI (quick-save identity). Resolve it
+                // to a readable temp through the persisted grant, load that,
+                // then restore the URI as the live identity.
+                std::string tmp = materializr::mobileOpenUri(p);
+                if (tmp.empty()) {
+                    showToast("Couldn't reopen the last project - access may "
+                              "have been revoked.");
+                    return;
+                }
+                loadProjectWithProgress(tmp);
+                if (!m_currentProjectPath.empty()) {   // load succeeded
+                    m_currentProjectPath = p;
+                    std::string nm = materializr::mobileLastDocName();
+                    if (!nm.empty()) m_currentProjectName = nm;
+                }
+                return;
+            }
+#endif
+            loadProjectWithProgress(p);
+        };
     }
 
     // Auto check for updates: hit the GitHub releases API and, if a newer
@@ -2722,8 +2744,28 @@ void Application::handleViewCubeAction(int action) {
     cam.zoomToFit(cmin, cmax);
 }
 
+std::string Application::projectDisplayName() const {
+    if (!m_currentProjectName.empty()) return m_currentProjectName;
+    if (m_currentProjectPath.empty()) return "New project";
+    std::string pn = m_currentProjectPath;
+    auto slash = pn.find_last_of("/\\");
+    if (slash != std::string::npos) pn = pn.substr(slash + 1);
+    return pn;
+}
+
 void Application::saveProject() {
-    FileDialogs::saveFile("Save Project", "project.materializr",
+    // Seed the picker with the CURRENT project's name (a resave keeps its
+    // name instead of silently reverting to "project.materializr").
+    std::string suggest = m_currentProjectName;
+    if (suggest.empty() && !m_currentProjectPath.empty() &&
+        m_currentProjectPath.rfind("content:", 0) != 0) {
+        std::filesystem::path p(m_currentProjectPath);
+        suggest = p.filename().string();
+    }
+    if (suggest.empty()) suggest = "project.materializr";
+    else if (suggest.find(".materializr") == std::string::npos)
+        suggest += ".materializr";
+    FileDialogs::saveFile("Save Project", suggest,
         {{"Materializr Project", "*.materializr"}, {"All Files", "*"}},
         [this](const std::string& chosenPath) {
             if (chosenPath.empty()) return;
@@ -2740,6 +2782,23 @@ void Application::saveProject() {
             auto result = ProjectIO::save(path, *m_document, &hist);
             if (result.success) {
                 m_currentProjectPath = path;
+                m_currentProjectName =
+                    std::filesystem::path(path).filename().string();
+#if defined(__ANDROID__)
+                // Adopt the picked DOCUMENT (content:// URI with a persisted
+                // write grant) as the project identity, not the throwaway
+                // cache temp `path` points at. Quick-save then overwrites the
+                // real file in place; before this it silently wrote to the
+                // dead temp and the user's document never saw another byte.
+                {
+                    std::string uri = materializr::mobileLastDocUri();
+                    if (!uri.empty()) {
+                        m_currentProjectPath = uri;
+                        std::string nm = materializr::mobileLastDocName();
+                        if (!nm.empty()) m_currentProjectName = nm;
+                    }
+                }
+#endif
                 markSaved();
                 saveAppSettings(); // persist lastProjectPath for auto-open
                 // Save As also lands in Open Recent (persistable ref on Android).
@@ -2783,6 +2842,31 @@ void Application::saveProjectQuick() {
     // crashed at least once.)
     if (m_currentProjectPath.empty()) {
         saveProject();
+        return;
+    }
+    // Android: the project identity is a content:// document URI. Write to a
+    // private temp, then commit into the document through the persisted write
+    // grant — in-place overwrite, no picker, no "name (1)" copies.
+    if (m_currentProjectPath.rfind("content:", 0) == 0) {
+        const char* home = std::getenv("HOME");
+        std::string tmp = std::string(home ? home : ".") + "/.mz_qsave.materializr";
+        ProjectHistory hist = captureProjectHistory();
+        auto result = ProjectIO::save(tmp, *m_document, &hist);
+        if (result.success &&
+            materializr::mobileCommitSaveToRef(m_currentProjectPath, tmp)) {
+            markSaved();
+            saveAppSettings();
+            showToast("Saved " + projectDisplayName());
+        } else if (!result.success) {
+            std::fprintf(stderr, "Save failed: %s\n", result.errorMessage.c_str());
+            showToast("Save failed - see log");
+        } else {
+            // The grant was revoked or the file is gone: fall back to Save As
+            // so the work still lands somewhere the user picks.
+            showToast("Couldn't write the original file - choose where to save");
+            saveProject();
+        }
+        std::remove(tmp.c_str());
         return;
     }
     ProjectHistory hist = captureProjectHistory();
@@ -3182,6 +3266,7 @@ bool Application::loadProjectAt(const std::string& path) {
     // phantom redo tail would, e.g., block autosave (which won't save below-tip).
     m_history->dropRedoTail();
     m_currentProjectPath = path;
+    m_currentProjectName.clear();   // callers adopting a doc URI set it after
     markSaved();
     m_meshesDirty = true;
     // Home view = the ViewCube Home button: default isometric orientation AND
@@ -3284,7 +3369,16 @@ void Application::openRecentProject(const AppSettings::RecentProject& r) {
             removeRecentProject(ref);
             return;
         }
-        if (loadProjectAt(tmp)) addRecentProject(ref, name);  // bump to front
+        if (loadProjectAt(tmp)) {
+            addRecentProject(ref, name);  // bump to front
+#if defined(__ANDROID__)
+            // Track the DOCUMENT as the project identity so quick-save writes
+            // back to the real file (loadProjectAt stored the cache temp).
+            m_currentProjectPath = ref;
+            m_currentProjectName = name;
+            saveAppSettings();            // lastProjectPath -> the real ref
+#endif
+        }
         else { showToast("Failed to open \"" + name + "\"."); removeRecentProject(ref); }
 #else
         if (loadProjectAt(ref)) addRecentProject(ref, name);  // bump to front
@@ -3313,6 +3407,18 @@ void Application::loadProject() {
                 ref  = materializr::mobileLastDocUri();
                 name = materializr::mobileLastDocName();
                 if (ref.empty()) ref = path; // fallback (non-persistable provider)
+#if defined(__ANDROID__)
+                // Same identity adoption as Open Recent: quick-save must reach
+                // the picked document, not the cache temp it was read from.
+                if (ref.rfind("content:", 0) == 0) {
+                    m_currentProjectPath = ref;
+                    m_currentProjectName =
+                        name.empty()
+                            ? std::filesystem::path(path).filename().string()
+                            : name;
+                    saveAppSettings();
+                }
+#endif
 #else
                 ref = path;
 #endif
@@ -3346,6 +3452,7 @@ void Application::doCloseProject() {
     m_history->clear();
     m_selection->clear();
     m_currentProjectPath.clear();
+    m_currentProjectName.clear();
     m_savedAtHistoryStep = -1;
     m_unsavedNonHistoryChanges = false;
     m_meshesDirty = true;
@@ -5596,9 +5703,7 @@ void Application::run() {
             {
                 std::string pn;
                 if (!m_currentProjectPath.empty()) {
-                    pn = m_currentProjectPath;
-                    auto slash = pn.find_last_of("/\\");
-                    if (slash != std::string::npos) pn = pn.substr(slash + 1);
+                    pn = projectDisplayName();
                     auto dot = pn.rfind(".materializr");
                     if (dot != std::string::npos) pn = pn.substr(0, dot);
                 }

@@ -212,6 +212,13 @@ void mobileShareFile(const std::string& path, const std::string& /*mime*/) {
     [top presentViewController:sheet animated:YES completion:nil];
 }
 
+bool mobileCommitSaveToRef(const std::string& /*ref*/, const std::string& /*tempPath*/) {
+    // Not wired yet on iOS: quick-save falls back to the Save As picker,
+    // which is today's shipping behaviour. (Implementable with the stored
+    // security-scoped bookmark + startAccessingSecurityScopedResource.)
+    return false;
+}
+
 std::string mobileLastDocUri()  { return g_pick.lastUri; }
 std::string mobileLastDocName() { return g_pick.lastName; }
 

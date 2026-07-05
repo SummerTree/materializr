@@ -146,12 +146,7 @@ void Application::renderImTouchLayout() {
 
         // Project-name box (name + selection summary, e.g. "mug.mzr · Face (1)").
         {
-            std::string pn = "New project";
-            if (!m_currentProjectPath.empty()) {
-                pn = m_currentProjectPath;
-                auto slash = pn.find_last_of("/\\");
-                if (slash != std::string::npos) pn = pn.substr(slash + 1);
-            }
+            std::string pn = projectDisplayName();
             std::string sel;
             if (m_selection && m_selection->hasSelection()) {
                 const SelectionType t = m_selection->primaryType();
@@ -266,12 +261,7 @@ void Application::renderImTouchLayout() {
             // Root node: the document name, like Fusion's browser top row.
             // No in-panel minimize control — the right-edge Items button
             // (which opened it) toggles it closed again.
-            std::string docName = "New project";
-            if (!m_currentProjectPath.empty()) {
-                docName = m_currentProjectPath;
-                auto slash = docName.find_last_of("/\\");
-                if (slash != std::string::npos) docName = docName.substr(slash + 1);
-            }
+            std::string docName = projectDisplayName();
             ImGui::TextColored(touchui::textPrimary(), "%s", docName.c_str());
             ImGui::Separator();
             // Selected ids per kind, collected once.

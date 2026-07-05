@@ -157,6 +157,25 @@ bool mobileCommitSave(const std::string& tempPath) {
     return ok == JNI_TRUE;
 }
 
+bool mobileCommitSaveToRef(const std::string& ref, const std::string& tempPath) {
+    JNIEnv* env; jobject act; jclass cls;
+    if (!jniActivity(env, act, cls)) return false;
+    jboolean ok = JNI_FALSE;
+    jmethodID mid = env->GetStaticMethodID(
+        cls, "nativeCommitSaveToUri", "(Ljava/lang/String;Ljava/lang/String;)Z");
+    if (mid) {
+        jstring u = env->NewStringUTF(ref.c_str());
+        jstring t = env->NewStringUTF(tempPath.c_str());
+        ok = env->CallStaticBooleanMethod(cls, mid, u, t);
+        env->DeleteLocalRef(u);
+        env->DeleteLocalRef(t);
+    }
+    if (env->ExceptionCheck()) env->ExceptionClear();
+    env->DeleteLocalRef(cls);
+    env->DeleteLocalRef(act);
+    return ok == JNI_TRUE;
+}
+
 std::string mobileLastDocUri()  { return callStaticStringNoArg("nativeLastDocUri"); }
 std::string mobileLastDocName() { return callStaticStringNoArg("nativeLastDocName"); }
 std::string mobileOpenUri(const std::string& uri) {

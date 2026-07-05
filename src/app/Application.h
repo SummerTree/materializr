@@ -217,7 +217,8 @@ private:
     // wrapped, and sweep orphan points. Bound to Delete and the sketch context
     // bar's Delete button — the latter is the touch path.
     void deleteSelectedSketchElements();
-    void saveProject();         // Save dialog (Save As behavior)
+    void saveProject();
+    std::string projectDisplayName() const;    // name or basename or "New project"         // Save dialog (Save As behavior)
     void saveProjectQuick();    // Save to current path if known, else falls through to saveProject
     void loadProject();         // File dialog → loadProjectAt
     // Load a project file directly by path. Used by loadProject() and by the
@@ -1686,6 +1687,11 @@ private:
 
     // Project file + dirty tracking
     std::string m_currentProjectPath;          // empty until first save/load
+    // Human name of the current project ("Materializr mug.materializr"). On
+    // Android m_currentProjectPath can be a content:// document URI (so
+    // quick-save can overwrite the picked file in place); this carries the
+    // readable name for the title bar and for seeding Save As.
+    std::string m_currentProjectName;
     std::vector<AppSettings::RecentProject> m_recentProjects; // Open Recent (persisted)
     int m_savedAtHistoryStep = -1;             // history index when last saved/loaded
     bool m_unsavedNonHistoryChanges = false;   // for mutations outside History (imports, etc.)
