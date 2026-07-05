@@ -12,6 +12,11 @@
 	<string>AppIcon</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<!-- Required by App Store validation (ITMS-90683): the statically linked
+	     SDL2 references CoreBluetooth from its game-controller backend.
+	     Materializr never scans for or connects to Bluetooth devices. -->
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Bluetooth would only be used to detect optional wireless game controllers. Materializr never scans for or connects to Bluetooth devices.</string>
 	<key>CFBundleIdentifier</key>
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleInfoDictionaryVersion</key>
