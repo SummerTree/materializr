@@ -106,10 +106,21 @@ target_link_libraries(materializr PRIVATE z iconv
     "-framework CoreBluetooth" "-framework CoreVideo" "-framework ImageIO"
     "-framework UniformTypeIdentifiers" "-framework StoreKit")
 
-# Version: pass -DMATERIALIZR_VERSION_NAME=<x.y.z[-suffix]> to match the
-# release; the fallback marks ad-hoc developer builds.
+# Version: pass -DMATERIALIZR_VERSION_NAME=<x.y.z[-suffix]> to override;
+# otherwise default to the desktop project's version + suffix (the single
+# source of truth in the root CMakeLists), so archives self-identify
+# without remembering a configure flag.
 if(NOT DEFINED MATERIALIZR_VERSION_NAME OR MATERIALIZR_VERSION_NAME STREQUAL "")
-    set(MATERIALIZR_VERSION_NAME "0.0.0")
+    file(READ "${MZ_ROOT}/CMakeLists.txt" _root_cml)
+    string(REGEX MATCH "project\\(Materializr VERSION ([0-9]+\\.[0-9]+\\.[0-9]+)" _ "${_root_cml}")
+    if(CMAKE_MATCH_1)
+        set(MATERIALIZR_VERSION_NAME "${CMAKE_MATCH_1}")
+        string(REGEX MATCH "set\\(MATERIALIZR_VERSION_SUFFIX \"([^\"]*)\"" _ "${_root_cml}")
+        string(APPEND MATERIALIZR_VERSION_NAME "${CMAKE_MATCH_1}")
+    else()
+        set(MATERIALIZR_VERSION_NAME "0.0.0") # root parse failed — ad-hoc build
+    endif()
+    unset(_root_cml)
 endif()
 target_compile_definitions(materializr PRIVATE
     MATERIALIZR_VERSION="${MATERIALIZR_VERSION_NAME}"
@@ -134,7 +145,11 @@ set_target_properties(materializr PROPERTIES
     # Applications/. CMake-generated targets default to SKIP_INSTALL=YES,
     # which yields a useless "Generic Xcode Archive" instead.
     XCODE_ATTRIBUTE_SKIP_INSTALL "NO"
-    XCODE_ATTRIBUTE_INSTALL_PATH "$(LOCAL_APPS_DIR)")
+    XCODE_ATTRIBUTE_INSTALL_PATH "$(LOCAL_APPS_DIR)"
+    # CMake's Xcode generator defaults to plain "dwarf", which leaves the
+    # archive without a dSYM — App Store crash reports would come back
+    # unsymbolicated. Release only; Debug keeps the faster format.
+    "XCODE_ATTRIBUTE_DEBUG_INFORMATION_FORMAT[variant=Release]" "dwarf-with-dsym")
 if(DEFINED MZ_DEVELOPMENT_TEAM)
     set_target_properties(materializr PROPERTIES
         XCODE_ATTRIBUTE_DEVELOPMENT_TEAM "${MZ_DEVELOPMENT_TEAM}")
