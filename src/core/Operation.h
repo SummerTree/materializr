@@ -48,6 +48,13 @@ public:
     // flag such steps after a project is reopened.
     virtual bool isReloaded() const { return false; }
 
+    // True only for a reloaded step the user should be WARNED about: one that
+    // lost its editable parameters AND shapes body geometry (a baked fillet,
+    // boolean, etc.). A sketch-only step that reloaded without params is inert
+    // — the sketch itself loads fine and there is nothing to "repair" — so it
+    // is deliberately NOT a frozen feature and must not raise the amber banner.
+    virtual bool isFrozenFeature() const { return false; }
+
     // Serialise this op's input parameters (radii, distances, axis, etc.) as
     // a single-line opaque text blob. Empty default = nothing to save (sketch
     // edits, replay ops, simple ops without parameters). Read back by

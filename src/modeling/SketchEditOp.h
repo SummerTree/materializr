@@ -55,6 +55,13 @@ public:
     std::shared_ptr<Sketch> getAfterSnapshot() const  { return m_after;  }
     std::shared_ptr<Sketch> getTarget() const { return m_target; }
     void setTarget(std::shared_ptr<Sketch> t) { m_target = std::move(t); }
+    // Remember which sketch this op edits, captured at creation time when the
+    // target is definitely in the document. serializeWithDocument uses it if
+    // the live-pointer lookup fails at save time (a stale/replaced m_target
+    // otherwise silently produced an EMPTY params blob, freezing the step on
+    // reload — the "Remove sketch element" warning).
+    void setSketchId(int id) { m_sketchId = id; }
+    int  getSketchId() const { return m_sketchId; }
     void setSnapshots(std::shared_ptr<Sketch> before, std::shared_ptr<Sketch> after) {
         m_before = std::move(before); m_after = std::move(after);
     }
@@ -78,6 +85,7 @@ public:
 
 private:
     std::shared_ptr<Sketch> m_target;
+    int m_sketchId = -1;   // cached document id (see setSketchId)
     std::shared_ptr<Sketch> m_before;
     std::shared_ptr<Sketch> m_after;
     std::map<int, double> m_editedCircleRadii;

@@ -417,3 +417,19 @@ TEST(TransformOps, PlaneAndAxisTransformParamsRoundTrip) {
     ASSERT_TRUE(a2.deserializeParams(a.serializeParams()));
     EXPECT_TRUE(a2.rehydrateFromReload(rs, dummy));
 }
+
+#include "modeling/ReplayOp.h"
+// A reloaded SKETCH-only step (no body snapshots) must NOT be a frozen feature
+// — it's inert history and shouldn't raise the amber warning (Steve: a benign
+// "Remove sketch element" kept prompting it). A reloaded BODY step still is.
+TEST(ReloadWarning, SketchOnlyReloadIsNotFrozenFeature) {
+    ReplayOp sketchOnly("sketchedit", "Sketch Edit", "Remove sketch element",
+                        {}, {}, /*fromReload=*/true);
+    EXPECT_TRUE(sketchOnly.isReloaded());
+    EXPECT_FALSE(sketchOnly.isFrozenFeature()) << "sketch-only reload must not warn";
+
+    TopoDS_Shape dummy;  // a null shape is enough; the flag checks emptiness
+    ReplayOp::BodyState before{{1, dummy}}, after{{1, dummy}};
+    ReplayOp bodyFeature("fillet", "Fillet", "Fillet R2", before, after, true);
+    EXPECT_TRUE(bodyFeature.isFrozenFeature()) << "baked body feature still warns";
+}

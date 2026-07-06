@@ -4433,6 +4433,10 @@ void Application::recordSketchMutation(const std::function<void()>& mutator) {
     if (afterSig == beforeSig) return; // nothing structural changed → no history step
     auto after = std::make_shared<Sketch>(*m_activeSketch);
     auto op = std::make_unique<SketchEditOp>(m_activeSketch, std::move(before), std::move(after));
+    // Stamp the sketch id now, while m_activeSketch is definitively in the
+    // document — so a save later can serialise the snapshots even if the live
+    // pointer has since been replaced (which silently froze delete steps).
+    op->setSketchId(m_document->findSketchId(m_activeSketch.get()));
     m_history->pushExecuted(std::move(op));
 }
 

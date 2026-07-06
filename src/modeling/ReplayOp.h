@@ -33,6 +33,13 @@ public:
     // in-session batch ops (e.g. multi-body Move/Rotate/Scale) use the same
     // snapshot machinery but should not be marked "(reloaded; not editable)".
     bool isReloaded() const override { return m_fromReload; }
+    // Warn (amber banner) only when a reloaded step actually shaped a body —
+    // it carries before/after body snapshots. A sketch-only reloaded step
+    // (e.g. a sketchedit whose params were lost) has EMPTY body states: it's
+    // inert history, not a frozen feature, so it must not trigger the warning.
+    bool isFrozenFeature() const override {
+        return m_fromReload && !(m_before.empty() && m_after.empty());
+    }
 
     // Carry the original op's parameter blob across save/load so a future
     // edit-by-clicking pass can pull radii / distances / etc. out of a

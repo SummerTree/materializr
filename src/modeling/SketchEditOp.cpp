@@ -286,9 +286,15 @@ static void writeSketchBody(std::ostream& os, const Sketch& sk, int sketchId,
 std::string SketchEditOp::serializeWithDocument(const Document& doc) const {
     if (!m_target || !m_before || !m_after) return "";
 
-    // The sketch this op edits — used as the rebind anchor at load time.
+    // The sketch this op edits — used as the rebind anchor at load time. Prefer
+    // the live-pointer lookup, but fall back to the id cached at creation time
+    // (setSketchId) if the target pointer no longer resolves in the document.
+    // Without the fallback a stale/replaced m_target made this return "", which
+    // saved the step with NO params — so it reloaded as a frozen ReplayOp and
+    // raised the "frozen steps" warning for what is really a normal edit.
     int sketchId = doc.findSketchId(m_target.get());
-    if (sketchId < 0) return ""; // not in the document; can't bind on load
+    if (sketchId < 0) sketchId = m_sketchId;
+    if (sketchId < 0) return ""; // truly unknown; nothing to bind on load
 
     std::string name = doc.getSketchName(sketchId);
     bool visible = doc.isSketchVisible(sketchId);

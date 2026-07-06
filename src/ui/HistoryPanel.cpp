@@ -62,7 +62,7 @@ bool HistoryPanel::renderContent() {
     bool anyReloaded = false;
     for (int i = 0; i < stepCount; ++i) {
         const Operation* op = m_history->getStep(i);
-        if (op && op->isReloaded()) { anyReloaded = true; break; }
+        if (op && op->isFrozenFeature()) { anyReloaded = true; break; }
     }
     if (anyReloaded) {
         ImGui::PushTextWrapPos(0.0f);
@@ -125,7 +125,7 @@ bool HistoryPanel::renderContent() {
         bool isCurrentlyEditing = (i == m_editingStep);
         bool isDisabled = !op->isEnabled();
         bool isAboveCurrent = (i > currentStep);
-        bool isFrozen = op->isReloaded(); // baked: reloaded with no editable params
+        bool isFrozen = op->isFrozenFeature(); // baked BODY feature; sketch-only reloads are inert, not flagged
 
         // Soft highlight: the step owning the viewport-selected sketch element.
         // Orange to match the in-viewport element highlight; editing (blue) wins.
