@@ -468,8 +468,24 @@ void ShapeRenderer::render(const glm::mat4& view, const glm::mat4& projection,
     glUniform1i(m_meshLoc_headlight, m_lighting.headlight ? 1 : 0);
     glUniform1f(m_meshLoc_fillStrength, m_lighting.fill ? m_lighting.fillStrength : 0.0f);
 
-    for (const auto& mesh : m_meshes) {
+    // Coincident-face tie-break: overlapping bodies can share exactly coplanar
+    // faces (Extrude From leaves the new body's base on the source face), and
+    // equal depth values z-fight as a shimmering checkerboard. Push each body
+    // DEEPER the older it is, so the newest body wins such ties
+    // deterministically. Deeper, not nearer: edges are GL_LINES, which polygon
+    // offset cannot bias, so pulling a body's faces nearer would occlude its
+    // own edges. Both offset terms scale with the body's age rank: the
+    // constant term breaks ties head-on, and the slope term is required at
+    // grazing angles / deep zoom, where the two meshes tessellate the shared
+    // plane differently and their depth interpolation errors grow with the
+    // depth gradient - a constant-only offset re-fights there.
+    glEnable(GL_POLYGON_OFFSET_FILL);
+    const int slotCount = static_cast<int>(m_meshes.size());
+    for (int slot = 0; slot < slotCount; ++slot) {
+        const auto& mesh = m_meshes[slot];
         if (mesh.vertexCount == 0) continue; // vacant slot
+        const float rank = static_cast<float>(slotCount - 1 - slot);
+        glPolygonOffset(rank, 2.0f * rank);
         glUniformMatrix4fv(m_meshLoc_model, 1, GL_FALSE, glm::value_ptr(mesh.modelMatrix));
         glUniform3fv(m_meshLoc_objectColor, 1, glm::value_ptr(mesh.color));
         glUniform1i(m_meshLoc_selected, mesh.selected ? 1 : 0);
@@ -478,6 +494,8 @@ void ShapeRenderer::render(const glm::mat4& view, const glm::mat4& projection,
         glBindVertexArray(mesh.vao);
         glDrawArrays(GL_TRIANGLES, 0, mesh.vertexCount);
     }
+    glPolygonOffset(0.0f, 0.0f);
+    glDisable(GL_POLYGON_OFFSET_FILL);
 
     glBindVertexArray(0);
     glUseProgram(0);
