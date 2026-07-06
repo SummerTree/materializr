@@ -604,6 +604,21 @@ TreeLeafAction treeLeaf(const char* id, const char* icon, const char* label,
     const ImVec2 p = ImGui::GetCursorScreenPos();
     ImDrawList* dl = ImGui::GetWindowDrawList();
 
+    // Claim the whole row rect up front. The internals below are placed with
+    // SetCursorScreenPos, and ImGui flags any such jump past the window's
+    // current content max ("uses SetCursorPos to extend window boundaries —
+    // submit an item e.g. Dummy()") — which, unfixed, fired every frame for
+    // the im-touch Bodies tree (##LiteTree). Same lesson as listRow: claim the
+    // rect with a Dummy, and derive the row bottom the way ItemSize() does
+    // (post-Dummy cursor minus spacing) rather than the raw p.y + h — at a
+    // fractional uiScale ImGui truncates the item advance to whole pixels, so
+    // p.y + h overshoots the claimed max by the fraction and trips the warning
+    // on every row. The max() guards the first auto-resize frame where the
+    // content region reports ~0 wide.
+    ImGui::Dummy(ImVec2(std::max(w, indent + eyeW + swW + 1.0f), h));
+    const float rowBottom =
+        ImGui::GetCursorScreenPos().y - ImGui::GetStyle().ItemSpacing.y;
+
     // Eye first — its own exclusive hit area (a row button submitted before
     // it would swallow the taps; same lesson as listRow's checkbox).
     ImGui::SetCursorScreenPos(ImVec2(p.x + indent, p.y));
@@ -667,7 +682,9 @@ TreeLeafAction treeLeaf(const char* id, const char* icon, const char* label,
         dl->AddRect(a, b, ImGui::GetColorU32(textDim()), radius(4.0f * s));
     }
 
-    ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + h));
+    // rowBottom is bit-exact with the Dummy's claimed max, so stacking the
+    // next row here never re-extends the boundary.
+    ImGui::SetCursorScreenPos(ImVec2(p.x, rowBottom));
     ImGui::PopID();
     return act;
 }
