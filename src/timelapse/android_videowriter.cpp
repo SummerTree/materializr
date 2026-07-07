@@ -19,6 +19,7 @@
 #include <media/NdkMediaFormat.h>
 #include <media/NdkMediaMuxer.h>
 
+#include <dlfcn.h>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -170,16 +171,32 @@ bool VideoEncoder::begin(const std::string& path, int width, int height,
     // this works on every API level; sensible fallbacks when absent.
     w->stride = w->encW;
     w->sliceH = w->encH;
-    if (AMediaFormat* in = AMediaCodec_getInputFormat(w->codec)) {
-        int32_t v = 0;
-        if (AMediaFormat_getInt32(in, AMEDIAFORMAT_KEY_COLOR_FORMAT, &v) &&
-            (v == kColorPlanar || v == kColorSemiPlanar))
-            w->colorFormat = v;
-        if (AMediaFormat_getInt32(in, "stride", &v) && v >= w->encW)
-            w->stride = v;
-        if (AMediaFormat_getInt32(in, "slice-height", &v) && v >= w->encH)
-            w->sliceH = v;
-        AMediaFormat_delete(in);
+    // AMediaCodec_getInputFormat is API 28+. We keep minSdkVersion 24, and the
+    // NDK marks the symbol hard-*unavailable* below the deployment target, so
+    // we can't call it directly — not even inside __builtin_available (clang
+    // still errors). dlsym it at runtime instead: the symbol is present on
+    // API-28+ devices (the vast majority — they get the encoder's real
+    // color-format / stride / slice-height) and null on 7.0–8.1, where we keep
+    // the width/height defaults above. Nobody is dropped. A compile-time #if
+    // would have been worse: __ANDROID_API__ equals minSdk (24), so it strips
+    // the block on EVERY device, shearing video on any encoder that pads its
+    // input stride even on modern hardware. Keys are plain strings, valid on
+    // all API levels (same as the "stride"/"slice-height" lookups below).
+    using GetInputFormatFn = AMediaFormat* (*)(AMediaCodec*);
+    static auto* getInputFormat = reinterpret_cast<GetInputFormatFn>(
+        dlsym(RTLD_DEFAULT, "AMediaCodec_getInputFormat"));
+    if (getInputFormat) {
+        if (AMediaFormat* in = getInputFormat(w->codec)) {
+            int32_t v = 0;
+            if (AMediaFormat_getInt32(in, "color-format", &v) &&
+                (v == kColorPlanar || v == kColorSemiPlanar))
+                w->colorFormat = v;
+            if (AMediaFormat_getInt32(in, "stride", &v) && v >= w->encW)
+                w->stride = v;
+            if (AMediaFormat_getInt32(in, "slice-height", &v) && v >= w->encH)
+                w->sliceH = v;
+            AMediaFormat_delete(in);
+        }
     }
 
     w->fd = open(path.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0644);
