@@ -3,6 +3,72 @@
 All notable changes to Materializr are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow SemVer.
 
+## [1.4.0] — 2026-07-05
+
+### Highlights
+
+- **Three interface layouts.** Settings → Appearance switches live between
+  **Classic** (desktop menu bar + docked panels), **Modern** (top app bar +
+  tool rail + side panel), and **Im-Touch** (near-zero chrome: full-bleed
+  viewport with floating overlays, built for tablets). A first-launch
+  **Getting Started tour** opens with a live-preview layout picker and
+  layout-aware steps.
+- **Reloaded projects are fully editable.** Every operation type now replays
+  from its parameters on load — the whole history chain, not frozen stored
+  geometry — so steps in a reopened project can be re-edited as if just made.
+  Fillet/chamfer seam edges survive reloads and upstream edits via persisted
+  topological references; plane/axis transforms reload editable too.
+- **Threads got fast and unbounded.** Chunked sweeps lift the 40-turn ceiling
+  (a 150-turn rod cuts in ~1.6 s), a swept-rod fast path turns minutes-long
+  cuts into ~200 ms, and re-cuts run async so cascades never freeze the UI.
+- **Welcome screen + Supporter state.** A dismissible launch screen with the
+  version and a support ask; becoming a Supporter silences it permanently.
+  Startup dialogs take turns instead of fighting over the popup stack.
+- **iPad port groundwork.** The iOS build runs on device: app icon, StoreKit
+  tip jar, App Store archive/validation fixes, and a slimmed SDL without
+  Bluetooth/motion references. No public iOS build yet.
+- **Licensing.** GPLv3 gains section-7 additional permissions covering
+  app-store distribution and platform-SDK linking
+  ([LICENSE-EXCEPTIONS.md](../LICENSE-EXCEPTIONS.md)), plus a privacy policy
+  ([PRIVACY.md](../PRIVACY.md)).
+
+### Added
+
+- Frame pacing: a 15 fps idle floor + 60 fps cap replace the 0 fps idle stop —
+  first taps, overlays, and the mobile keyboard stay responsive.
+- Sketch **inference levels** (Full / Reduced / Off) with a live toolbar
+  toggle, and a line angle-snap increment setting.
+- Im-touch: in-app number pad for all amount entry, Fusion-style browser tree,
+  geometry-anchored action wells, push/pull starter handle.
+- Boolean seam edges get lineage names (two-input generation ledger) so
+  downstream features can track them.
+- Per-ABI Android packaging (separate arm64-v8a / x86_64 APKs).
+
+### Changed
+
+- Op-value sliders replaced by steppers everywhere (Section offset kept).
+- Measure unified into the View menu; the modern rail gains Transform and
+  Pattern groups.
+- The sketch dimension popup and shape confirm bubble moved off the drawing
+  area (over the right panel band / screen edge).
+- SVG export: each loop exports as one closed path; hairline strokes read as
+  cut lines.
+- Android quick-save writes the real picked document (SAF) and Save As keeps
+  the project's name instead of reverting to `project.materializr`.
+
+### Fixed
+
+- Fillet's face-pick no longer claims planar faces (big neighbours stopped
+  hijacking clicks), and seam fillets/chamfers survive the full
+  save → reopen → edit cycle.
+- Sketch: a rim point can't dissolve a circle's loop, circle radius snaps to
+  grid, spline undo shrinks the curve point by point, face references are
+  in-plane only, and inference charging no longer triggers in passing.
+- Shelled bodies: face transforms auto-reflow beneath the Shell, and undoing a
+  sketch edit outside sketch mode re-cascades the body.
+- Windows (MSVC/vcpkg) build breaks surfaced by the main merge; macOS CI moved
+  to macos-latest.
+
 ## [1.3.0] — 2026-07-02
 
 The stable rollup of the whole `1.3.0-beta.1 … beta.11` line, plus one fix that

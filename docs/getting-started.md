@@ -31,18 +31,44 @@ Two options on the same releases page:
 Windows SmartScreen may warn that the publisher is unrecognised (we don't
 code-sign). Click *More info → Run anyway*.
 
-### macOS
+### macOS (Apple Silicon)
 
-Not currently supported. The codebase is portable enough that a build is
-feasible (see [building.md](building.md) for the obstacles), but no binaries
-are produced yet.
+Download `Materializr-*-arm64.dmg` from the releases page, open it, and drag
+**Materializr** to Applications. The app is Apple-Silicon only (M1 or newer)
+and ad-hoc signed, not notarized — so on first launch Gatekeeper will say it
+"cannot be opened because the developer cannot be verified." Right-click (or
+Control-click) the app in Applications and choose **Open**, then **Open**
+again in the dialog; this is a one-time approval. (Equivalently: System
+Settings → Privacy & Security → **Open Anyway**.)
+
+### Android
+
+Designed for tablets — a phone screen will be cramped. Two sources:
+
+- **[F-Droid](https://f-droid.org/packages/com.materializr.app/)** — installs
+  and auto-updates through the F-Droid app; builds lag a few days behind.
+- **APK from the releases page** (`Materializr-*-arm64-v8a.apk`) — sideload
+  (enable "install unknown apps") for the freshest fixes.
+
+Pick one source and stick with it: the two are signed with different keys, so
+Android refuses to install one over the other.
+
+## First launch: pick a layout
+
+The first launch opens a short **Getting Started tour** that begins with a
+layout picker (with live preview): **Classic** (desktop menu bar + docked
+panels), **Modern** (top app bar + tool rail), or **Im-Touch** (full-bleed
+viewport with floating overlays, built for touch). You can switch any time in
+Settings → Appearance, and re-run the tour from **Help → Getting Started**.
 
 ## Your first model
 
-The default workspace shows a 20 mm demo cube and three panels: the **Tools**
-toolbar on the left, **Items** + **History** + **Properties** on the right,
-and a status bar at the bottom. The cube is purely decorative — feel free to
-delete it from the Items panel (press <kbd>Delete</kbd> with the body selected).
+The steps below use the **Classic** layout; the same tools exist in every
+layout (the tour shows where they live in yours). The default workspace shows
+a 20 mm demo cube and three panels: the **Tools** toolbar on the left,
+**Items** + **History** + **Properties** on the right, and a status bar at
+the bottom. The cube is purely decorative — feel free to delete it from the
+Items panel (press <kbd>Delete</kbd> with the body selected).
 
 ### 1. Start a sketch
 

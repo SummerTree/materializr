@@ -10,8 +10,22 @@ Full list of what's in the box, grouped by area.
   sketch regions. Unions auto-merge coplanar/cotangent faces so seams disappear.
 - **Extrude** — interactive extrude with live preview, draft angle,
   boolean modes.
-- **Revolve** — profile around an axis, 0–360°.
+- **Lathe** — spin a sketch profile around an axis into a solid.
+- **Revolve** — profile around an axis, 0–360°; also rotates a whole body
+  around an axis (watch a fan spin or a hinge open).
 - **Loft** — through multiple cross-section profiles.
+- **Primitives** — drop in a box, cylinder, sphere, cone, or torus when
+  that's the faster start.
+- **Threads** — validated screw threads, internal and external, with standard
+  coarse defaults derived from the diameter. Chunked sweeps handle long
+  threads (150-turn rods in seconds) and re-cuts run asynchronously.
+- **Projection** — engrave or emboss any sketch onto a flat *or curved* face;
+  wrap a logo around a cylinder in three clicks.
+- **Direct face editing** — **Taper** (draft) a face, **Scale Face** (pinch a
+  wing tip into a winglet), **Twist Face** about its normal to spiral the
+  walls, or edit a hole/boss to an exact diameter.
+- **Unfold / flatten** — lay a developable body flat into a 2D cut pattern
+  and export it as SVG or tiled PDF with registration crosses (see File I/O).
 - **Fillet** — pick edge(s) → **Fillet** → drag the outward handle (or type) to
   set the radius, with live preview and a measurement readout.
 - **Chamfer** — same flow as Fillet for a chamfer distance.
@@ -40,6 +54,16 @@ Full list of what's in the box, grouped by area.
 ## 2D Sketching
 
 - **Tools**: Line, Circle, Rectangle, Arc, Spline, Polygon, Text, Trim.
+- **Inference snapping** — SketchUp-style inferences while drawing: endpoints,
+  midpoints, perpendicular, tangent, and 15° increments (the angle-snap step
+  is configurable). Three levels — Full (includes hover-to-charge), Reduced
+  (classic guides), Off (grid + endpoint only) — switchable live from the
+  sketch toolbar or set as a default in Settings.
+- **Text as real geometry** — the Text tool lays down actual outline curves
+  (three bundled fonts); the result is ordinary closed regions you can extrude
+  or engrave.
+- **SVG import** — bring an SVG into the sketch with a live placement preview;
+  paths become normal sketch geometry.
 - **Select / Move tool** — pick existing points and lines (Ctrl+click adds);
   drag a selected element to translate the whole selection. Double-click in
   empty space selects every element in the sketch.
@@ -165,12 +189,21 @@ as you drag or type:
 
 ## UI / UX
 
+- **Three interface layouts** (Settings → Appearance, switches live):
+  **Classic** — desktop menu bar + docked panels + status bar; **Modern** —
+  top app bar + tool rail + right side panel; **Im-Touch** — near-zero
+  chrome, full-bleed viewport with floating overlays, built for tablets and
+  touch. Orthogonal to **touch mode** (large UI + touch gestures), which
+  defaults on for mobile and can be toggled on any device.
+- **Getting Started tour** — a first-launch walkthrough that opens with a
+  live-preview layout picker and adapts its steps to the layout you choose.
+  Re-run it any time from the Help menu.
 - **Adaptive toolbar** — shows relevant tools based on selection
   (nothing / edge / face / body / sketch / sketch region).
 - **Design History** — every operation recorded, undo/redo (Ctrl+Z / Y),
-  breakpoints, deletion (with conflict detection). Reloaded projects show
-  steps marked `(reloaded)` — undo/redo replays the stored geometry but
-  re-editing their parameters isn't supported.
+  breakpoints, deletion (with conflict detection). Reopened projects replay
+  the full history chain from parameters, so every step stays editable after
+  a reload — change a dimension in an old step and the chain re-runs.
 - **Items panel** — bodies *and* sketches with visibility, rename (double-click
   or right-click), delete (Delete key or right-click), and a per-body **colour
   swatch** (right edge) that opens a hue-wheel picker. Body deletes are undoable.
@@ -206,6 +239,8 @@ as you drag or type:
 | Native `.materializr` project (bodies + colours + sketches + history) | yes | yes |
 | STEP (.step / .stp) | yes | yes |
 | IGES (.iges / .igs) | yes | yes |
-| STL (.stl) | — | yes |
-| SVG (.svg, per-sketch export) | — | yes |
+| STL (.stl) | yes (accuracy slider, wireframe toggle) | yes (Z-up corrected) |
+| SVG (.svg) | yes (into sketches, live placement) | yes (per-sketch, 1:1 mm; loops as single closed paths) |
+| PDF (.pdf, tiled unfold patterns with registration crosses) | — | yes |
 | glTF / GLB (.glb) | — | yes |
+| PNG (.png, viewport shot) | — | yes |

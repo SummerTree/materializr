@@ -3,6 +3,11 @@
 Workflow recipes for common tasks, plus the full keyboard-shortcut table. For a
 guided first-model walkthrough, see [getting-started.md](getting-started.md).
 
+The recipes name Classic-layout locations (toolbar, menu bar, docked panels);
+in the **Modern** and **Im-Touch** layouts the same tools live in the tool
+rail / top bar — switch layouts any time in Settings → Appearance, or re-run
+**Help → Getting Started** for a layout-aware refresher.
+
 ## Basic workflow
 
 1. With nothing selected, click **Sketch on XY / XZ / YZ** to sketch on a base
@@ -175,7 +180,7 @@ happy.
 
 If you'd rather wipe everything and start fresh, delete the settings file:
 
-- **Linux**: `~/.config/materializr/settings.cfg`
+- **Linux / macOS**: `~/.config/materializr/settings.cfg`
 - **Windows**: `%APPDATA%\materializr\settings.cfg`
 
 Materializr writes a fresh file with defaults on the next launch
