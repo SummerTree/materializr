@@ -1,7 +1,11 @@
 #pragma once
+#include <condition_variable>
 #include <cstdint>
+#include <deque>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace materializr {
@@ -32,9 +36,15 @@ public:
     bool videoMode() const { return m_videoMode; }
 
     // Video mode: append one frame to the current segment (opens/rotates
-    // segments as needed). Public as the headless-test entry.
+    // segments as needed). Hands the frame to the feeder thread — the GL
+    // thread never blocks on the encoder. Public as the headless-test entry;
+    // data is TOP-DOWN here (capture enqueues bottom-up internally).
     void appendVideoFrame(const uint8_t* rgba, int w, int h);
+    // GL thread, every frame: collect finished async readbacks (PBO ring).
+    // Cheap no-op when nothing is pending.
+    void pumpVideoReads();
     // Finalize the open segment (app quit, project switch, before export).
+    // Blocks until the feeder has drained and closed the file.
     void closeSegment();
     // Closed segments, oldest first, as full paths.
     std::vector<std::string> segmentPaths() const;
@@ -55,12 +65,7 @@ public:
     // append `rgba` (w×h×4, top-left origin).
     void storeFrame(const uint8_t* rgba, int w, int h, bool moveFrame = false);
 
-    int frameCount() const {
-        if (!m_videoMode) return static_cast<int>(m_frames.size());
-        int n = m_segFrames;
-        for (const auto& s : m_closedSegs) n += s.second;
-        return n;
-    }
+    int frameCount() const;
     void clearFrames();
 
     // Snapshot for a worker-thread encode: take these on the main thread
@@ -99,10 +104,34 @@ private:
     int m_nextSerial = 0;
 
     // Video mode: the open segment + the closed-segment ledger (name, frames).
+    // The encoder and the mutable segment state live on the FEEDER thread;
+    // m_mx guards the queue and every field the main thread also reads.
+    void ensureFeeder();
+    void feederLoop();
+    void feederAppend(std::vector<uint8_t>& rgba, int w, int h, bool bottomUp);
+    void feederClose();
     std::unique_ptr<class VideoEncoder> m_seg;
     std::string m_segName;
     int m_segW = 0, m_segH = 0, m_segFrames = 0, m_segSerial = 0;
     std::vector<std::pair<std::string, int>> m_closedSegs;
+
+    struct VidCmd {
+        std::vector<uint8_t> rgba; // empty for control commands
+        int w = 0, h = 0;
+        bool bottomUp = false;
+        bool close = false, stop = false;
+    };
+    std::thread m_feeder;
+    mutable std::mutex m_mx;
+    std::condition_variable m_cv;
+    std::deque<VidCmd> m_q;
+    int m_closeAcks = 0;
+
+    // GL-side async readback ring (avoids the synchronous glReadPixels stall
+    // that tanked FPS during camera orbits).
+    unsigned m_pbo[2] = {0, 0};
+    bool m_pboPending[2] = {false, false};
+    int m_pboNext = 0, m_pboW = 0, m_pboH = 0;
 };
 
 } // namespace materializr

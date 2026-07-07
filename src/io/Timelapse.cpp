@@ -138,18 +138,84 @@ std::string TimelapseRecorder::frameDir() const {
 TimelapseRecorder::TimelapseRecorder()
     : m_videoMode(VideoEncoder::available()) {}
 
-TimelapseRecorder::~TimelapseRecorder() { closeSegment(); }
+TimelapseRecorder::~TimelapseRecorder() {
+    // Pending PBO reads are dropped (the GL context may already be gone);
+    // the feeder finalizes the open segment before exiting.
+    if (m_feeder.joinable()) {
+        {
+            std::lock_guard<std::mutex> lk(m_mx);
+            VidCmd stop;
+            stop.stop = true;
+            m_q.push_back(std::move(stop));
+        }
+        m_cv.notify_all();
+        m_feeder.join();
+    }
+}
 
-void TimelapseRecorder::appendVideoFrame(const uint8_t* rgba, int w, int h) {
-    if (!m_enabled || !rgba || w <= 0 || h <= 0) return;
+int TimelapseRecorder::frameCount() const {
+    std::lock_guard<std::mutex> lk(m_mx);
+    if (!m_videoMode) return static_cast<int>(m_frames.size());
+    int n = m_segFrames;
+    for (const auto& s : m_closedSegs) n += s.second;
+    return n;
+}
+
+void TimelapseRecorder::ensureFeeder() {
+    if (m_feeder.joinable()) return;
+    m_feeder = std::thread([this] { feederLoop(); });
+}
+
+void TimelapseRecorder::feederLoop() {
+    for (;;) {
+        VidCmd cmd;
+        {
+            std::unique_lock<std::mutex> lk(m_mx);
+            m_cv.wait(lk, [this] { return !m_q.empty(); });
+            cmd = std::move(m_q.front());
+            m_q.pop_front();
+        }
+        if (cmd.stop) {
+            feederClose();
+            return;
+        }
+        if (cmd.close) {
+            feederClose();
+            {
+                std::lock_guard<std::mutex> lk(m_mx);
+                ++m_closeAcks;
+            }
+            m_cv.notify_all();
+            continue;
+        }
+        feederAppend(cmd.rgba, cmd.w, cmd.h, cmd.bottomUp);
+    }
+}
+
+void TimelapseRecorder::feederAppend(std::vector<uint8_t>& rgba, int w, int h,
+                                     bool bottomUp) {
+    if (bottomUp) {
+        std::vector<uint8_t> row(size_t(w) * 4);
+        for (int y = 0; y < h / 2; ++y) {
+            uint8_t* a = rgba.data() + size_t(y) * w * 4;
+            uint8_t* b = rgba.data() + size_t(h - 1 - y) * w * 4;
+            std::memcpy(row.data(), a, row.size());
+            std::memcpy(a, b, row.size());
+            std::memcpy(b, row.data(), row.size());
+        }
+    }
     namespace fs = std::filesystem;
     // Rotate on dimension change (window/device rotation) or segment length.
-    if (m_seg && (m_segW != w || m_segH != h)) closeSegment();
+    if (m_seg && (m_segW != w || m_segH != h)) feederClose();
     if (!m_seg) {
         std::error_code ec;
         fs::create_directories(frameDir(), ec);
         char name[32];
-        std::snprintf(name, sizeof(name), "seg_%06d.mp4", m_segSerial);
+        {
+            std::lock_guard<std::mutex> lk(m_mx);
+            std::snprintf(name, sizeof(name), "seg_%06d.mp4", m_segSerial);
+            ++m_segSerial;
+        }
         auto enc = std::make_unique<VideoEncoder>();
         if (!enc->begin(frameDir() + "/" + name, w, h, 30,
                         /*fragmented=*/true))
@@ -158,32 +224,92 @@ void TimelapseRecorder::appendVideoFrame(const uint8_t* rgba, int w, int h) {
         m_segName = name;
         m_segW = w;
         m_segH = h;
-        m_segFrames = 0;
-        ++m_segSerial;
+        {
+            std::lock_guard<std::mutex> lk(m_mx);
+            m_segFrames = 0;
+        }
     }
-    if (m_seg->addFrame(rgba)) ++m_segFrames;
-    if (m_segFrames >= 3000) closeSegment(); // ~100 s per chunk at 30 fps
+    if (m_seg->addFrame(rgba.data())) {
+        std::lock_guard<std::mutex> lk(m_mx);
+        ++m_segFrames;
+    }
+    bool rotate = false;
+    {
+        std::lock_guard<std::mutex> lk(m_mx);
+        rotate = m_segFrames >= 3000; // ~100 s per chunk at 30 fps
+    }
+    if (rotate) feederClose();
 }
 
-void TimelapseRecorder::closeSegment() {
+void TimelapseRecorder::feederClose() {
     if (!m_seg) return;
     m_seg->end();
     m_seg.reset();
     namespace fs = std::filesystem;
     std::error_code ec;
-    if (m_segFrames > 0) {
-        m_closedSegs.emplace_back(m_segName, m_segFrames);
+    int frames = 0;
+    {
+        std::lock_guard<std::mutex> lk(m_mx);
+        frames = m_segFrames;
+        m_segFrames = 0;
+    }
+    if (frames > 0) {
+        {
+            std::lock_guard<std::mutex> lk(m_mx);
+            m_closedSegs.emplace_back(m_segName, frames);
+        }
         // Ledger line "name frames" — frame counts survive restarts.
         std::ofstream os(frameDir() + "/segments.txt", std::ios::app);
-        os << m_segName << ' ' << m_segFrames << '\n';
+        os << m_segName << ' ' << frames << '\n';
     } else {
         fs::remove(frameDir() + "/" + m_segName, ec); // empty segment
     }
-    m_segFrames = 0;
     m_segName.clear();
 }
 
+void TimelapseRecorder::appendVideoFrame(const uint8_t* rgba, int w, int h) {
+    if (!m_enabled || !rgba || w <= 0 || h <= 0) return;
+    ensureFeeder();
+    VidCmd cmd;
+    cmd.rgba.assign(rgba, rgba + size_t(w) * h * 4);
+    cmd.w = w;
+    cmd.h = h;
+    cmd.bottomUp = false; // test/API entry hands top-down data
+    {
+        std::lock_guard<std::mutex> lk(m_mx);
+        // Bounded queue: if the encoder can't keep up, drop the oldest
+        // pending frame rather than stalling the caller or ballooning RAM.
+        int frames = 0;
+        for (const auto& c : m_q)
+            if (!c.close && !c.stop) ++frames;
+        if (frames >= 6)
+            for (auto it = m_q.begin(); it != m_q.end(); ++it)
+                if (!it->close && !it->stop) {
+                    m_q.erase(it);
+                    break;
+                }
+        m_q.push_back(std::move(cmd));
+    }
+    m_cv.notify_all();
+}
+
+void TimelapseRecorder::closeSegment() {
+    if (!m_feeder.joinable()) return; // nothing was ever recorded
+    int want = 0;
+    {
+        std::lock_guard<std::mutex> lk(m_mx);
+        want = m_closeAcks + 1;
+        VidCmd close;
+        close.close = true;
+        m_q.push_back(std::move(close));
+    }
+    m_cv.notify_all();
+    std::unique_lock<std::mutex> lk(m_mx);
+    m_cv.wait(lk, [this, want] { return m_closeAcks >= want; });
+}
+
 std::vector<std::string> TimelapseRecorder::segmentPaths() const {
+    std::lock_guard<std::mutex> lk(m_mx);
     std::vector<std::string> out;
     out.reserve(m_closedSegs.size());
     for (const auto& s : m_closedSegs) out.push_back(frameDir() + "/" + s.first);
@@ -242,10 +368,76 @@ void TimelapseRecorder::loadStore() {
     }
 }
 
+void TimelapseRecorder::pumpVideoReads() {
+    if (!m_videoMode || (!m_pboPending[0] && !m_pboPending[1])) return;
+    for (int i = 0; i < 2; ++i) {
+        if (!m_pboPending[i]) continue;
+        glBindBuffer(GL_PIXEL_PACK_BUFFER, m_pbo[i]);
+        const size_t bytes = size_t(m_pboW) * m_pboH * 4;
+        void* p = glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0,
+                                   GLsizeiptr(bytes), GL_MAP_READ_BIT);
+        if (p) {
+            ensureFeeder();
+            VidCmd cmd;
+            cmd.rgba.assign(static_cast<uint8_t*>(p),
+                            static_cast<uint8_t*>(p) + bytes);
+            cmd.w = m_pboW;
+            cmd.h = m_pboH;
+            cmd.bottomUp = true; // GL read-back order; the feeder flips
+            glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
+            {
+                std::lock_guard<std::mutex> lk(m_mx);
+                m_q.push_back(std::move(cmd));
+            }
+            m_cv.notify_all();
+        }
+        m_pboPending[i] = false;
+    }
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+}
+
 void TimelapseRecorder::captureFromTexture(unsigned texture, int w, int h,
                                            bool moveFrame) {
     if (!m_enabled || texture == 0 || w <= 0 || h <= 0) return;
 
+    if (m_videoMode) {
+        // Asynchronous readback: glReadPixels into a PBO returns immediately
+        // (the synchronous version stalled the whole GL pipeline and tanked
+        // FPS during orbits); pumpVideoReads() collects the pixels a frame
+        // later and hands them to the feeder thread.
+        if (m_pbo[0] == 0 || m_pboW != w || m_pboH != h) {
+            if (m_pbo[0]) glDeleteBuffers(2, m_pbo);
+            glGenBuffers(2, m_pbo);
+            for (int i = 0; i < 2; ++i) {
+                glBindBuffer(GL_PIXEL_PACK_BUFFER, m_pbo[i]);
+                glBufferData(GL_PIXEL_PACK_BUFFER, GLsizeiptr(size_t(w) * h * 4),
+                             nullptr, GL_STREAM_READ);
+                m_pboPending[i] = false;
+            }
+            m_pboW = w;
+            m_pboH = h;
+            m_pboNext = 0;
+        }
+        pumpVideoReads(); // free the slot we are about to reuse
+
+        GLint prevFbo = 0;
+        glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &prevFbo);
+        GLuint tmpFbo = 0;
+        glGenFramebuffers(1, &tmpFbo);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, tmpFbo);
+        glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                               GL_TEXTURE_2D, texture, 0);
+        glBindBuffer(GL_PIXEL_PACK_BUFFER, m_pbo[m_pboNext]);
+        glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(prevFbo));
+        glDeleteFramebuffers(1, &tmpFbo);
+        m_pboPending[m_pboNext] = true;
+        m_pboNext ^= 1;
+        return;
+    }
+
+    // Pixel-store fallback: synchronous read + flip, then compress to .mzf.
     std::vector<uint8_t> pixels(size_t(w) * h * 4);
 #if defined(MZ_GLES)
     // GL ES has no glGetTexImage: attach to a temporary read FBO instead
@@ -274,11 +466,6 @@ void TimelapseRecorder::captureFromTexture(unsigned texture, int w, int h,
         std::memcpy(row.data(), a, row.size());
         std::memcpy(a, b, row.size());
         std::memcpy(b, row.data(), row.size());
-    }
-
-    if (m_videoMode) {
-        appendVideoFrame(pixels.data(), w, h);
-        return;
     }
     storeFrame(pixels.data(), w, h, moveFrame);
 }

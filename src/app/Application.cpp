@@ -4950,6 +4950,9 @@ void Application::updateTimelapse() {
         m_tlLastRevision = rev;
     } else if (m_timelapse->enabled() && m_timelapse->videoMode() &&
                m_viewport) {
+        // Collect any finished async readback first (no-op when idle) so a
+        // burst's last frame reaches the encoder promptly.
+        m_timelapse->pumpVideoReads();
         // Video mode: ~10 Hz ACTION sampling. A frame is worth storing when
         // the camera moved, the history changed, or a drag preview is live —
         // idle time appends nothing, so the recording is pure action. One
@@ -5028,9 +5031,10 @@ void Application::exportTimelapse(int condenseSeconds, bool asMp4) {
     std::error_code ec;
 
     if (m_timelapse->videoMode()) {
-        // Chunked recording: finalize the open segment (cheap, main thread),
-        // then assemble on a worker — a lossless concat for full length, a
-        // retimed re-encode for the condensed cut.
+        // Chunked recording: flush the readback ring, finalize the open
+        // segment, then assemble on a worker — a lossless concat for full
+        // length, a retimed re-encode for the condensed cut.
+        m_timelapse->pumpVideoReads();
         m_timelapse->closeSegment();
         const auto segs = m_timelapse->segmentPaths();
         if (segs.empty()) {
