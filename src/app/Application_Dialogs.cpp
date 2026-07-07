@@ -1,6 +1,6 @@
 #include "ui/UiTheme.h"
 #include "ui/TouchWidgets.h" // im-touch number-pad amount fields
-#include "io/Timelapse.h"    // Settings > General > Timelapse toggle
+#include "timelapse/Timelapse.h"    // Settings > General > Timelapse toggle
 #include "ui_scale.h"
 #include "touch_mode.h"
 #include "gl_common.h"

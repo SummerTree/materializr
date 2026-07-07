@@ -1,11 +1,11 @@
-// iOS backend for VideoEncoder (see io/VideoEncoder.h): AVAssetWriter driving
+// iOS backend for VideoEncoder (see VideoEncoder.h): AVAssetWriter driving
 // the hardware H.264 encoder. Runs on the timelapse export worker thread —
 // AVAssetWriter is explicitly fine (and preferred) off the main thread.
 #include "platform_defs.h"
 
 #if defined(MZ_IOS)
 
-#include "io/VideoEncoder.h"
+#include "timelapse/VideoEncoder.h"
 
 #import <AVFoundation/AVFoundation.h>
 #import <CoreMedia/CoreMedia.h>

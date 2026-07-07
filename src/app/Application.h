@@ -584,7 +584,8 @@ private:
     void renderSketchRecoveryPrompt();   // startup "restore unfinished sketch?" modal
     void restoreSketchDraftNow();        // re-enter sketch mode with the saved draft
 
-    // Always-on timelapse (io/Timelapse): one frame per committed history
+    // Timelapse (src/timelapse/): opt-in action recording — one frame per
+    // committed history
     // mutation, per-project store, GIF export from the im-touch button.
     void updateTimelapse();              // per-frame: bind/capture/export poll
     // 0 = full length, N = fit N seconds; asMp4 uses the ffmpeg pipe encoder

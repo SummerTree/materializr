@@ -17,8 +17,8 @@
 #include "plugin/PluginContext.h"
 #include "plugin/PluginRegistry.h"
 #include "ui/AboutDialog.h"
-#include "io/Timelapse.h"     // File > Export > Timelapse GIF
-#include "io/VideoEncoder.h"  // gates the Timelapse MP4 entries on ffmpeg
+#include "timelapse/Timelapse.h"     // File > Export > Timelapse GIF
+#include "timelapse/VideoEncoder.h"  // gates the Timelapse MP4 entries on ffmpeg
 #include "ui/HelpPanel.h"
 #include "ui/LogoTexture.h"
 #include "ui/ShortcutsPanel.h"

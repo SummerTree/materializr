@@ -1,5 +1,5 @@
 #include "VideoEncoder.h"
-#include "../platform_defs.h"
+#include "platform_defs.h"
 
 #include <cstdio>
 #include <cstring>

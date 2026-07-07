@@ -306,9 +306,10 @@ add_executable(materializr
     src/io/SvgExport.cpp
     src/io/IgesIO.cpp
     src/io/ImageExport.cpp
-    src/io/GifEncoder.cpp
-    src/io/Timelapse.cpp
-    src/io/VideoEncoder.cpp
+    src/timelapse/GifEncoder.cpp
+    src/timelapse/Timelapse.cpp
+    src/timelapse/VideoEncoder.cpp
+    src/timelapse/TimelapseIntegration.cpp
     src/io/GltfExport.cpp
     src/io/FileDialogs.cpp
 )

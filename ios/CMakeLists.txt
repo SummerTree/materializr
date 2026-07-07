@@ -80,7 +80,7 @@ set(MZ_OBJCXX_SOURCES
     "${MZ_SRC}/ios_platform.mm"
     "${MZ_SRC}/ios_files.mm"
     "${MZ_SRC}/ios_storekit.mm"
-    "${MZ_SRC}/ios_videowriter.mm")
+    "${MZ_SRC}/timelapse/ios_videowriter.mm")
 set_source_files_properties(${MZ_OBJCXX_SOURCES} PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
 
 add_executable(materializr MACOSX_BUNDLE ${MZ_SOURCES} ${MZ_OBJCXX_SOURCES})
