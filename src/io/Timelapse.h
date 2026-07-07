@@ -97,7 +97,7 @@ private:
     void thinIfOverCap();
     void loadStore(); // (re)read frame/segment listings for the bound key
 
-    bool m_enabled = true;
+    bool m_enabled = false; // driven by AppSettings::timelapseRecord (default off)
     bool m_videoMode = false;
     std::string m_key = "_unsaved";
     std::vector<std::string> m_frames; // ordered file names within frameDir()

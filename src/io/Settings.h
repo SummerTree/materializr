@@ -141,10 +141,12 @@ struct AppSettings {
     // restored tip in-app purchase). Permanently silences the every-launch
     // support prompt.
     bool  supporter               = false;
-    // Always-on timelapse: record a viewport frame per committed operation
-    // into a per-project store (exportable as a GIF from the im-touch
-    // timelapse button). Local-only; off stops recording, keeps stored frames.
-    bool  timelapseRecord         = true;
+    // Timelapse recording: viewport frames stream into a per-project store
+    // while you model (exportable as video/GIF from the im-touch timelapse
+    // button or File > Export). Local-only. OFF by default — opt in via
+    // Settings > General or the timelapse button; off stops recording but
+    // keeps anything already stored.
+    bool  timelapseRecord         = false;
 
     // --- Snap / grid (persisted) ---
     // Snap-to-grid toggle and step (mm) shared by the sketch grid and the

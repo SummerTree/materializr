@@ -597,7 +597,7 @@ private:
     unsigned int m_tlFbo = 0, m_tlColor = 0;      // resolve FBO + texture
     unsigned int m_tlFboMs = 0, m_tlColorMs = 0, m_tlDepth = 0; // MSAA target
     std::unique_ptr<TimelapseRecorder> m_timelapse;
-    bool m_timelapseRecord = true;       // persisted mirror (AppSettings::timelapseRecord)
+    bool m_timelapseRecord = false;      // persisted mirror (AppSettings::timelapseRecord)
     bool m_tlBound = false;              // bindProject ran at least once
     std::string m_tlBoundRef;            // project ref the store is bound to
     unsigned m_tlLastRevision = 0;       // History::revision() already captured
