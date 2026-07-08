@@ -1088,9 +1088,19 @@ void Application::beginInteractiveExtrude(const TopoDS_Shape& profile,
     }
 }
 
-void Application::updateInteractiveExtrude() {
+void Application::updateInteractiveExtrude(bool applySnap) {
     if (!m_extruding || m_extrudePreviewBodyId < 0) return;
     if (!std::isfinite(m_extrudeDistance)) { m_extrudeDistance = 0.0f; return; }
+
+    // Snap the live distance to the corner-widget grid step before applying —
+    // mirrors updatePushPull (issue #24). Drag/commit paths snap; live typing
+    // and the steppers pass applySnap=false so a typed value stays exact.
+    if (applySnap && m_snapToGrid && m_sketchGridStep > 0.0f) {
+        const float step = m_sketchGridStep;
+        m_extrudeDistance = std::round(m_extrudeDistance / step) * step;
+        std::snprintf(m_extrudeInputBuf, sizeof(m_extrudeInputBuf),
+                      "%.1f", m_extrudeDistance);
+    }
 
     // Remove old preview and create new one at current distance. The undo
     // is VERIFIED against the recorded preview op so an outside history
@@ -1456,6 +1466,32 @@ void Application::beginPushPull() {
             t.profile = TopoDS::Face(e.shape);
             if (t.profile.IsNull()) continue;
             m_pushPullTargets.push_back(t);
+        } else if (e.type == SelectionType::Sketch && e.sketchId >= 0) {
+            // Whole-sketch push/pull (selected from the Items panel, no specific
+            // region): push/pull EVERY region of the sketch. Mirrors the
+            // SketchRegion branch above, per region — so a body-attached sketch
+            // picked from the panel edits its host body, matching Extrude's
+            // whole-sketch behaviour. The rail only offers Push here for an
+            // attached sketch, so sourceBodyId resolves to the real host.
+            ensureSketchSourceFace(e.sketchId);
+            auto sketch = m_document->getSketch(e.sketchId);
+            if (!sketch) continue;
+            auto regions = sketch->buildRegions();
+            for (int ri = 0; ri < static_cast<int>(regions.size()); ++ri) {
+                if (regions[ri].face.IsNull()) continue;
+                PushPullTarget t;
+                t.sketchId = e.sketchId;
+                t.regionIndex = ri;
+                t.sourceBodyId = sketch->isDetachedFromBody()
+                                     ? -1
+                                     : sketch->getSourceBody();
+                t.profile = regions[ri].face;
+                if (t.sourceBodyId < 0 && !sketch->isDetachedFromBody()) {
+                    int host = findBodyUnderRegion(t.profile, sketch->getPlane());
+                    if (host >= 0) t.sourceBodyId = host;
+                }
+                m_pushPullTargets.push_back(t);
+            }
         }
     }
 
@@ -2180,6 +2216,20 @@ void Application::updateMoveFace() {
             m_document->updateBody(m_moveFaceBodyId, m_moveFacePreviousShape);
         }
         return;
+    }
+
+    // Snap an in-plane face SLIDE to the grid step (issue #24): decompose the
+    // translation onto the face's in-plane axes and round each to the step, so
+    // the face moves in grid increments (like Extrude/Push-Pull). Only for a
+    // Translate — Rotate has its own degree snap and Scale is a percentage.
+    // m_moveFaceVec is recomputed absolutely from the drag each frame, so this
+    // never compounds.
+    if (m_faceXformKind == FaceXform::Translate && m_snapToGrid &&
+        m_sketchGridStep > 0.0f) {
+        const float step = m_sketchGridStep;
+        const float a = std::round(glm::dot(m_moveFaceVec, m_moveFaceAxisA) / step) * step;
+        const float b = std::round(glm::dot(m_moveFaceVec, m_moveFaceAxisB) / step) * step;
+        m_moveFaceVec = a * m_moveFaceAxisA + b * m_moveFaceAxisB;
     }
 
     // Always preview from the original snapshot so transforms don't compound.

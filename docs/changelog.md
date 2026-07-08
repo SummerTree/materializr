@@ -3,71 +3,38 @@
 All notable changes to Materializr are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow SemVer.
 
-## [1.4.0] — 2026-07-05
+## [1.4.3] — 2026-07-07
+
+Rolls up the whole `1.4.0 … 1.4.3` line (the intermediate patch releases shipped
+version-only bumps). Headline changes since **1.3.0**:
 
 ### Highlights
 
-- **Three interface layouts.** Settings → Appearance switches live between
-  **Classic** (desktop menu bar + docked panels), **Modern** (top app bar +
-  tool rail + side panel), and **Im-Touch** (near-zero chrome: full-bleed
-  viewport with floating overlays, built for tablets). A first-launch
-  **Getting Started tour** opens with a live-preview layout picker and
-  layout-aware steps.
-- **Reloaded projects are fully editable.** Every operation type now replays
-  from its parameters on load — the whole history chain, not frozen stored
-  geometry — so steps in a reopened project can be re-edited as if just made.
-  Fillet/chamfer seam edges survive reloads and upstream edits via persisted
-  topological references; plane/axis transforms reload editable too.
-- **Threads got fast and unbounded.** Chunked sweeps lift the 40-turn ceiling
-  (a 150-turn rod cuts in ~1.6 s), a swept-rod fast path turns minutes-long
-  cuts into ~200 ms, and re-cuts run async so cascades never freeze the UI.
-- **Welcome screen + Supporter state.** A dismissible launch screen with the
-  version and a support ask; becoming a Supporter silences it permanently.
-  Startup dialogs take turns instead of fighting over the popup stack.
-- **iPad port groundwork.** The iOS build runs on device: app icon, StoreKit
-  tip jar, App Store archive/validation fixes, and a slimmed SDL without
-  Bluetooth/motion references. No public iOS build yet.
-- **Licensing.** GPLv3 gains section-7 additional permissions covering
-  app-store distribution and platform-SDK linking
-  ([LICENSE-EXCEPTIONS.md](../LICENSE-EXCEPTIONS.md)), plus a privacy policy
-  ([PRIVACY.md](../PRIVACY.md)).
-
-### Added
-
-- Frame pacing: a 15 fps idle floor + 60 fps cap replace the 0 fps idle stop —
-  first taps, overlays, and the mobile keyboard stay responsive.
-- Sketch **inference levels** (Full / Reduced / Off) with a live toolbar
-  toggle, and a line angle-snap increment setting.
-- Im-touch: in-app number pad for all amount entry, Fusion-style browser tree,
-  geometry-anchored action wells, push/pull starter handle.
-- Boolean seam edges get lineage names (two-input generation ledger) so
-  downstream features can track them.
-- Per-ABI Android packaging (separate arm64-v8a / x86_64 APKs).
-
-### Changed
-
-- Op-value sliders replaced by steppers everywhere (Section offset kept).
-- Measure unified into the View menu; the modern rail gains Transform and
-  Pattern groups.
-- The sketch dimension popup and shape confirm bubble moved off the drawing
-  area (over the right panel band / screen edge).
-- SVG export: each loop exports as one closed path; hairline strokes read as
-  cut lines.
-- Android quick-save writes the real picked document (SAF) and Save As keeps
-  the project's name instead of reverting to `project.materializr`.
+- **One OpenCASCADE kernel everywhere — 7.9.3.** Desktop, Windows, macOS and
+  Android now all build against the same OCCT 7.9.3 (Windows was pulled off a
+  broken 8.0.0 that hung long-rod thread generation). More consistent
+  boolean/fillet behaviour across platforms.
+- **Section View gets a real cross-section cap.** Clipped bodies render solid at
+  the cut plane instead of hollow (#15).
+- **Per-ABI Android packaging.** Separate arm64-v8a and x86_64 APKs so Intel
+  tablets/Chromebooks get a native build.
+- **Touch (im-touch) polish.** The operation popups (Push/Pull, Extrude,
+  Fillet/Chamfer, Move Face, sketch dimensions) are unified into one **movable**
+  dialog you can drag by a slim grip, the on-screen keyboard now rises when you
+  **tap** a value field, and the rail shows **Push/Pull vs Extrude** based on
+  whether the selected sketch drives a body.
 
 ### Fixed
 
-- Fillet's face-pick no longer claims planar faces (big neighbours stopped
-  hijacking clicks), and seam fillets/chamfers survive the full
-  save → reopen → edit cycle.
-- Sketch: a rim point can't dissolve a circle's loop, circle radius snaps to
-  grid, spline undo shrinks the curve point by point, face references are
-  in-plane only, and inference charging no longer triggers in passing.
-- Shelled bodies: face transforms auto-reflow beneath the Shell, and undoing a
-  sketch edit outside sketch mode re-cascades the body.
-- Windows (MSVC/vcpkg) build breaks surfaced by the main merge; macOS CI moved
-  to macos-latest.
+- **Duplicated sketches are now independent** of the original's body — editing,
+  push/pull or extrude on a copy builds a new body instead of retro-modifying
+  the source, and the stray selection fill is gone (#21).
+- **Soft keyboard on touch** now appears when you tap Push/Pull, Extrude and
+  Fillet/Chamfer value fields (#22).
+- **Snap to grid** is honored by Extrude, Push/Pull and Move Face (the distance
+  and in-plane slide snap to the grid step); Fillet/Chamfer stay free (#24).
+- macOS "no file-dialog program found" on Import/Export; overlapping bodies
+  z-fighting; assorted sketch/history reload fixes.
 
 ## [1.3.0] — 2026-07-02
 

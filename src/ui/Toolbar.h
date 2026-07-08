@@ -96,6 +96,13 @@ public:
     void setCanEditDiameter(bool b) { m_canEditDiameter = b; }
     void setSelectedFaceFrozenRound(bool b) { m_selFrozenRound = b; }
 
+    // Set each frame by Application: true when the selected sketch / sketch
+    // region is still bound to a body (getSourceBody() >= 0 && !detached). It
+    // gates which tool the rail offers — Push/Pull (modify the host body) for a
+    // body-attached sketch, Extrude (make a new body) for a standalone one. A
+    // face selection is unaffected: it always offers both.
+    void setSelectedSketchAttached(bool b) { m_selSketchAttached = b; }
+
     // Active SketchToolMode (int — Toolbar avoids depending on SketchTool.h).
     // Matches SketchToolMode enum: 0=None, 1=Select, 2=Line, 3=Circle,
     // 4=Rectangle, 5=Arc, 6=Spline, 7=Polygon, 8=Trim. Used to draw a
@@ -158,6 +165,7 @@ private:
     bool m_snapToGrid = true;
     bool m_canEditDiameter = false;
     bool m_selFrozenRound  = false;
+    bool m_selSketchAttached = false; // selected sketch still drives a body (see setter)
     bool m_showTooltips = true;
     int  m_activeSketchMode = 0; // SketchToolMode (see setActiveSketchMode)
     int  m_selPoints = 0;        // sketch points currently selected (see setSketchSelectionCounts)

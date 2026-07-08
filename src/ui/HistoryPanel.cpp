@@ -65,17 +65,22 @@ bool HistoryPanel::renderContent() {
         if (op && op->isFrozenFeature()) { anyReloaded = true; break; }
     }
     if (anyReloaded) {
+        // Keep the banner to a single sentence so the panel stays tidy; the
+        // how-to-fix detail lives in a hover tooltip. (Honest wording: frozen
+        // just means the step reloaded without editable parameters — old files
+        // are ONE cause, but a step type the reload path can't yet rebuild
+        // produces the same state on a brand-new save — a bug to report, not an
+        // old file.)
         ImGui::PushTextWrapPos(0.0f);
-        // Honest wording: frozen just means the step reloaded without editable
-        // parameters — old files are ONE cause, but a step type the reload
-        // path can't yet rebuild produces the same state on a brand-new save
-        // (that is a bug to report, not an old file).
         ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.3f, 1.0f),
             "Amber (frozen) steps reloaded without editable parameters. "
-            "Undo/redo still work; to change one, select its feature and use "
-            "Repair Geometry, then redo it. (Usual cause: a save from an older "
-            "version.)");
+            "(hover for more)");
         ImGui::PopTextWrapPos();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Undo/redo still work; to change one, select its feature and\n"
+                "use Repair Geometry, then redo it.\n"
+                "(Usual cause: a save from an older version.)");
         ImGui::Separator();
     }
 

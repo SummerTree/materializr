@@ -3781,9 +3781,11 @@ void Application::duplicateSketch(int sketchId) {
     auto src = m_document->getSketch(sketchId);
     if (!src) return;
 
-    // Independent deep copy: geometry, constraints, plane and source-body link
-    // all come along, but it's a separate Sketch object with its own id, so
-    // editing it never touches the original or any body built from it.
+    // Independent deep copy: geometry, constraints and plane come along. The
+    // deep copy also carries the source's body/face link, but
+    // DuplicateSketchOp::execute severs it (issue #21) so the copy is a
+    // standalone sketch with its own id — editing, push/pull or extrude never
+    // touches the original or the body built from it, and instead makes a new one.
     auto copy = std::make_shared<Sketch>(*src);
 
     std::string base = m_document->getSketchName(sketchId);
@@ -5459,6 +5461,7 @@ void Application::run() {
                 static bool s_resizeActive = false;
                 static bool s_canEditDiameter = false;
                 static bool s_frozenRound = false;
+                static bool s_selSketchAttached = false;
                 const unsigned selRev  = m_selection->revision();
                 const unsigned histRev = m_history->revision();
                 if (selRev != s_selRev || histRev != s_histRev ||
@@ -5506,9 +5509,28 @@ void Application::run() {
                             }
                         } catch (...) {}
                     }
+                    // Sketch attachment gate: is any selected sketch / region
+                    // still driving a body? Push/Pull is offered for those (it
+                    // edits the host body); a standalone sketch offers Extrude
+                    // instead (a new body). A detached sketch counts as
+                    // standalone — it was deliberately unlinked (issue #21).
+                    s_selSketchAttached = false;
+                    for (const auto& e : m_selection->getSelection()) {
+                        if ((e.type == SelectionType::Sketch ||
+                             e.type == SelectionType::SketchRegion) &&
+                            e.sketchId >= 0) {
+                            auto sk = m_document->getSketch(e.sketchId);
+                            if (sk && sk->getSourceBody() >= 0 &&
+                                !sk->isDetachedFromBody()) {
+                                s_selSketchAttached = true;
+                                break;
+                            }
+                        }
+                    }
                 }
                 m_toolbar->setCanEditDiameter(s_canEditDiameter);
                 m_toolbar->setSelectedFaceFrozenRound(s_frozenRound);
+                m_toolbar->setSelectedSketchAttached(s_selSketchAttached);
             }
             m_toolbar->setShowTooltips(m_showToolbarTooltips);
             // Mirror the live inference level (Full/Reduced/Off) so the sketch

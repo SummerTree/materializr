@@ -201,10 +201,15 @@ std::vector<Toolbar::RailTool> Toolbar::railTools() const {
         addPlugins((1 << static_cast<int>(SelectionContext::NoSelection)) |
                    (1 << static_cast<int>(SelectionContext::Always)));
     } else if (m_selection->hasSelectedSketchRegions()) {
-        add(MZ_ICON_PUSHPULL, "Push",     ToolAction::PushPull, false,
-            "Push/pull the region into or out of the host body.");
-        add(MZ_ICON_EXTRUDE,  "Extrude",  ToolAction::ExtrudeSketch, false,
-            "Extrude the region into a new solid body.");
+        // Push/Pull vs Extrude by attachment: a region whose sketch still drives
+        // a body pushes/pulls THAT body; a standalone region extrudes into its
+        // own new body. (A face selection below keeps both.)
+        if (m_selSketchAttached)
+            add(MZ_ICON_PUSHPULL, "Push",     ToolAction::PushPull, false,
+                "Push/pull the region into or out of the host body.");
+        else
+            add(MZ_ICON_EXTRUDE,  "Extrude",  ToolAction::ExtrudeSketch, false,
+                "Extrude the region into a new solid body.");
         add(MZ_ICON_SUBTRACT, "Subtract", ToolAction::SubtractSketch, false,
             "Cut the region's shape out of the body beneath it.");
         add(MZ_ICON_EDIT,     "Edit",     ToolAction::EditSketch, false,
@@ -227,8 +232,14 @@ std::vector<Toolbar::RailTool> Toolbar::railTools() const {
     } else if (m_selection->hasSelectedSketches()) {
         add(MZ_ICON_EDIT,     "Edit",     ToolAction::EditSketch, false,
             "Reopen the selected sketch for editing.");
-        add(MZ_ICON_EXTRUDE,  "Extrude",  ToolAction::ExtrudeSketch, false,
-            "Extrude the sketch's regions into a solid body.");
+        // A body-attached sketch pushes/pulls its host body; a standalone one
+        // extrudes into a new body. (Mirrors the region case above.)
+        if (m_selSketchAttached)
+            add(MZ_ICON_PUSHPULL, "Push",    ToolAction::PushPull, false,
+                "Push/pull the sketch's regions into or out of the host body.");
+        else
+            add(MZ_ICON_EXTRUDE,  "Extrude",  ToolAction::ExtrudeSketch, false,
+                "Extrude the sketch's regions into a solid body.");
         add(MZ_ICON_SUBTRACT, "Subtract", ToolAction::SubtractSketch, false,
             "Cut the sketch's shape out of the body beneath it.");
         add(MZ_ICON_LATHE,    "Lathe",    ToolAction::Revolve, false,
