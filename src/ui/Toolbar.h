@@ -94,6 +94,9 @@ public:
     // the "Edit Diameter" button in Face Operations when the picked face is a
     // cylinder on a recognized cylinder-or-tube body.
     void setCanEditDiameter(bool b) { m_canEditDiameter = b; }
+    // The selected face is flat — Push/Pull is only offered on flat faces (a
+    // curved/fillet face makes the boolean freak out; #28).
+    void setSelFacePlanar(bool b) { m_selFacePlanar = b; }
     void setSelectedFaceFrozenRound(bool b) { m_selFrozenRound = b; }
 
     // Set each frame by Application: true when the selected sketch / sketch
@@ -164,6 +167,7 @@ private:
     bool m_cameraOrtho = true;
     bool m_snapToGrid = true;
     bool m_canEditDiameter = false;
+    bool m_selFacePlanar = false;  // selected face is flat (gates Push, #28)
     bool m_selFrozenRound  = false;
     bool m_selSketchAttached = false; // selected sketch still drives a body (see setter)
     bool m_showTooltips = true;

@@ -252,8 +252,11 @@ std::vector<Toolbar::RailTool> Toolbar::railTools() const {
     } else if (m_selection->hasSelectedFaces()) {
         add(MZ_ICON_SKETCH,   "Sketch",  ToolAction::SketchOnFace, false,
             "Start a sketch on the selected face.");
-        add(MZ_ICON_PUSHPULL, "Push",    ToolAction::PushPull, false,
-            "Push/pull the face along its normal.");
+        // Push/Pull only on FLAT faces — a curved/fillet face makes the boolean
+        // freak out, so don't offer it there (like Diameter only on rounds). #28
+        if (m_selFacePlanar)
+            add(MZ_ICON_PUSHPULL, "Push",    ToolAction::PushPull, false,
+                "Push/pull the face along its normal.");
         add(MZ_ICON_EXTRUDE,  "Extrude", ToolAction::ExtrudeSketch, false,
             "Extrude the face into new material.");
         add(MZ_ICON_SHELL,    "Shell",   ToolAction::Shell, false,

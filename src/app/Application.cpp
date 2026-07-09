@@ -5527,6 +5527,7 @@ void Application::run() {
                 static bool s_canEditDiameter = false;
                 static bool s_frozenRound = false;
                 static bool s_selSketchAttached = false;
+                static bool s_selFacePlanar = false;
                 const unsigned selRev  = m_selection->revision();
                 const unsigned histRev = m_history->revision();
                 if (selRev != s_selRev || histRev != s_histRev ||
@@ -5543,6 +5544,7 @@ void Application::run() {
                     // Geometry. A FULL 2π cylinder is a hole / pin (Edit
                     // Diameter handles it), not a round, so it's excluded.
                     s_frozenRound = false;
+                    s_selFacePlanar = false;
                     TopoDS_Shape pf;
                     for (const auto& e : m_selection->getSelection())
                         if (e.type == SelectionType::Face && !e.shape.IsNull()) {
@@ -5551,6 +5553,7 @@ void Application::run() {
                     if (!pf.IsNull() && pf.ShapeType() == TopAbs_FACE) {
                         try {
                             TopoDS_Face f = TopoDS::Face(pf);
+                            s_selFacePlanar = faceIsPlanar(f);  // gates Push (#28)
                             Handle(Geom_Surface) s = BRep_Tool::Surface(f);
                             bool round = false;
                             if (!s.IsNull()) {
@@ -5594,6 +5597,7 @@ void Application::run() {
                     }
                 }
                 m_toolbar->setCanEditDiameter(s_canEditDiameter);
+                m_toolbar->setSelFacePlanar(s_selFacePlanar);
                 m_toolbar->setSelectedFaceFrozenRound(s_frozenRound);
                 m_toolbar->setSelectedSketchAttached(s_selSketchAttached);
             }
