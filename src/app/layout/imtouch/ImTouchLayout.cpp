@@ -333,7 +333,15 @@ void Application::renderImTouchLayout() {
                     "body", MZ_ICON_BODY,
                     m_document->getBodyName(id).c_str(), &visible,
                     selB.count(id) > 0, &bcol.x);
-                if (act.eyeToggled) m_document->setBodyVisible(id, visible);
+                if (act.eyeToggled) {
+                    m_document->setBodyVisible(id, visible);
+                    // The viewport only filters hidden bodies when it rebuilds
+                    // its meshes — without this the flag flips but the stale
+                    // mesh keeps drawing (#37; desktop's ItemsPanel returns
+                    // colorChanged for the same reason).
+                    m_meshesDirty = true;
+                    markDirty();
+                }
                 if (act.swatchClicked) ImGui::OpenPopup("bodyColor");
                 glm::vec3 newCol;
                 if (colorPopup("bodyColor", "Body colour",
@@ -424,6 +432,7 @@ void Application::renderImTouchLayout() {
                             /*selected=*/false, &fcol.x);
                         if (fact.eyeToggled) {
                             m_document->setFolderVisible(fid, fvis);
+                            m_meshesDirty = true;  // cascades to member bodies (#37)
                             markDirty();
                         }
                         if (fact.clicked)
