@@ -12,8 +12,12 @@
 set -euo pipefail
 
 # ── Config ───────────────────────────────────────────────────────────────────
-ABI="arm64-v8a"
+ABI="${ABI:-arm64-v8a}"                 # override: ABI=x86_64 bash setup-deps.sh
 API=24
+# 16 KB page alignment for Android 15+ (Play requirement): OCCT is shipped as
+# many shared .so, so each must have 16 KB-aligned LOAD segments. NDK r27+
+# defaults to this; on r26 pass the flag explicitly.
+LDFLAGS_16K="-Wl,-z,max-page-size=16384"
 JOBS="${JOBS:-4}"                       # keep low on RAM-constrained machines
 SDL_VER="2.30.9"
 FT_VER="2.13.3"
@@ -99,6 +103,7 @@ OCCT_DIR="$SRC/OCCT-${OCCT_TAG#V}"
 rm -rf "$BUILD/occt-$ABI"
 "$CMAKE_BIN" -S "$OCCT_DIR" -B "$BUILD/occt-$ABI" \
     -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN" -DANDROID_ABI="$ABI" -DANDROID_PLATFORM="android-$API" \
+    -DCMAKE_SHARED_LINKER_FLAGS="$LDFLAGS_16K" -DCMAKE_MODULE_LINKER_FLAGS="$LDFLAGS_16K" \
     -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$PREFIX" \
     -DCMAKE_FIND_ROOT_PATH="$PREFIX" -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=BOTH \
     -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=BOTH -DBUILD_LIBRARY_TYPE=Shared \
@@ -113,7 +118,7 @@ rm -rf "$BUILD/occt-$ABI"
 "$CMAKE_BIN" --build "$BUILD/occt-$ABI" --target install -j"$JOBS"
 
 # ── Stage OCCT + resources into the app ──────────────────────────────────────
-bash "$REPO/android/copy-occt-libs.sh"
+bash "$REPO/android/copy-occt-libs.sh" "$ABI"
 
 echo
 echo "Done. Native prerequisites are ready:"

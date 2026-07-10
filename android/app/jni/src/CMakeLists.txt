@@ -10,10 +10,23 @@ set(MZ_SRC "${MZ_ROOT}/src")
 
 # Cross-built OpenCASCADE prefix (FreeType is statically baked into TKService).
 if(NOT DEFINED MATERIALIZR_OCCT_PREFIX)
-    message(FATAL_ERROR "MATERIALIZR_OCCT_PREFIX not set (path to cross-built OCCT for arm64-v8a)")
+    message(FATAL_ERROR "MATERIALIZR_OCCT_PREFIX not set (path to cross-built OCCT)")
 endif()
-set(OCCT_INC "${MATERIALIZR_OCCT_PREFIX}/include/opencascade")
-set(OCCT_LIB "${MATERIALIZR_OCCT_PREFIX}/lib")
+# Accept EITHER a single-ABI prefix (…/prefix/arm64-v8a — the per-APK build) or
+# a BASE prefix (…/prefix) that needs the ABI appended. The base form lets one
+# build compile every ABI in an app bundle (AAB), where CMake runs once per ABI
+# with ANDROID_ABI set, each linking its own OCCT.
+if(EXISTS "${MATERIALIZR_OCCT_PREFIX}/include/opencascade")
+    set(OCCT_ROOT "${MATERIALIZR_OCCT_PREFIX}")
+elseif(EXISTS "${MATERIALIZR_OCCT_PREFIX}/${ANDROID_ABI}/include/opencascade")
+    set(OCCT_ROOT "${MATERIALIZR_OCCT_PREFIX}/${ANDROID_ABI}")
+else()
+    message(FATAL_ERROR
+        "OCCT not found for ${ANDROID_ABI} under ${MATERIALIZR_OCCT_PREFIX} "
+        "(need include/opencascade there or in an ${ANDROID_ABI}/ subdir)")
+endif()
+set(OCCT_INC "${OCCT_ROOT}/include/opencascade")
+set(OCCT_LIB "${OCCT_ROOT}/lib")
 
 # ── ImGui (docking) + GLM, same versions as the desktop build ────────────────
 include(FetchContent)

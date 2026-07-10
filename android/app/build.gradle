@@ -23,29 +23,47 @@ def hasReleaseSigning = signStore?.trim() && signStorePw?.trim()
 
 android {
     namespace 'com.materializr.app'
-    compileSdkVersion 34
-    ndkVersion '26.3.11579264'
+    compileSdkVersion 35
+    // NDK r28+ ships a 16 KB-aligned libc++_shared.so and defaults to 16 KB
+    // page alignment (required by Play for Android 15+). r26's prebuilt STL was
+    // 4 KB. OCCT is still cross-built with r26 (its .so are 16 KB via the linker
+    // flag in setup-deps.sh) and links fine against the r28-built app + STL.
+    ndkVersion '28.2.13676358'
 
     defaultConfig {
-        applicationId 'com.materializr.app'
+        // Published package name. The public/open-source default is
+        // com.materializr.app; a private Play listing overrides it WITHOUT the
+        // override reaching git — set MATERIALIZR_APP_ID or applicationId= in the
+        // gitignored keystore.properties. Kept separate from `namespace` above
+        // (the internal code/JNI package), so SDL/native class names never move.
+        applicationId (System.getenv('MATERIALIZR_APP_ID')
+                       ?: keystoreProps['applicationId'] ?: 'com.materializr.app')
         minSdkVersion 24
-        targetSdkVersion 34
+        targetSdkVersion 35
         // Multi-APK: one ABI per build, chosen with -PtargetAbi=arm64-v8a
         // (default) or -PtargetAbi=x86_64 (Chromebooks / Intel tablets).
         // Each ABI needs its own versionCode on the Play Store; x86_64 gets
         // the higher code so x86 devices with ARM translation still receive
         // the native build.
+        //   -PallAbi  → single build with BOTH ABIs and ONE versionCode, for an
+        //               app bundle (bundleRelease). Play splits per device, so a
+        //               universal AAB replaces the two per-ABI APKs.
         def targetAbi = project.hasProperty('targetAbi') ? project.targetAbi
                                                          : 'arm64-v8a'
-        versionCode (targetAbi == 'x86_64' ? 36 : 35)
+        def allAbi    = project.hasProperty('allAbi')
+        def abiList   = allAbi ? ['arm64-v8a', 'x86_64'] : [targetAbi]
+        versionCode (allAbi ? 39 : (targetAbi == 'x86_64' ? 36 : 35))
         def vName = '1.4.3'
         versionName vName
 
         externalNativeBuild {
             cmake {
                 // Cross-built OCCT location: env override, else ~/Android/prefix.
+                // For -PallAbi pass the BASE dir; src/CMakeLists appends the ABI
+                // per configure so each ABI links its own OCCT.
                 def occtPrefix = System.getenv('MATERIALIZR_OCCT_PREFIX') ?:
-                                 "${System.getenv('HOME')}/Android/prefix/${targetAbi}"
+                                 (allAbi ? "${System.getenv('HOME')}/Android/prefix"
+                                         : "${System.getenv('HOME')}/Android/prefix/${targetAbi}")
                 // c++_shared is required: OCCT and the app throw C++ exceptions
                 // across .so boundaries, which needs a single shared runtime.
                 // Pass versionName through so the native splash version can't
@@ -57,8 +75,8 @@ android {
             }
         }
         ndk {
-            // One ABI per APK (see targetAbi above).
-            abiFilters targetAbi
+            // One ABI per APK, or every ABI for a -PallAbi bundle (see above).
+            abiFilters.addAll(abiList)
         }
     }
 
