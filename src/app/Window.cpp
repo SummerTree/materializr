@@ -334,6 +334,17 @@ void Window::handleFingerEvent(unsigned type, std::int64_t id, float nx, float n
         if (!m_twoFinger) {
             // Two-finger gesture begins: cancel any in-progress orbit, set refs.
             if (m_leftDown) {
+                // Park the cursor off-screen BEFORE the forced release — same
+                // trick as the drag-to-scroll latch above. ImGui buttons fire on
+                // release-while-hovered, so releasing at the finger's position
+                // made the widget under the first pinch finger CLICK when the
+                // second finger landed (Undo, a panel row, …; issue #39 — the
+                // ViewCube was the reported case, #38). Event order is
+                // preserved through ImGui's trickling, so the release is always
+                // applied with the cursor parked, even when the press itself is
+                // still queued (a fast two-finger landing). The motion branch
+                // below re-feeds the gesture centroid, restoring a real hover.
+                io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
                 io.AddMouseButtonEvent(0, false); m_leftDown = false;
                 m_leftReleaseWasGesture = true; // spurious release from the 2nd finger
             }
@@ -381,6 +392,15 @@ void Window::handleFingerEvent(unsigned type, std::int64_t id, float nx, float n
             else if (m_twoFingerMode == 2) { m_zoomAcc += dZ; }
             m_lastCentroidX = cx; m_lastCentroidY = cy;
             m_lastPinchDist = dist;
+            // Report the gesture centroid as the cursor. The viewport applies
+            // the pan/zoom deltas inside its hovered gate, which used to
+            // survive a pinch only because the cursor froze at the first
+            // finger's press position; with that position now parked
+            // off-screen (see the takeover above), the centroid keeps the
+            // gate truthful — and keeps every coordinate ImGui hands the app
+            // finite while two fingers are down.
+            io.AddMouseSourceEvent(ImGuiMouseSource_TouchScreen);
+            io.AddMousePosEvent(cx, cy);
         }
         return;
     }

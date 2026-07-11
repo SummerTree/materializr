@@ -2609,7 +2609,14 @@ void Application::renderViewport() {
             // begins over the viewport, keep the block alive until the button lifts.
             if (viewportHovered && ImGui::IsMouseDown(ImGuiMouseButton_Left))
                 m_viewportInputLatch = true;
-            if (!ImGui::IsMouseDown(ImGuiMouseButton_Left))
+            // A two-finger takeover releases the button AND parks the cursor
+            // off-screen (so the widget under the first finger can't fire,
+            // #39). Hold the latch through the gesture: pan/zoom consumption
+            // and the release-frame handlers (placement rollback, box-select
+            // end) live inside this hovered scope and must keep running,
+            // exactly as they did when the cursor stayed frozen at the press.
+            if (!ImGui::IsMouseDown(ImGuiMouseButton_Left) &&
+                !(m_window && m_window->twoFingerActive()))
                 m_viewportInputLatch = false;
             if (m_viewportInputLatch) viewportHovered = true;
         }

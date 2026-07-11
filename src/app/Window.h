@@ -83,6 +83,13 @@ public:
     // a release). Lets press-drag-release placement ignore spurious releases.
     bool lastLeftReleaseWasGesture() const { return m_leftReleaseWasGesture; }
 
+    // True while a two-finger pan/pinch gesture is in progress. The viewport
+    // keeps its input latch alive through the gesture: the takeover parks the
+    // cursor off-screen (see handleFingerEvent), which would otherwise drop
+    // IsItemHovered and starve the pan/zoom consumption plus the release
+    // handlers that used to see the frozen press position.
+    bool twoFingerActive() const { return m_twoFinger; }
+
     // True once a one-finger press has been held stationary past the hold
     // threshold AND then dragged. The viewport uses this to start a box/drag-
     // select instead of orbiting — the touch equivalent of the desktop empty-
