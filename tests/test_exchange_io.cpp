@@ -8,6 +8,7 @@
 #include "../src/core/Document.h"
 #include "../src/io/BrepIO.h"
 #include "../src/io/DxfExport.h"
+#include "../src/io/DxfImport.h"
 #include "../src/io/IgesIO.h"
 #include "../src/io/ObjExport.h"
 #include "../src/io/ThreeMfExport.h"
@@ -283,6 +284,105 @@ TEST(DxfExport, RejectsSketchWithNoGeometry) {
     sk.addPoint({0.0f, 0.0f}); // a bare point is not a cuttable entity
     const std::string path = tmpPath("empty.dxf");
     EXPECT_FALSE(DxfExport::exportSketch(path, sk).success);
+}
+
+// ── DXF import (#47): round-trip, units, bulge arcs, tolerance ──────────────
+
+TEST(DxfImport, RoundTripsOurOwnExport) {
+    Sketch src;
+    int a = src.addPoint({-25.0f, -10.0f});
+    int b = src.addPoint({25.0f, -10.0f});
+    src.addLine(a, b);
+    int c = src.addPoint({0.0f, 5.0f});
+    src.addCircle(c, 7.5);
+    int ac = src.addPoint({0.0f, -10.0f});
+    int as = src.addPoint({10.0f, -10.0f});
+    int ae = src.addPoint({0.0f, 0.0f});
+    src.addArc(ac, as, ae, 10.0);
+
+    const std::string path = tmpPath("roundtrip.dxf");
+    ASSERT_TRUE(DxfExport::exportSketch(path, src).success);
+
+    Sketch back;
+    auto im = DxfImport::importFile(path, back);
+    ASSERT_TRUE(im.success) << im.errorMessage;
+    EXPECT_EQ(im.entityCount, 3);
+    ASSERT_EQ(back.getLines().size(), 1u);
+    ASSERT_EQ(back.getCircles().size(), 1u);
+    ASSERT_EQ(back.getArcs().size(), 1u);
+
+    // Dimensions survive exactly (import recentres, so compare extents).
+    const auto& l = back.getLines().front();
+    glm::vec2 la = back.getPoint(l.startPointId)->pos;
+    glm::vec2 lb = back.getPoint(l.endPointId)->pos;
+    EXPECT_NEAR(glm::length(lb - la), 50.0f, 1e-3f);
+    EXPECT_NEAR(back.getCircles().front().radius, 7.5, 1e-6);
+    EXPECT_NEAR(back.getArcs().front().radius, 10.0, 1e-4);
+}
+
+TEST(DxfImport, HonorsInchUnits) {
+    // Hand-authored R12: $INSUNITS=1 (inches), one 1-inch line.
+    const std::string path = tmpPath("inches.dxf");
+    {
+        std::ofstream f(path);
+        f << "0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n1\n0\nENDSEC\n"
+             "0\nSECTION\n2\nENTITIES\n"
+             "0\nLINE\n8\n0\n10\n0.0\n20\n0.0\n11\n1.0\n21\n0.0\n"
+             "0\nENDSEC\n0\nEOF\n";
+    }
+    Sketch sk;
+    auto im = DxfImport::importFile(path, sk);
+    ASSERT_TRUE(im.success) << im.errorMessage;
+    ASSERT_EQ(sk.getLines().size(), 1u);
+    const auto& l = sk.getLines().front();
+    glm::vec2 a = sk.getPoint(l.startPointId)->pos;
+    glm::vec2 b = sk.getPoint(l.endPointId)->pos;
+    EXPECT_NEAR(glm::length(b - a), 25.4f, 1e-4f); // 1 in → 25.4 mm
+}
+
+TEST(DxfImport, LwpolylineBulgeBecomesArc) {
+    // Closed LWPOLYLINE: bottom edge is a straight segment, the return
+    // segment carries bulge=1 → a CCW semicircle of radius 10.
+    const std::string path = tmpPath("bulge.dxf");
+    {
+        std::ofstream f(path);
+        f << "0\nSECTION\n2\nENTITIES\n"
+             "0\nLWPOLYLINE\n8\n0\n90\n2\n70\n1\n"
+             "10\n-10.0\n20\n0.0\n"          // vertex 1 (straight to v2)
+             "10\n10.0\n20\n0.0\n42\n1.0\n"  // vertex 2, bulge 1 back to v1
+             "0\nENDSEC\n0\nEOF\n";
+    }
+    Sketch sk;
+    auto im = DxfImport::importFile(path, sk);
+    ASSERT_TRUE(im.success) << im.errorMessage;
+    ASSERT_EQ(sk.getLines().size(), 1u);
+    ASSERT_EQ(sk.getArcs().size(), 1u);
+    EXPECT_NEAR(sk.getArcs().front().radius, 10.0, 1e-4);
+}
+
+TEST(DxfImport, SkipsUnsupportedEntitiesWithoutFailing) {
+    const std::string path = tmpPath("mixed.dxf");
+    {
+        std::ofstream f(path);
+        f << "0\nSECTION\n2\nENTITIES\n"
+             "0\nTEXT\n8\n0\n10\n0\n20\n0\n40\n2.5\n1\nhello\n"
+             "0\nCIRCLE\n8\n0\n10\n0.0\n20\n0.0\n40\n5.0\n"
+             "0\nENDSEC\n0\nEOF\n";
+    }
+    Sketch sk;
+    auto im = DxfImport::importFile(path, sk);
+    ASSERT_TRUE(im.success) << im.errorMessage;
+    EXPECT_EQ(im.entityCount, 1);
+    EXPECT_EQ(im.skippedCount, 1);
+    ASSERT_EQ(sk.getCircles().size(), 1u);
+    EXPECT_NEAR(sk.getCircles().front().radius, 5.0, 1e-9);
+}
+
+TEST(DxfImport, RejectsEmptyOrGarbage) {
+    const std::string path = tmpPath("garbage.dxf");
+    { std::ofstream(path) << "not a dxf at all\n"; }
+    Sketch sk;
+    EXPECT_FALSE(DxfImport::importFile(path, sk).success);
 }
 
 // ── 3MF: container + model structure ────────────────────────────────────────

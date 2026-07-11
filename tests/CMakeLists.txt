@@ -74,6 +74,7 @@ add_library(materializr_core STATIC
     ${CMAKE_SOURCE_DIR}/src/io/IgesIO.cpp
     ${CMAKE_SOURCE_DIR}/src/io/ObjExport.cpp
     ${CMAKE_SOURCE_DIR}/src/io/DxfExport.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/DxfImport.cpp
     ${CMAKE_SOURCE_DIR}/src/io/ThreeMfExport.cpp
     ${CMAKE_SOURCE_DIR}/src/io/StlIO.cpp
     ${CMAKE_SOURCE_DIR}/src/io/MeshDecimate.cpp

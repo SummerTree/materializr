@@ -195,6 +195,7 @@ add_executable(materializr
     src/plugins/BrepIOPlugin.cpp
     src/plugins/ObjExportPlugin.cpp
     src/plugins/ThreeMfExportPlugin.cpp
+    src/plugins/DxfImportPlugin.cpp
     src/plugins/BooleanPlugin.cpp
     src/plugins/DeletePlugin.cpp
     src/plugins/TransformPlugin.cpp
@@ -324,6 +325,7 @@ add_executable(materializr
     src/io/BrepIO.cpp
     src/io/ObjExport.cpp
     src/io/DxfExport.cpp
+    src/io/DxfImport.cpp
     src/io/ThreeMfExport.cpp
     src/io/ImageExport.cpp
     src/io/GltfExport.cpp
