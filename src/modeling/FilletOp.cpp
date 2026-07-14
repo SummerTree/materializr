@@ -176,6 +176,22 @@ bool FilletOp::execute(Document& doc) {
             }
         }
 
+        // Deduplicate: fragmented topology unified upstream can resolve several
+        // stored fragment edges onto ONE current edge — feeding MakeFillet the
+        // same edge repeatedly yields an invalid result (#54; chamfer twin).
+        {
+            std::vector<TopoDS_Edge> uniq;
+            for (const auto& e : m_edges) {
+                bool dup = false;
+                for (const auto& u : uniq) if (u.IsSame(e)) { dup = true; break; }
+                if (!dup) uniq.push_back(e);
+            }
+            if (uniq.size() != m_edges.size()) {
+                std::fprintf(stderr, "[Fillet] %zu stored edges resolved to %zu "
+                             "distinct — deduped\n", m_edges.size(), uniq.size());
+                m_edges = std::move(uniq);
+            }
+        }
         // Capture generative anchors from the (now-valid) edges the first time
         // we run — so a later dimension edit can re-find them by sketch feature.
         if (m_edgeAnchors.empty()) computeAnchors(doc);

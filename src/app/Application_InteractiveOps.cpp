@@ -2992,8 +2992,10 @@ void Application::cascadeFromSketchEdit(int sketchId) {
                      (op ? " (" + op->description() + ")" : "");
         }
         showToast("Model updated \xE2\x80\x94 but " + names +
-                  " couldn't follow the change and was DISABLED. Re-apply or "
-                  "re-enable it from the History panel.", 8.0);
+                  " couldn't follow the change and was DISABLED. Its edge/face "
+                  "picks no longer exist on the new shape \xE2\x80\x94 delete "
+                  "it and re-apply the feature (re-enabling would retry the "
+                  "old picks).", 9.0);
     }
 
     // Partial remesh: mark only bodies whose shape changed, plus any that were

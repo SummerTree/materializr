@@ -128,6 +128,8 @@ TopoDS_Edge rebindOne(const TopTools_IndexedMapOfShape& map,
             } else {
                 // Free-form curves: midpoint proximity only, and tight — a
                 // wrong match here would silently blend the wrong edge.
+                // (A relaxed unique-winner pass below rescues fragmented /
+                // merged curves whose midpoint shifted, #54.)
                 gp_Pnt mid;
                 carrierMatch = edgeMidpoint(cand, mid) &&
                                mid.Distance(oldMid) < kDistTol;
@@ -139,7 +141,28 @@ TopoDS_Edge rebindOne(const TopTools_IndexedMapOfShape& map,
             if (d < bestMidDist) { bestMidDist = d; best = cand; }
         } catch (...) { continue; }
     }
-    return best;
+    if (!best.IsNull()) return best;
+
+    // Relaxed second chance (#54): a fragmented or merged curved edge keeps
+    // its carrier but shifts its midpoint past the strict tolerance. Accept a
+    // same-curve-type candidate within 2 mm ONLY when it wins unambiguously
+    // (runner-up at least twice as far) — never a coin-flip re-bind.
+    TopoDS_Edge loose;
+    double d1 = 1e100, d2 = 1e100;
+    for (int i = 1; i <= map.Extent(); ++i) {
+        const TopoDS_Edge& cand = TopoDS::Edge(map.FindKey(i));
+        try {
+            BRepAdaptor_Curve c(cand);
+            if (c.GetType() != oldC.GetType()) continue;
+            gp_Pnt mid;
+            if (!edgeMidpoint(cand, mid)) continue;
+            double d = mid.Distance(oldMid);
+            if (d < d1) { d2 = d1; d1 = d; loose = cand; }
+            else if (d < d2) { d2 = d; }
+        } catch (...) { continue; }
+    }
+    if (!loose.IsNull() && d1 < 2.0 && d2 > d1 * 2.0) return loose;
+    return {};
 }
 
 } // namespace

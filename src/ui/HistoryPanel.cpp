@@ -185,6 +185,16 @@ bool HistoryPanel::renderContent() {
         if (isCurrentlyEditing || isHighlighted) {
             ImGui::PopStyleColor();
         }
+        if (i == m_enableFailStep) {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.75f, 0.2f, 1.0f));
+            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + 250.0f);
+            ImGui::TextWrapped("Re-enabled, but this step still can't find the "
+                               "geometry it referenced on the current body, so "
+                               "it produces nothing. Delete it and re-apply "
+                               "the feature on the updated body.");
+            ImGui::PopTextWrapPos();
+            ImGui::PopStyleColor();
+        }
         if (ImGui::BeginPopupContextItem("StepContextMenu")) {
             if (ImGui::MenuItem("Edit Parameters")) {
                 m_editingStep = i;
@@ -193,7 +203,13 @@ bool HistoryPanel::renderContent() {
             if (ImGui::MenuItem(op->isEnabled() ? "Disable" : "Enable")) {
                 // In-place toggle — preserves base bodies the op modifies
                 // (replayAll's doc.clear() would delete them).
-                m_history->setStepEnabled(i, !op->isEnabled(), *m_document);
+                const bool enabling = !op->isEnabled();
+                const bool okTog =
+                    m_history->setStepEnabled(i, enabling, *m_document);
+                // Re-enabling a step whose references are gone re-executes,
+                // fails, and gets SKIPPED — which read as "does nothing"
+                // (#54). Say so, inline under the step.
+                m_enableFailStep = (enabling && !okTog) ? i : -1;
                 modified = true;
             }
             if (ImGui::MenuItem("Set Breakpoint Here")) {

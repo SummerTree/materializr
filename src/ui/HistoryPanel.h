@@ -61,6 +61,7 @@ private:
     int m_editingStep = -1;
     int m_highlightStep = -1; // step owning the viewport-selected sketch element
     int m_hoveredStep = -1;   // step row under the cursor this frame (hover preview)
+    int m_enableFailStep = -1; // re-enabled step that still can't compute (#54)
     bool m_showProperties = false;
     bool m_deleteConflict = false; // last delete was blocked by a dependent step
     // Steps with same typeId in a row collapse into a single expandable group
