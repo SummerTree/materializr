@@ -147,7 +147,12 @@ bool ChamferOp::execute(Document& doc) {
                                              "topo refs (gen/seam path)\n");
                     }
                 }
-                if (!topoOk) return false;
+                if (!topoOk) {
+                    std::fprintf(stderr, "[Chamfer] rebind+anchors+toporefs "
+                        "ALL failed (d=%.2f/%.2f, %zu edges)\n",
+                        m_distance, m_distance2, m_edges.size());
+                    return false;
+                }
             }
         }
         if (m_edgeAnchors.empty()) computeAnchors(doc);
@@ -167,9 +172,6 @@ bool ChamferOp::execute(Document& doc) {
         TopTools_IndexedDataMapOfShapeListOfShape edgeFaceMap;
         TopExp::MapShapesAndAncestors(m_previousShape, TopAbs_EDGE, TopAbs_FACE, edgeFaceMap);
 
-        // Create chamfer on the body shape
-        BRepFilletAPI_MakeChamfer chamfer(m_previousShape);
-
         // For an asymmetric chamfer across multiple edges, distance 1 must be
         // measured along ONE consistent face (the loop's shared face) for every
         // edge, or A/B would flip from edge to edge. sharedRef is that face when
@@ -178,28 +180,61 @@ bool ChamferOp::execute(Document& doc) {
         TopoDS_Face sharedRef;
         if (m_distance2 > 0.0) sharedRef = sharedReferenceFace(m_previousShape, m_edges);
 
-        for (const auto& edge : m_edges) {
-            // Find a face adjacent to this edge
-            if (edgeFaceMap.Contains(edge)) {
+        // Build with (dAlongRef, dOther). Split into a lambda because the
+        // asymmetric reference face is NOT persisted: on a replayed body,
+        // sharedReferenceFace / faces.First() can pick the OTHER adjacent
+        // face than the original session did, and a 11.4 mm setback aimed
+        // along a 2 mm face simply cannot build (!IsDone) — the "two-distance
+        // chamfer dies on replay / turns into a regular face" bug. When the
+        // first orientation fails, retrying with the distances swapped is the
+        // SAME chamfer measured from the other face, and recovers the
+        // original geometry whenever only one orientation is feasible.
+        auto tryBuild = [&](double dRef, double dOther) -> TopoDS_Shape {
+            BRepFilletAPI_MakeChamfer mk(m_previousShape);
+            for (const auto& edge : m_edges) {
+                if (!edgeFaceMap.Contains(edge)) continue;
                 const TopTools_ListOfShape& faces = edgeFaceMap.FindFromKey(edge);
-                if (!faces.IsEmpty()) {
-                    TopoDS_Face face = sharedRef.IsNull()
-                                           ? TopoDS::Face(faces.First())
-                                           : sharedRef;
-                    // d1 is measured along `face`; d2 along the other adjacent
-                    // face. Symmetric when m_distance2 <= 0.
-                    double d2 = (m_distance2 > 0.0) ? m_distance2 : m_distance;
-                    chamfer.Add(m_distance, d2, edge, face);
-                }
+                if (faces.IsEmpty()) continue;
+                TopoDS_Face face = sharedRef.IsNull()
+                                       ? TopoDS::Face(faces.First())
+                                       : sharedRef;
+                mk.Add(dRef, dOther, edge, face);
             }
-        }
+            try {
+                mk.Build();
+                if (!mk.IsDone()) return TopoDS_Shape();
+                TopoDS_Shape s = mk.Shape();
+                if (s.IsNull()) return TopoDS_Shape();
+                // Publish the generation maps from THIS builder (the one that
+                // actually produced the shape).
+                m_ledger.capture(mk, m_previousShape, TopAbs_EDGE);
+                m_ledger.captureAdd(mk, m_previousShape, TopAbs_FACE);
+                m_generatedFaces.clear();
+                for (const auto& edge : m_edges) {
+                    try {
+                        for (const TopoDS_Shape& g : mk.Generated(edge))
+                            if (g.ShapeType() == TopAbs_FACE)
+                                m_generatedFaces.push_back(g);
+                    } catch (...) {}
+                }
+                return s;
+            } catch (...) { return TopoDS_Shape(); }
+        };
 
-        chamfer.Build();
-        if (!chamfer.IsDone()) {
+        const double dB = (m_distance2 > 0.0) ? m_distance2 : m_distance;
+        TopoDS_Shape candidate = tryBuild(m_distance, dB);
+        if (candidate.IsNull() && m_distance2 > 0.0) {
+            candidate = tryBuild(m_distance2, m_distance);
+            if (!candidate.IsNull())
+                std::fprintf(stderr, "[Chamfer] asymmetric reference flipped on "
+                             "this body — rebuilt with distances swapped "
+                             "(d=%.2f/%.2f)\n", m_distance, m_distance2);
+        }
+        if (candidate.IsNull()) {
+            std::fprintf(stderr, "[Chamfer] MakeChamfer failed (d=%.2f/%.2f)\n",
+                         m_distance, m_distance2);
             return false;
         }
-
-        TopoDS_Shape candidate = chamfer.Shape();
         if (candidate.IsNull()) {
             std::fprintf(stderr, "[Chamfer] result shape is null (d=%.2f).\n",
                          m_distance);
@@ -245,30 +280,14 @@ bool ChamferOp::execute(Document& doc) {
 
             GProp_GProps gpOut;
             BRepGProp::VolumeProperties(candidate, gpOut);
-            if (gpOut.Mass() < 1e-6) return false;
+            if (gpOut.Mass() < 1e-6) {
+                std::fprintf(stderr, "[Chamfer] zero-volume result\n");
+                return false;
+            }
         }
 
-        // Record the chamfer faces generated from each input edge so a later
-        // face click can be traced back to this op for re-editing.
-        // Publish the generation map so "gen" can name a bevel face by its
-        // generating edge (general-kernel path for op-produced faces).
-        m_ledger.capture(chamfer, m_previousShape, TopAbs_EDGE);
-        // FACE modified-map too: face lineage propagates the input body's
-        // ancestry ids through this op (the bevels get fresh ids below).
-        m_ledger.captureAdd(chamfer, m_previousShape, TopAbs_FACE);
-
-        m_generatedFaces.clear();
-        for (const auto& edge : m_edges) {
-            try {
-                const TopTools_ListOfShape& gen = chamfer.Generated(edge);
-                // Range-based loop instead of TopTools_ListIteratorOfListOfShape,
-                // whose header was removed in OCCT 8.0 (still works on 7.x).
-                for (const TopoDS_Shape& s : gen) {
-                    if (s.ShapeType() == TopAbs_FACE)
-                        m_generatedFaces.push_back(s);
-                }
-            } catch (...) {}
-        }
+        // (Ledger capture + generated-face collection happen inside tryBuild,
+        // against whichever builder actually produced the accepted shape.)
 
         // Update the body with the chamfered shape (kept on the op too, so
         // serializeParams can index the generated faces against the result).
