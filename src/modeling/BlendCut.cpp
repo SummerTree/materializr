@@ -9,13 +9,16 @@
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
+#include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
 #include <BRepCheck_Analyzer.hxx>
 #include <BRepClass_FaceClassifier.hxx>
 #include <BRepClass3d_SolidClassifier.hxx>
+#include <BRepExtrema_DistShapeShape.hxx>
 #include <BRepGProp.hxx>
 #include <BRepGProp_Face.hxx>
+#include <BRepPrimAPI_MakeHalfSpace.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
 #include <BRepTools.hxx>
 #include <BRep_Builder.hxx>
@@ -529,6 +532,100 @@ bool makeFillTool(const Group& g, double dRef, double dOther, Tool& out) {
     return !out.solid.IsNull();
 }
 
+// Hip-miter the fill prisms: a prism ends in a FLAT vertical cap, which at a
+// corner punches straight past the neighbouring chamfer's slope instead of
+// meeting it in a hip. Real blends meet along the intersection line of their
+// two slope planes — so clip each prism by (a) the slope plane of any SIBLING
+// prism whose span shares the corner vertex (multi-edge fill in one op), and
+// (b) the plane of any EXISTING bevel face on the body touching a span end
+// (the neighbour was chamfered in an earlier step — Steve's case). The clip
+// plane only bites near the corner: away from it the neighbour's slope rises
+// far above the prism, so the keep-side (chosen by the prism's own centroid)
+// contains everything else. Clip failures degrade to the flat cap.
+void hipClipFillTools(const TopoDS_Shape& body,
+                      const std::vector<const Group*>& groups,
+                      std::vector<Tool>& tools) {
+    auto linePt = [](const Group& g, double t) {
+        return g.rep.line.Location().Translated(
+            gp_Vec(g.rep.line.Direction()) * t);
+    };
+    for (size_t i = 0; i < tools.size(); ++i) {
+        const Group& g = *groups[i];
+        const gp_Pnt ends[2] = { linePt(g, g.tmin), linePt(g, g.tmax) };
+        std::vector<gp_Pln> clips;
+        // (a) sibling prisms meeting this one at a shared corner vertex.
+        for (size_t j = 0; j < tools.size(); ++j) {
+            if (j == i) continue;
+            const Group& h = *groups[j];
+            const gp_Pnt hEnds[2] = { linePt(h, h.tmin), linePt(h, h.tmax) };
+            bool touch = false;
+            for (const auto& a : ends)
+                for (const auto& b : hEnds)
+                    if (a.Distance(b) < 1e-3) touch = true;
+            if (touch)
+                clips.push_back(
+                    BRepAdaptor_Surface(tools[j].blendTemplate).Plane());
+        }
+        // (b) existing bevel faces on the body at a span end: planar, inclined
+        // to BOTH parent faces (a wall or floor never qualifies), touching the
+        // end point.
+        for (TopExp_Explorer fx(body, TopAbs_FACE); fx.More(); fx.Next()) {
+            const TopoDS_Face f = TopoDS::Face(fx.Current());
+            BRepAdaptor_Surface s(f);
+            if (s.GetType() != GeomAbs_Plane) continue;
+            const gp_Pln pl = s.Plane();
+            const gp_Dir n = pl.Axis().Direction();
+            // A bevel is INCLINED to at least one of this corner's parent
+            // faces. A corner-mate's bevel is typically PERPENDICULAR to our
+            // wall (it belongs to the other wall) — requiring inclination to
+            // both parents would skip exactly the face we're mitering
+            // against. Parents themselves (dot ≈ 1) and plain walls (both
+            // dots ≈ 0 or 1) still never qualify.
+            const double dr = std::abs(n.Dot(g.rep.nRef));
+            const double doth = std::abs(n.Dot(g.rep.nOther));
+            const bool inclR = (dr > 0.05 && dr < 0.95);
+            const bool inclO = (doth > 0.05 && doth < 0.95);
+            if (!inclR && !inclO) continue;
+            bool nearEnd = false;
+            for (const auto& p : ends) {
+                try {
+                    BRepExtrema_DistShapeShape dss(
+                        BRepBuilderAPI_MakeVertex(p).Vertex(), f);
+                    if (dss.IsDone() && dss.Value() < 1.0) nearEnd = true;
+                } catch (...) {}
+            }
+            if (nearEnd) clips.push_back(pl);
+        }
+        // Apply: subtract the half-space on the far side of each clip plane.
+        for (const gp_Pln& pl : clips) {
+            try {
+                GProp_GProps gc;
+                BRepGProp::VolumeProperties(tools[i].solid, gc);
+                const gp_Pnt keep = gc.CentreOfMass();
+                const gp_Dir n = pl.Axis().Direction();
+                const double sd =
+                    gp_Vec(pl.Location(), keep).Dot(gp_Vec(n));
+                if (std::abs(sd) < 1e-9) continue;
+                const gp_Pnt discard =
+                    keep.Translated(gp_Vec(n) * (-2.0 * sd));
+                TopoDS_Face plane = BRepBuilderAPI_MakeFace(pl).Face();
+                TopoDS_Shape half =
+                    BRepPrimAPI_MakeHalfSpace(plane, discard).Solid();
+                BRepAlgoAPI_Cut cut(tools[i].solid, half);
+                if (!cut.IsDone()) continue;
+                TopoDS_Shape clipped = cut.Shape();
+                if (clipped.IsNull()) continue;
+                GProp_GProps gv;
+                BRepGProp::VolumeProperties(clipped, gv);
+                if (gv.Mass() < 1e-9) continue; // clip ate the whole ramp
+                tools[i].solid = clipped;
+                BC_DBG("[bc] fill: hip-clipped tool %zu (vol %.1f -> %.1f)\n",
+                       i, gc.Mass(), gv.Mass());
+            } catch (...) {}
+        }
+    }
+}
+
 // Fuse the ramp(s) onto the body, then re-pierce every void whose outline
 // (an inner wire of one of the corner's faces) the ramp roofed over. Boss
 // outlines — inner wires with material ABOVE the face — are left alone.
@@ -740,6 +837,7 @@ bool fillChamfer(const TopoDS_Shape& body,
             tools.push_back(t);
             groupPtrs.push_back(&g);
         }
+        hipClipFillTools(body, groupPtrs, tools);
         return applyFill(body, tools, groupPtrs, std::max(dRef, dOther),
                          ledger, outShape, outBlendFaces);
     } catch (...) {

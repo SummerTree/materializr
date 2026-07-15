@@ -17,6 +17,7 @@
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepCheck_Analyzer.hxx>
+#include <BRepClass3d_SolidClassifier.hxx>
 #include <BRepFilletAPI_MakeChamfer.hxx>
 #include <BRepFilletAPI_MakeFillet.hxx>
 #include <BRepGProp.hxx>
@@ -388,6 +389,84 @@ TEST(BlendCut, FillRampSweepsAcrossHoleInFloor) {
     EXPECT_TRUE(BRepCheck_Analyzer(out).IsValid());
     EXPECT_NEAR(volumeOf(out), ref, 1e-4);
     EXPECT_FALSE(op.getGeneratedFaces().empty());
+}
+
+// Hip corner (#57 follow-up 3): a fill ramp ending at a corner whose
+// neighbouring edge already carries a (smaller) chamfer must MITER into that
+// bevel — hip-roof style — not punch a flat end wall up past it. Plate with
+// two perpendicular walls: chamfer the short wall's base first (native),
+// then run the big fill ramp along the long wall (a pocket forces the fill
+// path). No material may stand above the neighbour's bevel plane.
+TEST(BlendCut, FillRampMitersIntoNeighbourBevel) {
+    auto lBody = []() {
+        TopoDS_Shape plate = BRepPrimAPI_MakeBox(40.0, 20.0, 2.0).Shape();
+        TopoDS_Shape wallA = BRepPrimAPI_MakeBox(
+            gp_Pnt(0.0, 8.0, 2.0), gp_Pnt(40.0, 11.0, 5.0)).Shape();
+        TopoDS_Shape wallB = BRepPrimAPI_MakeBox(
+            gp_Pnt(0.0, 0.0, 2.0), gp_Pnt(3.0, 8.0, 5.0)).Shape();
+        return BRepAlgoAPI_Fuse(BRepAlgoAPI_Fuse(plate, wallA).Shape(),
+                                wallB).Shape();
+    };
+    TopoDS_Shape holeTool = BRepPrimAPI_MakeBox(
+        gp_Pnt(15.0, 3.0, -1.0), gp_Pnt(25.0, 6.0, 3.0)).Shape();
+    // Edge finder: straight edge whose two vertices satisfy the predicate.
+    auto findEdge = [](const TopoDS_Shape& s, auto pred) {
+        for (TopExp_Explorer ex(s, TopAbs_EDGE); ex.More(); ex.Next()) {
+            const TopoDS_Edge& e = TopoDS::Edge(ex.Current());
+            if (BRepAdaptor_Curve(e).GetType() != GeomAbs_Line) continue;
+            bool ok = true;
+            int nv = 0;
+            for (TopExp_Explorer vx(e, TopAbs_VERTEX); vx.More();
+                 vx.Next(), ++nv)
+                if (!pred(BRep_Tool::Pnt(TopoDS::Vertex(vx.Current()))))
+                    ok = false;
+            if (ok && nv == 2) return e;
+        }
+        return TopoDS_Edge();
+    };
+
+    Document doc;
+    int id = doc.addBody(BRepAlgoAPI_Cut(lBody(), holeTool).Shape(), "L");
+    // Step 1: small native chamfer on wallB's base edge (x=3, z=2).
+    {
+        TopoDS_Edge eB = findEdge(doc.getBody(id), [](const gp_Pnt& p) {
+            return std::abs(p.X() - 3.0) < 1e-7 && std::abs(p.Z() - 2.0) < 1e-7;
+        });
+        ASSERT_FALSE(eB.IsNull());
+        ChamferOp op;
+        op.setBody(id);
+        op.setEdges({eB});
+        op.setDistance(1.5);
+        ASSERT_TRUE(op.execute(doc));
+    }
+    // Step 2: big fill ramp on wallA's base edge (y=8, z=2) across the hole.
+    {
+        TopoDS_Edge eA = findEdge(doc.getBody(id), [](const gp_Pnt& p) {
+            return std::abs(p.Y() - 8.0) < 1e-7 && std::abs(p.Z() - 2.0) < 1e-7;
+        });
+        ASSERT_FALSE(eA.IsNull());
+        ChamferOp op;
+        op.setBody(id);
+        op.setEdges({eA});
+        op.setDistance(2.5);   // up wallA
+        op.setDistance2(5.0);  // across the floor, over the hole
+        ASSERT_TRUE(op.execute(doc));
+    }
+    const TopoDS_Shape& out = doc.getBody(id);
+    EXPECT_TRUE(BRepCheck_Analyzer(out).IsValid());
+    // The neighbour's bevel plane: from (4.5, y, 2) to (3, y, 3.5) —
+    // z = 2 + (4.5 - x). Sample just ABOVE it in the corner zone (where the
+    // old flat prism cap poked through): all must be EMPTY.
+    for (double x : {3.1, 3.5, 3.9, 4.3}) {
+        for (double y : {4.0, 5.5, 7.0}) {
+            const double zPlane = 2.0 + (4.5 - x);
+            gp_Pnt probe(x, y, zPlane + 0.15);
+            BRepClass3d_SolidClassifier sc(out, probe, 1e-7);
+            EXPECT_NE(sc.State(), TopAbs_IN)
+                << "ramp pokes above neighbour bevel at x=" << x
+                << " y=" << y;
+        }
+    }
 }
 
 // A cut can only REMOVE material, so a concave (inside-corner) edge must be
