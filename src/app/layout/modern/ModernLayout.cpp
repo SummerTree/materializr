@@ -13,7 +13,6 @@
 
 #include <cstring>
 #include <algorithm>
-#include <cfloat>
 #include "app/Application.h"
 #include "app/layout/LayoutCommon.h"
 #include "core/SelectionManager.h"
@@ -541,7 +540,13 @@ void Application::renderModernLayout() {
                     // many-field selection can't swallow the step list — past
                     // the cap the footer becomes a fixed scrolling box.
                     const float availH = ImGui::GetContentRegionAvail().y;
-                    const float capH = availH * 0.5f;
+                    // Properties owns its height: it sizes to its content and
+                    // NEVER scrolls, growing upward from the bottom as a
+                    // selection needs more room. History takes whatever's left
+                    // and scrolls (it always would — the step list is long).
+                    // History keeps a small floor so it can't vanish entirely
+                    // when a selection is field-heavy.
+                    const float minHistH = ImGui::GetFrameHeightWithSpacing() * 2.5f;
                     // Bootstrap / re-show seed: History must reserve SOME footer
                     // room on the first frame (and the frame we leave step
                     // editing), or it fills the panel, pushes the footer past
@@ -551,8 +556,9 @@ void Application::renderModernLayout() {
                     // frame.
                     if (!stepEditing && m_propsFooterH <= 0.0f)
                         m_propsFooterH = 120.0f * s;
-                    const float footerH =
-                        stepEditing ? 0.0f : std::min(m_propsFooterH, capH);
+                    const float footerH = stepEditing ? 0.0f
+                        : std::min(m_propsFooterH,
+                                   std::max(availH - minHistH, 0.0f));
                     if (ImGui::BeginChild("##histHalf", ImVec2(0, -footerH), false)) {
                         if (m_historyPanel) {
                             // Undo/redo live in the shell's top bar; the panel
@@ -567,19 +573,14 @@ void Application::renderModernLayout() {
                         const float footerTop = ImGui::GetCursorPosY();
                         ImGui::Separator();
                         touchui::sectionHeader("Properties");
-                        // Properties box auto-sizes to its content, so a short
-                        // selection leaves no dead gap and no scrollbar. A max
-                        // constraint of the remaining cap budget lets it grow
-                        // only until it would eat half the panel; past that the
-                        // box clamps and scrolls. No latch — releasing back to
-                        // content-height is automatic when the selection shrinks.
-                        const float boxCap =
-                            capH - (ImGui::GetCursorPosY() - footerTop);
-                        ImGui::SetNextWindowSizeConstraints(
-                            ImVec2(0.0f, 0.0f),
-                            ImVec2(FLT_MAX, std::max(boxCap, 1.0f)));
+                        // AutoResizeY (no max constraint) = exactly content
+                        // height; NoScrollbar guarantees it never grows a
+                        // scrollbar. History above already reserved this height
+                        // via -footerH, so there's no dead gap and no outer
+                        // scroll.
                         if (ImGui::BeginChild("##propsHalf", ImVec2(0, 0),
-                                              ImGuiChildFlags_AutoResizeY)) {
+                                              ImGuiChildFlags_AutoResizeY,
+                                              ImGuiWindowFlags_NoScrollbar)) {
                             if (m_propertiesPanel && m_propertiesPanel->renderContent())
                                 m_meshesDirty = true;
                         }
