@@ -144,6 +144,20 @@ public:
     // doc.clear() would delete non-operation base bodies.
     bool setStepEnabled(int index, bool enabled, Document& doc);
 
+    // Mark every step applied and clear any replay-failure/suspend flags,
+    // WITHOUT re-executing anything. The caller is responsible for having
+    // restored the document bodies to the fully-applied (loaded) state by
+    // other means — used when an interactive edit can't rebuild and we revert
+    // to a saved body snapshot: those steps fail on execute() but were fine on
+    // load (rehydrate ≠ replay), so there is no execute-based path back to the
+    // clean state; this resets the bookkeeping to match the restored bodies.
+    void markFullyApplied() {
+        m_currentIndex = static_cast<int>(m_operations.size()) - 1;
+        m_failedReplayAt = -1;
+        m_lastEditFailStep = -1;
+        ++m_revision;
+    }
+
     // Clear history
     void clear();
 

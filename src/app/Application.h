@@ -1116,6 +1116,12 @@ private:
     // since the edit-mode live preview mutates the real op's parameter.
     float m_edgeOpOrigValue = 0.0f;
     float m_edgeOpOrigValue2 = 0.0f; // second distance at edit-begin (cancel restore)
+    // Every body's shape at edit-begin (before any preview). If the edit can't
+    // rebuild — a fillet/chamfer whose edges reference geometry a feature later
+    // consumed, which fails on execute() but loaded fine — commit/cancel
+    // restore this so the model is left exactly as it was instead of a stranded
+    // half-replayed (planar) state. See restoreEdgeOpSnapshot().
+    std::map<int, TopoDS_Shape> m_edgeOpDocSnapshot;
 
     // Compute m_edgeOpFaceDirA/B — the two in-face drag directions for the
     // first selected edge (A = the face ChamferOp uses for distance 1). Sets
@@ -1136,6 +1142,9 @@ private:
     bool updateInteractiveEdgeOp();
     void commitInteractiveEdgeOp();
     void cancelInteractiveEdgeOp();
+    // Restore every body to m_edgeOpDocSnapshot and mark history fully applied
+    // (see the snapshot member). Returns true if a snapshot was present.
+    bool restoreEdgeOpSnapshot();
     // Re-resolve every fillet/chamfer op's generated-face mapping against the
     // current bodies. Must run after ANY editStep replay (commit, cancel, or
     // zero-value bail) because the replay re-runs each op's execute(), leaving

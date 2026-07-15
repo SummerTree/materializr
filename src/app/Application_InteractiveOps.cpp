@@ -279,6 +279,16 @@ void Application::beginInteractiveEdgeOpEdit(int historyIndex) {
     if (m_edgeOpBodyId < 0 || m_edgeOpEdges.empty() ||
         m_edgeOpPreviousShape.IsNull()) return;
 
+    // Snapshot the WHOLE document now — before the first preview editStep runs
+    // — so commit/cancel can revert cleanly if the edit can't rebuild. These
+    // ops fail on execute() but were fine on load, so there is no re-execute
+    // path back to this state; only a body snapshot restores it. (See
+    // restoreEdgeOpSnapshot / History::markFullyApplied.)
+    m_edgeOpDocSnapshot.clear();
+    for (int id : m_document->getAllBodyIds()) {
+        try { m_edgeOpDocSnapshot[id] = m_document->getBody(id); } catch (...) {}
+    }
+
     m_edgeOpActive        = true;
     m_edgeOpEditingIndex  = historyIndex;
     m_edgeOpOrigValue     = m_edgeOpValue; // restored on cancel
@@ -445,13 +455,15 @@ void Application::commitInteractiveEdgeOp() {
                            m_edgeOpType == EdgeOpType::Fillet,
                            m_edgeOpOrigValue,
                            m_edgeOpTwoDist ? m_edgeOpOrigValue2 : -1.0f);
-            m_history->editStep(m_edgeOpEditingIndex, *m_document);
+            if (!m_history->editStep(m_edgeOpEditingIndex, *m_document))
+                restoreEdgeOpSnapshot();
             refreshAllEdgeOpFaces();   // replayed — rebind every op's faces
         }
         m_edgeOpActive = false;
         m_edgeOpEditingIndex = -1;
         m_edgeOpEdges.clear();
         m_edgeOpPreviousShape.Nullify();
+        m_edgeOpDocSnapshot.clear();
         m_edgeOpType = EdgeOpType::None;
         m_meshesDirty = true;
         return;
@@ -466,12 +478,41 @@ void Application::commitInteractiveEdgeOp() {
                        m_edgeOpValue,
                        m_edgeOpTwoDist ? m_edgeOpValue2 : -1.0f);
         bool editOk = m_history->editStep(m_edgeOpEditingIndex, *m_document);
+        if (!editOk) {
+            // The step couldn't rebuild on the current body (its edges
+            // reference geometry a later feature consumed — the classic case
+            // for a chamfer/fillet that was originally applied BEFORE those
+            // features). editStep left the model half-replayed; restore the
+            // pre-edit snapshot so nothing turns into a stray planar face, put
+            // the op's parameter back, and tell the user the honest remedy.
+            setEdgeOpParam(m_history->getStep(m_edgeOpEditingIndex),
+                           m_edgeOpType == EdgeOpType::Fillet,
+                           m_edgeOpOrigValue,
+                           m_edgeOpTwoDist ? m_edgeOpOrigValue2 : -1.0f);
+            restoreEdgeOpSnapshot();
+            refreshAllEdgeOpFaces();
+            showToast(std::string(m_edgeOpType == EdgeOpType::Fillet
+                                      ? "This fillet" : "This chamfer") +
+                      " can't be rebuilt on the current body \xE2\x80\x94 its edges "
+                      "reference geometry that a later feature changed. Left as-is; "
+                      "delete it and re-apply the feature on the updated body.");
+            m_edgeOpActive = false;
+            m_edgeOpDragging = false;
+            m_edgeOpEditingIndex = -1;
+            m_edgeOpEdges.clear();
+            m_edgeOpPreviousShape.Nullify();
+            m_edgeOpDocSnapshot.clear();
+            m_selection->clear();
+            m_meshesDirty = true;
+            m_edgeOpType = EdgeOpType::None;
+            return;
+        }
         // Refresh face→op mapping after the edit so ownsFace() works on the new
         // body positions. The replay re-ran EVERY op's execute(), so every
         // fillet/chamfer (not just the edited one) needs rebinding — otherwise
         // the others' faces stay at their pre-Transform positions and become
         // un-clickable until the next reload.
-        if (editOk) refreshAllEdgeOpFaces();
+        refreshAllEdgeOpFaces();
 
         // Detect a frozen op: the clicked body's geometry matches what we measured
         // at beginInteractiveEdgeOpEdit() time — before any preview ran. If the
@@ -553,6 +594,7 @@ void Application::commitInteractiveEdgeOp() {
     m_edgeOpEditingIndex = -1;
     m_edgeOpEdges.clear();
     m_edgeOpPreviousShape.Nullify();
+    m_edgeOpDocSnapshot.clear();
     m_selection->clear();
     m_meshesDirty = true;
     m_edgeOpType = EdgeOpType::None;
@@ -567,7 +609,11 @@ void Application::cancelInteractiveEdgeOp() {
                        m_edgeOpType == EdgeOpType::Fillet,
                        m_edgeOpOrigValue,
                        m_edgeOpTwoDist ? m_edgeOpOrigValue2 : -1.0f);
-        m_history->editStep(m_edgeOpEditingIndex, *m_document);
+        // Replaying at the original value can itself fail for a step that no
+        // longer rebuilds; fall back to the pre-edit snapshot so cancelling
+        // never strands the model.
+        if (!m_history->editStep(m_edgeOpEditingIndex, *m_document))
+            restoreEdgeOpSnapshot();
     } else if (m_edgeOpBodyId >= 0 && !m_edgeOpPreviousShape.IsNull()) {
         m_document->updateBody(m_edgeOpBodyId, m_edgeOpPreviousShape);
     }
@@ -576,9 +622,26 @@ void Application::cancelInteractiveEdgeOp() {
     m_edgeOpEditingIndex = -1;
     m_edgeOpEdges.clear();
     m_edgeOpPreviousShape.Nullify();
+    m_edgeOpDocSnapshot.clear();
     m_edgeOpType = EdgeOpType::None;
     refreshAllEdgeOpFaces();   // body was replayed — rebind every op's faces
     m_meshesDirty = true;
+}
+
+bool Application::restoreEdgeOpSnapshot() {
+    if (m_edgeOpDocSnapshot.empty()) return false;
+    // Put every snapshotted body back; drop any body a failed replay spawned.
+    std::set<int> want;
+    for (const auto& [id, shp] : m_edgeOpDocSnapshot) {
+        try { m_document->putBody(id, shp); } catch (...) {}
+        want.insert(id);
+    }
+    for (int id : m_document->getAllBodyIds())
+        if (!want.count(id)) { try { m_document->removeBody(id); } catch (...) {} }
+    // The steps didn't re-execute; tell history the model is fully applied so
+    // undo/redo stay consistent with the restored bodies.
+    m_history->markFullyApplied();
+    return true;
 }
 
 void Application::refreshAllEdgeOpFaces() {
