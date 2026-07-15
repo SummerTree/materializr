@@ -538,6 +538,78 @@ TEST(BlendCut, EqualHeightCornerDoesNotHang) {
     EXPECT_TRUE(BRepCheck_Analyzer(doc.getBody(id)).IsValid());
 }
 
+// OUTSIDE plan corner (#57 follow-up 5): two interior-corner ramps wrapping
+// a raised block's corner sit in DISJOINT floor quadrants — no overlap, so
+// no clip can join them. The corner FAN tetra must fill the wrap so the
+// blends meet like native chamfers do, instead of two abrupt end walls.
+TEST(BlendCut, OutsideCornerGetsFan) {
+    // Plate 40x40x2 with a raised block 0..20 x 0..20, walls 3 tall.
+    auto blockBody = []() {
+        TopoDS_Shape plate = BRepPrimAPI_MakeBox(40.0, 40.0, 2.0).Shape();
+        TopoDS_Shape block = BRepPrimAPI_MakeBox(
+            gp_Pnt(0.0, 0.0, 2.0), gp_Pnt(20.0, 20.0, 5.0)).Shape();
+        return BRepAlgoAPI_Fuse(plate, block).Shape();
+    };
+    // Shallow pocket crossing the second edge's floor approach — forces the
+    // FILL path for it (native refuses a blend into a pocket floor).
+    TopoDS_Shape pocket = BRepPrimAPI_MakeBox(
+        gp_Pnt(8.0, 20.5, 1.0), gp_Pnt(14.0, 23.0, 3.0)).Shape();
+    auto findEdge = [](const TopoDS_Shape& s, auto pred) {
+        for (TopExp_Explorer ex(s, TopAbs_EDGE); ex.More(); ex.Next()) {
+            const TopoDS_Edge& e = TopoDS::Edge(ex.Current());
+            if (BRepAdaptor_Curve(e).GetType() != GeomAbs_Line) continue;
+            bool ok = true;
+            int nv = 0;
+            for (TopExp_Explorer vx(e, TopAbs_VERTEX); vx.More();
+                 vx.Next(), ++nv)
+                if (!pred(BRep_Tool::Pnt(TopoDS::Vertex(vx.Current()))))
+                    ok = false;
+            if (ok && nv == 2) return e;
+        }
+        return TopoDS_Edge();
+    };
+
+    Document doc;
+    int id = doc.addBody(BRepAlgoAPI_Cut(blockBody(), pocket).Shape(), "Blk");
+    // First ramp: block side x=20 (floor side x>20), symmetric 2.5.
+    {
+        TopoDS_Edge e = findEdge(doc.getBody(id), [](const gp_Pnt& p) {
+            return std::abs(p.X() - 20.0) < 1e-7 &&
+                   std::abs(p.Z() - 2.0) < 1e-7 && p.Y() < 20.0 + 1e-7;
+        });
+        ASSERT_FALSE(e.IsNull());
+        ChamferOp op;
+        op.setBody(id);
+        op.setEdges({e});
+        op.setDistance(2.5);
+        ASSERT_TRUE(op.execute(doc));
+    }
+    // Second ramp: block side y=20 (floor side y>20), crosses the pocket.
+    {
+        TopoDS_Edge e = findEdge(doc.getBody(id), [](const gp_Pnt& p) {
+            return std::abs(p.Y() - 20.0) < 1e-7 &&
+                   std::abs(p.Z() - 2.0) < 1e-7 && p.X() < 20.0 + 1e-7;
+        });
+        ASSERT_FALSE(e.IsNull());
+        ChamferOp op;
+        op.setBody(id);
+        op.setEdges({e});
+        op.setDistance(2.5);
+        ASSERT_TRUE(op.execute(doc));
+    }
+    const TopoDS_Shape& out = doc.getBody(id);
+    EXPECT_TRUE(BRepCheck_Analyzer(out).IsValid());
+    // The fan: material inside the wrap tetra {V(20,20,2) W(20,20,4.5)
+    // T1(20,22.5,2) T2(22.5,20,2)} — the old flat caps left this quadrant
+    // empty at floor level right off the corner.
+    {
+        gp_Pnt probe(20.5, 20.5, 2.3);
+        BRepClass3d_SolidClassifier sc(out, probe, 1e-7);
+        EXPECT_EQ(sc.State(), TopAbs_IN)
+            << "outside corner has no fan — abrupt end walls";
+    }
+}
+
 // A cut can only REMOVE material, so a concave (inside-corner) edge must be
 // refused — silently "chamfering" it with a cut would dig a groove instead
 // of adding the bevel sliver.

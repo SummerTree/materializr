@@ -11,6 +11,8 @@
 #include <BRepBuilderAPI_MakePolygon.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
+#include <BRepBuilderAPI_MakeSolid.hxx>
+#include <BRepBuilderAPI_Sewing.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
 #include <BRepCheck_Analyzer.hxx>
 #include <BRepClass_FaceClassifier.hxx>
@@ -32,6 +34,7 @@
 #include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Compound.hxx>
+#include <TopoDS_Shell.hxx>
 #include <TopoDS_Vertex.hxx>
 #include <TopoDS_Wire.hxx>
 #include <gp_Ax2.hxx>
@@ -546,6 +549,42 @@ bool makeFillTool(const Group& g, double dRef, double dOther, Tool& out) {
 // by the neighbour's footprint), then SUBTRACT the column standing above
 // the neighbour's actual bevel face. Bounded solids only — no half-spaces.
 
+// Trim group spans to where the corner can actually SUPPORT the blend: a
+// previously fused ramp's cap base merges (coplanar) with the wall base into
+// one longer edge, so a span built from the edge runs past the real wall end
+// and the ramp stands on open floor — the "wall sticking up" artifact. Walk
+// each end inward until BOTH setback samples land on their faces (bounded,
+// so a feature at mid-span is untouched). Ends are then true corner points
+// for the fan/extension logic.
+void trimGroupEnds(std::vector<Group>& groups, double dRef, double dOther) {
+    const double maxTrim = std::max(dRef, dOther) + 1.5;
+    for (auto& g : groups) {
+        auto supported = [&](double t) {
+            gp_Pnt P = g.rep.line.Location().Translated(
+                gp_Vec(g.rep.line.Direction()) * t);
+            return onFace(g.rep.fRef,
+                          P.Translated(gp_Vec(g.rep.dRefDir) * dRef)) &&
+                   onFace(g.rep.fOther,
+                          P.Translated(gp_Vec(g.rep.dOtherDir) * dOther));
+        };
+        const double step = 0.25;
+        double trimmed = 0.0;
+        while (trimmed < maxTrim && g.tmax - g.tmin > step &&
+               !supported(g.tmin + 0.05)) {
+            g.tmin += step;
+            trimmed += step;
+        }
+        if (trimmed > 0.0) BC_DBG("[bc] trim: tmin +%.2f\n", trimmed);
+        trimmed = 0.0;
+        while (trimmed < maxTrim && g.tmax - g.tmin > step &&
+               !supported(g.tmax - 0.05)) {
+            g.tmax -= step;
+            trimmed += step;
+        }
+        if (trimmed > 0.0) BC_DBG("[bc] trim: tmax -%.2f\n", trimmed);
+    }
+}
+
 // Extent of `f` beyond `endPt` along `dir` (projection of its bbox corners),
 // clamped to [0, cap]. How far the ramp must reach into the corner.
 double faceExtentBeyond(const TopoDS_Face& f, const gp_Pnt& endPt,
@@ -568,7 +607,8 @@ double faceExtentBeyond(const TopoDS_Face& f, const gp_Pnt& endPt,
 // corner-mate's bevel is perpendicular to our wall, parents themselves and
 // plain walls score 0/1 on both and never qualify.
 std::vector<TopoDS_Face> bevelFacesNear(const TopoDS_Shape& body,
-                                        const Group& g, const gp_Pnt& p) {
+                                        const Group& g, const gp_Pnt& p,
+                                        double tol = 1.0) {
     std::vector<TopoDS_Face> out;
     for (TopExp_Explorer fx(body, TopAbs_FACE); fx.More(); fx.Next()) {
         const TopoDS_Face f = TopoDS::Face(fx.Current());
@@ -583,7 +623,7 @@ std::vector<TopoDS_Face> bevelFacesNear(const TopoDS_Shape& body,
         try {
             BRepExtrema_DistShapeShape dss(
                 BRepBuilderAPI_MakeVertex(p).Vertex(), f);
-            if (dss.IsDone() && dss.Value() < 1.0) out.push_back(f);
+            if (dss.IsDone() && dss.Value() < tol) out.push_back(f);
         } catch (...) {}
     }
     return out;
@@ -623,7 +663,11 @@ std::vector<HipPlan> planHips(const TopoDS_Shape& body,
                         plans[i].siblingClips.push_back(j);
                     }
             }
-            for (const TopoDS_Face& f : bevelFacesNear(body, g, endPt)) {
+            // Extend ONLY when the end vertex sits ON the bevel (a native
+            // neighbour chamfer trimmed this edge back to its toe). At an
+            // OUTSIDE block corner the bevel is a full setback away — no
+            // extension there; the corner fan handles that join instead.
+            for (const TopoDS_Face& f : bevelFacesNear(body, g, endPt, 0.3)) {
                 ext = std::max(
                     ext, faceExtentBeyond(f, endPt, outDir, maxSetback + 1.0));
                 plans[i].bodyClipFaces.push_back(f);
@@ -642,7 +686,7 @@ std::vector<HipPlan> planHips(const TopoDS_Shape& body,
 // Phase 3: subtract from each tool the column standing above every clip
 // face — the face extruded along this corner's outward bisector. Bounded by
 // the face's real footprint, so it only bites in the hip overlap.
-void applyHipClips(std::vector<Tool>& tools,
+void applyHipClips(const TopoDS_Shape& body, std::vector<Tool>& tools,
                    const std::vector<const Group*>& groups,
                    const std::vector<HipPlan>& plans, double maxSetback) {
     for (size_t i = 0; i < tools.size(); ++i) {
@@ -653,26 +697,178 @@ void applyHipClips(std::vector<Tool>& tools,
         std::vector<TopoDS_Face> clipFaces = plans[i].bodyClipFaces;
         for (size_t j : plans[i].siblingClips)
             if (j < tools.size()) clipFaces.push_back(tools[j].blendTemplate);
+        // OVERLAP detection: any inclined face of the body whose extent
+        // intersects this ramp is a hip candidate — end-proximity alone
+        // missed a neighbour that was itself FILL-built (a fused ramp does
+        // not trim this edge back, so the span end sits at floor level, a
+        // full setback away from the neighbour's slope). The bounded column
+        // subtraction is inherently local, so over-collecting is safe: a
+        // face whose footprint doesn't actually shade the ramp is a no-op.
+        {
+            Bnd_Box tb;
+            BRepBndLib::Add(tools[i].solid, tb);
+            tb.Enlarge(0.1);
+            for (TopExp_Explorer fx(body, TopAbs_FACE); fx.More(); fx.Next()) {
+                const TopoDS_Face f = TopoDS::Face(fx.Current());
+                BRepAdaptor_Surface sf(f);
+                if (sf.GetType() != GeomAbs_Plane) continue;
+                const gp_Dir n = sf.Plane().Axis().Direction();
+                const double dr = std::abs(n.Dot(g.rep.nRef));
+                const double doth = std::abs(n.Dot(g.rep.nOther));
+                const bool inclR = (dr > 0.05 && dr < 0.95);
+                const bool inclO = (doth > 0.05 && doth < 0.95);
+                if (!inclR && !inclO) continue;
+                Bnd_Box fb;
+                BRepBndLib::Add(f, fb);
+                if (fb.IsVoid() || tb.IsOut(fb)) continue;
+                bool dup = false;
+                for (const auto& c : clipFaces)
+                    if (c.IsSame(f)) dup = true;
+                if (!dup) clipFaces.push_back(f);
+            }
+        }
+        BC_DBG("[bc] hip: tool %zu has %zu clip candidates\n", i,
+               clipFaces.size());
         for (const TopoDS_Face& f : clipFaces) {
             try {
                 gp_Dir fn;
-                if (!outwardNormal(f, fn)) continue;
+                if (!outwardNormal(f, fn)) { BC_DBG("[bc] hip: no normal\n"); continue; }
                 gp_Vec up = (v.Dot(gp_Vec(fn)) >= 0.0) ? v : v.Reversed();
                 BRepPrimAPI_MakePrism col(f, up * (maxSetback + 2.0));
-                if (!col.IsDone()) continue;
+                if (!col.IsDone()) { BC_DBG("[bc] hip: column failed\n"); continue; }
                 BRepAlgoAPI_Cut cut(tools[i].solid, col.Shape());
-                if (!cut.IsDone()) continue;
+                if (!cut.IsDone()) { BC_DBG("[bc] hip: cut failed\n"); continue; }
                 TopoDS_Shape clipped = cut.Shape();
-                if (clipped.IsNull()) continue;
+                if (clipped.IsNull()) { BC_DBG("[bc] hip: cut null\n"); continue; }
                 GProp_GProps gv, go;
                 BRepGProp::VolumeProperties(clipped, gv);
                 BRepGProp::VolumeProperties(tools[i].solid, go);
-                if (gv.Mass() < 1e-9) continue;      // ate the whole ramp
-                if (gv.Mass() > go.Mass() - 1e-9) continue; // no-op graze
+                if (gv.Mass() < 1e-9) { BC_DBG("[bc] hip: ate whole ramp\n"); continue; }
+                if (gv.Mass() > go.Mass() - 1e-9) { BC_DBG("[bc] hip: graze no-op\n"); continue; }
                 tools[i].solid = clipped;
                 BC_DBG("[bc] hip: clipped tool %zu (%.1f -> %.1f)\n", i,
                        go.Mass(), gv.Mass());
-            } catch (...) {}
+            } catch (...) { BC_DBG("[bc] hip: exception\n"); }
+        }
+    }
+}
+
+// Corner FAN (#57): two interior-corner ramps wrapping an OUTSIDE plan
+// corner of a raised block never overlap — each ends in a flat cap at the
+// corner, side by side, which reads as two abrupt walls. Native chamfers
+// join them with a triangular corner facet spreading from the wall-corner
+// top W down to the two toes. With matching wall setbacks that facet bounds
+// an exact tetrahedron {V, T1, T2, W}: V the shared floor corner, T1 our
+// toe, T2 the neighbour's toe (read off its bevel face), W the shared top.
+// Only fires when a neighbouring bevel's cap edge lies in our end plane AND
+// one of its corners coincides with our own wall-top point (equal heights);
+// anything else keeps the flat cap.
+TopoDS_Shape tetraSolid(const gp_Pnt& a, const gp_Pnt& b, const gp_Pnt& c,
+                        const gp_Pnt& d, TopoDS_Face& outFanFace) {
+    auto tri = [](const gp_Pnt& p, const gp_Pnt& q, const gp_Pnt& r) {
+        BRepBuilderAPI_MakePolygon poly(p, q, r, Standard_True);
+        return BRepBuilderAPI_MakeFace(poly.Wire(), Standard_True).Face();
+    };
+    try {
+        BRepBuilderAPI_Sewing sew(1e-6);
+        sew.Add(tri(a, b, c));
+        sew.Add(tri(a, c, d));
+        sew.Add(tri(a, d, b));
+        TopoDS_Face fan = tri(b, c, d); // W-T1-T2 facet — the visible fan
+        sew.Add(fan);
+        sew.Perform();
+        TopoDS_Shape shell = sew.SewedShape();
+        if (shell.IsNull()) return TopoDS_Shape();
+        TopExp_Explorer sx(shell, TopAbs_SHELL);
+        if (!sx.More()) return TopoDS_Shape();
+        BRepBuilderAPI_MakeSolid ms(TopoDS::Shell(sx.Current()));
+        if (!ms.IsDone()) return TopoDS_Shape();
+        TopoDS_Shape solid = ms.Solid();
+        GProp_GProps gp;
+        BRepGProp::VolumeProperties(solid, gp);
+        if (std::abs(gp.Mass()) < 1e-9) return TopoDS_Shape();
+        if (gp.Mass() < 0) solid.Reverse();
+        outFanFace = fan;
+        return solid;
+    } catch (...) { return TopoDS_Shape(); }
+}
+
+void addCornerFans(const TopoDS_Shape& body,
+                   const std::vector<const Group*>& groups,
+                   const std::vector<std::array<gp_Pnt, 2>>& originalEnds,
+                   double dRef, double dOther, std::vector<Tool>& tools) {
+    // Search radius: the neighbour's SLOPE face sits a full setback away
+    // from the floor-level corner vertex (only its vertical cap touches it),
+    // so search wide; the cap-corner/wall-top matching below is the tight
+    // gate that keeps this from firing spuriously.
+    const double nearTol = std::max(dRef, dOther) + 1.0;
+    const size_t nOrig = std::min(tools.size(), groups.size());
+    for (size_t i = 0; i < nOrig; ++i) {
+        const Group& g = *groups[i];
+        for (int e = 0; e < 2; ++e) {
+            // ORIGINAL span end — planHips may have extended the span for an
+            // inside corner; the fan belongs at the true edge end.
+            const gp_Pnt V = originalEnds[i][e];
+            const gp_Vec outward =
+                gp_Vec(g.rep.line.Direction()) * (e == 0 ? -1.0 : 1.0);
+            const gp_Pnt A = V.Translated(gp_Vec(g.rep.dRefDir) * dRef);
+            const gp_Pnt B = V.Translated(gp_Vec(g.rep.dOtherDir) * dOther);
+            const auto nearFaces = bevelFacesNear(body, g, V, nearTol);
+            BC_DBG("[bc] fan: group %zu end %d V=(%.1f,%.1f,%.1f) %zu candidates\n",
+                   i, e, V.X(), V.Y(), V.Z(), nearFaces.size());
+            for (const TopoDS_Face& f : nearFaces) {
+                // W = the face vertex that IS our wall-top point (equal
+                // heights — the tight gate); T1 = our own toe at this end;
+                // T2 = the face's floor-level vertex nearest the corner
+                // (the neighbour's toe where its ramp meets our end plane).
+                gp_Pnt W, T1;
+                bool haveW = false;
+                std::vector<gp_Pnt> verts;
+                for (TopExp_Explorer vx(f, TopAbs_VERTEX); vx.More();
+                     vx.Next())
+                    verts.push_back(
+                        BRep_Tool::Pnt(TopoDS::Vertex(vx.Current())));
+                for (const gp_Pnt& p : verts) {
+                    if (p.Distance(A) < 0.3) { W = p; T1 = B; haveW = true; }
+                    else if (p.Distance(B) < 0.3) { W = p; T1 = A; haveW = true; }
+                    if (haveW) break;
+                }
+                if (!haveW) { BC_DBG("[bc] fan: no W match (A=(%.1f,%.1f,%.1f) B=(%.1f,%.1f,%.1f))\n",
+                              A.X(),A.Y(),A.Z(),B.X(),B.Y(),B.Z()); continue; }
+                gp_Vec wallDir(V, W);
+                if (wallDir.Magnitude() < 1e-9) continue;
+                wallDir.Normalize();
+                gp_Pnt T2;
+                double best = 1e18;
+                for (const gp_Pnt& p : verts) {
+                    if (p.Distance(W) < 1e-6) continue;
+                    if (std::abs(gp_Vec(V, p).Dot(wallDir)) > 0.3)
+                        continue; // not floor level
+                    const double d = p.Distance(V);
+                    if (d < best) { best = d; T2 = p; }
+                }
+                if (best > nearTol) continue;
+                if (T2.Distance(V) < 1e-6 || T1.Distance(T2) < 1e-6) continue;
+                // OUTSIDE corner only: the neighbour's toe continues past our
+                // end ALONG our edge direction (the ramps wrap a block corner
+                // in disjoint quadrants). An INSIDE corner's neighbour toe
+                // sits out in our own floor quadrant — that join is handled
+                // by extension + column clip, and a fan there is wrong.
+                gp_Vec toT2(V, T2);
+                const double along = toT2.Dot(outward);
+                gp_Vec perp = toT2 - outward * along;
+                if (along < 0.5 || perp.Magnitude() > 0.5) {
+                    BC_DBG("[bc] fan: not an outside corner (along=%.2f "
+                           "perp=%.2f)\n", along, perp.Magnitude());
+                    continue;
+                }
+                Tool fan;
+                fan.solid = tetraSolid(V, W, T1, T2, fan.blendTemplate);
+                if (fan.solid.IsNull()) continue;
+                tools.push_back(fan);
+                BC_DBG("[bc] hip: corner fan added at group %zu end %d\n",
+                       i, e);
+            }
         }
     }
 }
@@ -899,6 +1095,15 @@ bool fillChamfer(const TopoDS_Shape& body,
         // extended spans, then clip each by the column above every
         // neighbouring bevel face — the hip emerges by construction.
         const double maxSetback = std::max(dRef, dOther);
+        trimGroupEnds(groups, dRef, dOther);
+        std::vector<std::array<gp_Pnt, 2>> originalEnds;
+        for (const auto& g : groups) {
+            auto pt = [&](double t) {
+                return g.rep.line.Location().Translated(
+                    gp_Vec(g.rep.line.Direction()) * t);
+            };
+            originalEnds.push_back({pt(g.tmin), pt(g.tmax)});
+        }
         std::vector<HipPlan> plans = planHips(body, groups, maxSetback);
 
         std::vector<Tool> tools;
@@ -909,7 +1114,8 @@ bool fillChamfer(const TopoDS_Shape& body,
             tools.push_back(t);
             groupPtrs.push_back(&g);
         }
-        applyHipClips(tools, groupPtrs, plans, maxSetback);
+        applyHipClips(body, tools, groupPtrs, plans, maxSetback);
+        addCornerFans(body, groupPtrs, originalEnds, dRef, dOther, tools);
         return applyFill(body, tools, groupPtrs, maxSetback,
                          ledger, outShape, outBlendFaces);
     } catch (...) {
