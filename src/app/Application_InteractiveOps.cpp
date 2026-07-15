@@ -49,6 +49,7 @@
 #include <BRepTools.hxx>
 #include <BRepTools_WireExplorer.hxx>
 #include <BRepAdaptor_Curve.hxx>
+#include <BRepClass_FaceClassifier.hxx>
 #include <TopoDS_Wire.hxx>
 #include <TopoDS_Edge.hxx>
 #include <BRepBndLib.hxx>
@@ -128,14 +129,68 @@ void Application::computeEdgeOpFaceDirs() {
             if (!f.IsSame(faceA)) { faceB = f; break; }
         if (faceB.IsNull()) return;
 
-        auto inFaceDir = [&](const TopoDS_Shape& f) -> glm::vec3 {
-            GProp_GProps props;
-            BRepGProp::SurfaceProperties(f, props);
-            gp_Pnt cm = props.CentreOfMass();
-            glm::vec3 c(cm.X(), cm.Y(), cm.Z());
-            glm::vec3 d = c - m_edgeOpMid;
-            d -= glm::dot(d, m_edgeOpDir) * m_edgeOpDir; // perpendicular to edge
-            return (glm::length(d) > 1e-6f) ? glm::normalize(d) : m_edgeOpOutDir;
+        auto inFaceDir = [&](const TopoDS_Shape& fshape) -> glm::vec3 {
+            // Centroid heuristic (perp-to-edge component of centroid − edge
+            // mid) — kept only as the last-resort fallback. It points the
+            // WRONG way whenever the face wraps around other features and its
+            // centroid lands on the far side of the edge (the light cover's
+            // shelf face flipped the yellow A-arrow, #57).
+            auto centroidDir = [&]() -> glm::vec3 {
+                GProp_GProps props;
+                BRepGProp::SurfaceProperties(fshape, props);
+                gp_Pnt cm = props.CentreOfMass();
+                glm::vec3 c(cm.X(), cm.Y(), cm.Z());
+                glm::vec3 d = c - m_edgeOpMid;
+                d -= glm::dot(d, m_edgeOpDir) * m_edgeOpDir;
+                return (glm::length(d) > 1e-6f) ? glm::normalize(d)
+                                                : m_edgeOpOutDir;
+            };
+            // Robust path (same scheme as BlendCut::analyzeEdge): the in-face
+            // direction is ±(normal × edge-tangent); pick the sign by MAJORITY
+            // of classifier probes sampled along the edge, so a hole under one
+            // sample can't flip the arrow.
+            try {
+                const TopoDS_Face face = TopoDS::Face(fshape);
+                BRepGProp_Face gf(face);
+                Standard_Real u0, u1, v0, v1;
+                gf.Bounds(u0, u1, v0, v1);
+                gp_Pnt fp;
+                gp_Vec nv;
+                gf.Normal((u0 + u1) * 0.5, (v0 + v1) * 0.5, fp, nv);
+                if (nv.Magnitude() < 1e-12) return centroidDir();
+                gp_Dir n(nv);
+                gp_Dir t(m_edgeOpDir.x, m_edgeOpDir.y, m_edgeOpDir.z);
+                gp_Dir cand = n.Crossed(t);
+                BRepAdaptor_Curve cu(e0);
+                auto votes = [&](const gp_Dir& d) {
+                    int hit = 0;
+                    const int N = 9;
+                    for (int i = 0; i < N; ++i) {
+                        const double u = (i + 0.5) / N;
+                        gp_Pnt base = cu.Value(
+                            cu.FirstParameter() +
+                            (cu.LastParameter() - cu.FirstParameter()) * u);
+                        for (double eps : {0.2, 0.05}) {
+                            BRepClass_FaceClassifier cls(
+                                face, base.Translated(gp_Vec(d) * eps), 1e-6);
+                            if (cls.State() == TopAbs_IN ||
+                                cls.State() == TopAbs_ON) {
+                                ++hit;
+                                break;
+                            }
+                        }
+                    }
+                    return hit;
+                };
+                const int plus = votes(cand);
+                const int minus = votes(cand.Reversed());
+                if (plus == 0 && minus == 0) return centroidDir();
+                gp_Dir best = (plus >= minus) ? cand : cand.Reversed();
+                return glm::normalize(
+                    glm::vec3(best.X(), best.Y(), best.Z()));
+            } catch (...) {
+                return centroidDir();
+            }
         };
         m_edgeOpFaceDirA = inFaceDir(faceA);
         m_edgeOpFaceDirB = inFaceDir(faceB);

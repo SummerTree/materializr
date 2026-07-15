@@ -340,6 +340,20 @@ bool ChamferOp::execute(Document& doc) {
             }
             if (candidate.IsNull()) m_edges = std::move(keepEdges);
         }
+        // IsDone() is necessary but NOT sufficient: native can "succeed" with
+        // topologically INVALID output (self-intersections, dropped faces) —
+        // classically many-adjacent-edges, but also a big ramp chamfer whose
+        // blend collides with a feature (#57: A=16 across the square hole).
+        // NULL such a candidate here so the fallbacks below get their chance;
+        // previously the garbage native result blocked them and the whole op
+        // failed where the fill would have built fine.
+        if (!candidate.IsNull() && !BRepCheck_Analyzer(candidate).IsValid()) {
+            std::fprintf(stderr,
+                "[Chamfer] native result failed BRepCheck_Analyzer "
+                "(d=%.2f, %zu edges) — trying the cut/fill fallbacks.\n",
+                m_distance, m_edges.size());
+            candidate.Nullify();
+        }
         if (candidate.IsNull()) {
             // #55: the native blend can't resolve against a surface feature
             // crossing the edge (a drilled hole or pocket fragments it and

@@ -41,10 +41,19 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 
 namespace materializr {
 namespace blendcut {
 namespace {
+
+// Permanent, env-gated diagnostics: MZR_BLENDCUT_DEBUG=1 traces which stage
+// refuses a fallback build — this saga kept needing it re-added.
+bool bcDebug() {
+    static const bool on = std::getenv("MZR_BLENDCUT_DEBUG") != nullptr;
+    return on;
+}
+#define BC_DBG(...) do { if (bcDebug()) std::fprintf(stderr, __VA_ARGS__); } while (0)
 
 struct EdgeInfo {
     TopoDS_Edge edge;
@@ -482,10 +491,14 @@ bool makeFillTool(const Group& g, double dRef, double dOther, Tool& out) {
     gp_Pnt B = P0.Translated(gp_Vec(e.dOtherDir) * dOther);
     // The ramp must rest on real face material somewhere along the span —
     // same hole-tolerant overshoot guard as the cut.
-    if (!setbackTouchesFace(g, e.fRef, gp_Vec(e.dRefDir) * dRef))
+    if (!setbackTouchesFace(g, e.fRef, gp_Vec(e.dRefDir) * dRef)) {
+        BC_DBG("[bc] fillTool: dRef=%.2f off fRef\n", dRef);
         return false;
-    if (!setbackTouchesFace(g, e.fOther, gp_Vec(e.dOtherDir) * dOther))
+    }
+    if (!setbackTouchesFace(g, e.fOther, gp_Vec(e.dOtherDir) * dOther)) {
+        BC_DBG("[bc] fillTool: dOther=%.2f off fOther\n", dOther);
         return false;
+    }
     // For a concave corner the outward normal bisector points into the OPEN
     // quadrant the ramp will occupy; nudge the apex the other way (into the
     // corner material) so the fuse overlaps instead of kissing.
@@ -530,9 +543,9 @@ bool applyFill(const TopoDS_Shape& body, const std::vector<Tool>& tools,
         BRepGProp::VolumeProperties(t.solid, gt);
         toolVol += gt.Mass();
         BRepAlgoAPI_Fuse fuse(res, t.solid);
-        if (!fuse.IsDone()) return false;
+        if (!fuse.IsDone()) { BC_DBG("[bc] fill: fuse not done\n"); return false; }
         res = fuse.Shape();
-        if (res.IsNull()) return false;
+        if (res.IsNull()) { BC_DBG("[bc] fill: fuse null\n"); return false; }
         ledger.capture(fuse, body, TopAbs_EDGE);
         ledger.captureAdd(fuse, body, TopAbs_FACE);
     }
@@ -607,9 +620,9 @@ bool applyFill(const TopoDS_Shape& body, const std::vector<Tool>& tools,
                     base, gp_Vec(n) * (maxSetback + 1.0 + down));
                 if (!pierce.IsDone()) continue;
                 BRepAlgoAPI_Cut cut(res, pierce.Shape());
-                if (!cut.IsDone()) return false;
+                if (!cut.IsDone()) { BC_DBG("[bc] fill: pierce cut not done\n"); return false; }
                 TopoDS_Shape s = cut.Shape();
-                if (s.IsNull()) return false;
+                if (s.IsNull()) { BC_DBG("[bc] fill: pierce cut null\n"); return false; }
                 res = s;
             }
         }
@@ -619,6 +632,9 @@ bool applyFill(const TopoDS_Shape& body, const std::vector<Tool>& tools,
     GProp_GProps gin, gout;
     BRepGProp::VolumeProperties(body, gin);
     BRepGProp::VolumeProperties(res, gout);
+    BC_DBG("[bc] fill: vol in=%.1f out=%.1f toolVol=%.1f valid=%d\n",
+           gin.Mass(), gout.Mass(), toolVol,
+           (int)BRepCheck_Analyzer(res).IsValid());
     if (gout.Mass() <= gin.Mass() + 1e-9 ||
         gout.Mass() > gin.Mass() + toolVol + 1e-3)
         return false;
@@ -633,7 +649,7 @@ bool applyFill(const TopoDS_Shape& body, const std::vector<Tool>& tools,
                 found = true;
             }
         }
-        if (!found) return false;
+        if (!found) { BC_DBG("[bc] fill: no blend face for a tool\n"); return false; }
     }
 
     outShape = res;
