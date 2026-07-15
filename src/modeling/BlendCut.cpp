@@ -646,11 +646,14 @@ std::vector<TopoDS_Face> bevelFacesNear(const TopoDS_Shape& body,
         BRepAdaptor_Surface s(f);
         if (s.GetType() != GeomAbs_Plane) continue;
         const gp_Dir n = s.Plane().Axis().Direction();
+        // Inclined = not (near-)coplanar with a parent and not a plain wall.
+        // The ceiling must be TIGHT (≈1.8°): a shallow 11.4×3 ramp's normal
+        // is 0.97 aligned with the floor, and the old 0.95 cap silently
+        // classified real bevels as floor-like — no fan, no clip, ever.
         const double dr = std::abs(n.Dot(g.rep.nRef));
         const double doth = std::abs(n.Dot(g.rep.nOther));
-        const bool inclR = (dr > 0.05 && dr < 0.95);
-        const bool inclO = (doth > 0.05 && doth < 0.95);
-        if (!inclR && !inclO) continue;
+        if (dr > 0.9995 || doth > 0.9995) continue;   // parent-parallel
+        if (dr < 0.05 && doth < 0.05) continue;       // plain wall
         try {
             BRepExtrema_DistShapeShape dss(
                 BRepBuilderAPI_MakeVertex(p).Vertex(), f);
@@ -746,9 +749,11 @@ void applyHipClips(const TopoDS_Shape& body, std::vector<Tool>& tools,
                 const gp_Dir n = sf.Plane().Axis().Direction();
                 const double dr = std::abs(n.Dot(g.rep.nRef));
                 const double doth = std::abs(n.Dot(g.rep.nOther));
-                const bool inclR = (dr > 0.05 && dr < 0.95);
-                const bool inclO = (doth > 0.05 && doth < 0.95);
-                if (!inclR && !inclO) continue;
+                if (dr > 0.9995 || doth > 0.9995) continue; // parent-parallel
+                if (dr < 0.05 && doth < 0.05) continue;     // plain wall
+                if (dr < 0.05 || doth < 0.05) {
+                    // perpendicular-ish to one parent: fine (corner-mate)
+                }
                 Bnd_Box fb;
                 BRepBndLib::Add(f, fb);
                 if (fb.IsVoid() || tb.IsOut(fb)) continue;
@@ -809,9 +814,9 @@ TopoDS_Shape tetraSolid(const gp_Pnt& a, const gp_Pnt& b, const gp_Pnt& c,
         sew.Add(fan);
         sew.Perform();
         TopoDS_Shape shell = sew.SewedShape();
-        if (shell.IsNull()) return TopoDS_Shape();
+        if (shell.IsNull()) { BC_DBG("[bc] tetra: sew null\n"); return TopoDS_Shape(); }
         TopExp_Explorer sx(shell, TopAbs_SHELL);
-        if (!sx.More()) return TopoDS_Shape();
+        if (!sx.More()) { BC_DBG("[bc] tetra: no shell\n"); return TopoDS_Shape(); }
         BRepBuilderAPI_MakeSolid ms(TopoDS::Shell(sx.Current()));
         if (!ms.IsDone()) return TopoDS_Shape();
         TopoDS_Shape solid = ms.Solid();
@@ -869,16 +874,41 @@ void addCornerFans(const TopoDS_Shape& body,
                 gp_Vec wallDir(V, W);
                 if (wallDir.Magnitude() < 1e-9) continue;
                 wallDir.Normalize();
+                // "Floor level" must be measured along the FLOOR's normal —
+                // projecting onto the (slightly tilted, trim-offset) V→W
+                // axis amplifies with distance and rejected an 11mm-away toe
+                // over a 0.1mm corner offset. The floor parent is whichever
+                // face's normal is the more parallel to the wall direction.
+                const gp_Dir nFloor =
+                    (std::abs(gp_Vec(g.rep.nRef).Dot(wallDir)) >
+                     std::abs(gp_Vec(g.rep.nOther).Dot(wallDir)))
+                        ? g.rep.nRef
+                        : g.rep.nOther;
                 gp_Pnt T2;
                 double best = 1e18;
                 for (const gp_Pnt& p : verts) {
                     if (p.Distance(W) < 1e-6) continue;
-                    if (std::abs(gp_Vec(V, p).Dot(wallDir)) > 0.3)
+                    if (std::abs(gp_Vec(V, p).Dot(gp_Vec(nFloor))) > 0.3)
                         continue; // not floor level
                     const double d = p.Distance(V);
                     if (d < best) { best = d; T2 = p; }
                 }
-                if (best > nearTol) continue;
+                // T2's reach is bounded by the NEIGHBOUR's own bevel size —
+                // not ours: an 11.4-deep side ramp's toe is legitimately
+                // 11.4mm out, and bounding by our setback silently rejected
+                // the fan at exactly the corners Steve was building.
+                double fDiag = 0.0;
+                {
+                    Bnd_Box fb;
+                    BRepBndLib::Add(f, fb);
+                    if (!fb.IsVoid()) {
+                        double x0, y0, z0, x1, y1, z1;
+                        fb.Get(x0, y0, z0, x1, y1, z1);
+                        fDiag = gp_Pnt(x0, y0, z0)
+                                    .Distance(gp_Pnt(x1, y1, z1));
+                    }
+                }
+                if (best > fDiag + 1.0) continue;
                 if (T2.Distance(V) < 1e-6 || T1.Distance(T2) < 1e-6) continue;
                 // OUTSIDE corner only: the neighbour's toe continues past our
                 // end ALONG our edge direction (the ramps wrap a block corner
@@ -895,7 +925,14 @@ void addCornerFans(const TopoDS_Shape& body,
                 }
                 Tool fan;
                 fan.solid = tetraSolid(V, W, T1, T2, fan.blendTemplate);
-                if (fan.solid.IsNull()) continue;
+                if (fan.solid.IsNull()) {
+                    BC_DBG("[bc] fan: tetra FAILED V=(%.1f,%.1f,%.1f) "
+                           "W=(%.1f,%.1f,%.1f) T1=(%.1f,%.1f,%.1f) "
+                           "T2=(%.1f,%.1f,%.1f)\n",
+                           V.X(),V.Y(),V.Z(), W.X(),W.Y(),W.Z(),
+                           T1.X(),T1.Y(),T1.Z(), T2.X(),T2.Y(),T2.Z());
+                    continue;
+                }
                 tools.push_back(fan);
                 BC_DBG("[bc] hip: corner fan added at group %zu end %d\n",
                        i, e);
