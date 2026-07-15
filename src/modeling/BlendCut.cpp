@@ -289,15 +289,28 @@ TopoDS_Shape sweepProfile(const TopoDS_Wire& w, const TopoDS_Edge& blendEdge,
 // (the sample lands in the void). One sample on the face proves the blend
 // runs along real face material somewhere; only when EVERY sample misses is
 // the blend genuinely bigger than the face it runs along — refuse then.
+// Sample support slightly INSIDE the setback (0.05mm short): a setback that
+// equals the face's exact extent (B = the wall's full height) otherwise
+// probes precisely ON the face's boundary edge, where both the face and the
+// solid classifier are numerically coin-flip — B=3.0 on a 3.0 wall refused
+// everything while 2.9 worked. The blend only needs support arbitrarily
+// close to the setback, not exactly at it.
+gp_Vec insetSetback(const gp_Vec& off) {
+    const double m = off.Magnitude();
+    if (m < 0.1) return off;
+    return off * ((m - 0.05) / m);
+}
+
 bool setbackTouchesFace(const Group& g, const TopoDS_Face& f,
                         const gp_Vec& off) {
+    const gp_Vec probe = insetSetback(off);
     const int kSamples = 9;
     for (int i = 0; i < kSamples; ++i) {
         const double t =
             g.tmin + (g.tmax - g.tmin) * (i + 0.5) / kSamples;
         gp_Pnt p = g.rep.line.Location()
                        .Translated(gp_Vec(g.rep.line.Direction()) * t)
-                       .Translated(off);
+                       .Translated(probe);
         if (onFace(f, p)) return true;
     }
     return false;
@@ -558,7 +571,6 @@ bool makeFillTool(const Group& g, double dRef, double dOther, Tool& out) {
 // for the fan/extension logic.
 void trimGroupEnds(const TopoDS_Shape& body, std::vector<Group>& groups,
                    double dRef, double dOther) {
-    const double maxTrim = std::max(dRef, dOther) + 1.5;
     for (auto& g : groups) {
         // A setback point is supported if it lands ON its parent face — or
         // ON/INSIDE the body: a neighbouring fused ramp COVERS the floor
@@ -571,15 +583,22 @@ void trimGroupEnds(const TopoDS_Shape& body, std::vector<Group>& groups,
             BRepClass3d_SolidClassifier sc(body, p, 1e-7);
             return sc.State() != TopAbs_OUT;
         };
+        const gp_Vec offRef = insetSetback(gp_Vec(g.rep.dRefDir) * dRef);
+        const gp_Vec offOther =
+            insetSetback(gp_Vec(g.rep.dOtherDir) * dOther);
         auto supported = [&](double t) {
             gp_Pnt P = g.rep.line.Location().Translated(
                 gp_Vec(g.rep.line.Direction()) * t);
-            return held(g.rep.fRef,
-                        P.Translated(gp_Vec(g.rep.dRefDir) * dRef)) &&
-                   held(g.rep.fOther,
-                        P.Translated(gp_Vec(g.rep.dOtherDir) * dOther));
+            return held(g.rep.fRef, P.Translated(offRef)) &&
+                   held(g.rep.fOther, P.Translated(offOther));
         };
+        // Walk each end to wherever support actually BEGINS — a fixed cap
+        // left the ends hovering unsupported when the true wall started
+        // deeper in (and hovering ends are exactly the artifact this exists
+        // to prevent). Bounded at 45% of the span per end so a degenerate
+        // situation can't consume the whole blend.
         const double step = 0.25;
+        const double maxTrim = (g.tmax - g.tmin) * 0.45;
         double trimmed = 0.0;
         while (trimmed < maxTrim && g.tmax - g.tmin > step &&
                !supported(g.tmin + 0.05)) {
