@@ -1121,34 +1121,59 @@ bool applyFill(const TopoDS_Shape& body, const std::vector<Tool>& tools,
     // ramp lands exactly flush against an existing bevel or wall — visible as
     // hairline steps at the joint). UnifySameDomain is cosmetic-but-correct
     // here; fall back to the un-merged shape if it misbehaves.
-    try {
-        // The fuse can leave a ZERO-LENGTH edge at a miter's toe junction
-        // (piece overlap/extension collapsing against the body boundary),
-        // and one degenerate edge is enough to make UnifySameDomain refuse
-        // to merge the clip face into the neighbouring bevel — the seam then
-        // shows up in the viewport as an extra facet at the corner. Drop
-        // degenerate edges first, then unify.
-        TopoDS_Shape pre = res;
+    // Merge coplanar face fragments the fuse/booleans left behind — they read
+    // in the viewport as a fan of seams across the ramp even though the
+    // surface is geometrically flat. TWO merge strategies are needed and
+    // NEITHER alone suffices:
+    //   * plain UnifySameDomain merges the multi-edge picture-frame case
+    //     cleanly, but leaves a miter wedge behind when a ZERO-LENGTH edge
+    //     at the toe junction blocks it (the #58 single-miter case);
+    //   * FixSmallEdges-then-USD drops that degenerate edge so the wedge
+    //     merges, but CORRUPTS the multi-edge case into an invalid shape.
+    // Run both, keep the valid candidate with the FEWEST faces (= most
+    // merged), preferring plain USD on a tie. Merging is volume-neutral, so
+    // reject any candidate that moved the volume more than rounding noise.
+    {
+        GProp_GProps gr;
+        BRepGProp::VolumeProperties(res, gr);
+        const double volTol = std::max(1e-2, gr.Mass() * 1e-6);
+        auto faceCount = [](const TopoDS_Shape& s) {
+            int n = 0;
+            for (TopExp_Explorer fx(s, TopAbs_FACE); fx.More(); fx.Next()) n++;
+            return n;
+        };
+        int bestFaces = faceCount(res);
+        auto consider = [&](const TopoDS_Shape& cand) {
+            if (cand.IsNull()) return;
+            if (!BRepCheck_Analyzer(cand).IsValid()) return;
+            GProp_GProps gc;
+            BRepGProp::VolumeProperties(cand, gc);
+            if (std::abs(gc.Mass() - gr.Mass()) > volTol) return;
+            int n = faceCount(cand);
+            if (n < bestFaces) { bestFaces = n; res = cand; }
+        };
         try {
+            ShapeUpgrade_UnifySameDomain u(res, Standard_True, Standard_True,
+                                           Standard_False);
+            u.Build();
+            consider(u.Shape());
+        } catch (...) {}
+        try {
+            TopoDS_Shape pre = res;
             ShapeFix_Wireframe wf(pre);
             wf.SetPrecision(1e-4);
             wf.SetMaxTolerance(1e-3);
             wf.ModeDropSmallEdges() = Standard_True;
             wf.FixSmallEdges();
             wf.FixWireGaps();
-            if (!wf.Shape().IsNull()) pre = wf.Shape();
-        } catch (...) { pre = res; }
-        ShapeUpgrade_UnifySameDomain unify(pre, Standard_True, Standard_True,
-                                           Standard_False);
-        unify.Build();
-        TopoDS_Shape merged = unify.Shape();
-        if (!merged.IsNull() && BRepCheck_Analyzer(merged).IsValid()) {
-            GProp_GProps gr, gm;
-            BRepGProp::VolumeProperties(res, gr);
-            BRepGProp::VolumeProperties(merged, gm);
-            if (std::abs(gm.Mass() - gr.Mass()) < 1e-3) res = merged;
-        }
-    } catch (...) {}
+            if (!wf.Shape().IsNull()) {
+                ShapeUpgrade_UnifySameDomain u(wf.Shape(), Standard_True,
+                                               Standard_True, Standard_False);
+                u.Build();
+                consider(u.Shape());
+            }
+        } catch (...) {}
+    }
 
     // Must have ADDED material, no more than the ramps themselves, and sound.
     GProp_GProps gin, gout;

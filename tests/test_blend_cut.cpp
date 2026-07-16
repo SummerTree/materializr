@@ -28,7 +28,9 @@
 #include <BRepPrimAPI_MakeCylinder.hxx>
 #include <BRep_Tool.hxx>
 #include <GProp_GProps.hxx>
+#include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
+#include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Edge.hxx>
 #include <TopoDS_Face.hxx>
@@ -36,6 +38,8 @@
 #include <gp_Pnt.hxx>
 
 #include <cmath>
+#include <cstdio>
+#include <string>
 #include <vector>
 
 using namespace materializr;
@@ -46,6 +50,46 @@ double volumeOf(const TopoDS_Shape& s) {
     GProp_GProps g;
     BRepGProp::VolumeProperties(s, g);
     return g.Mass();
+}
+
+// Count coplanar-adjacent face pairs: two planar faces in the SAME plane that
+// share an edge. The surface is geometrically flat there (a height map sees
+// nothing), but the viewport draws the shared edge as a boundary line — this
+// is exactly the "fan of seams across the ramp" artifact. The right metric
+// for that class of bug; must be zero on a clean blend.
+int coplanarSeamPairs(const TopoDS_Shape& body) {
+    auto key = [](const TopoDS_Face& f, bool& ok) -> std::string {
+        BRepAdaptor_Surface s(f);
+        if (s.GetType() != GeomAbs_Plane) { ok = false; return ""; }
+        ok = true;
+        gp_Pln p = s.Plane();
+        gp_Dir n = p.Axis().Direction();
+        double d = n.X() * p.Location().X() + n.Y() * p.Location().Y() +
+                   n.Z() * p.Location().Z();
+        if (n.X() < -1e-6 || (std::abs(n.X()) < 1e-6 && n.Y() < -1e-6) ||
+            (std::abs(n.X()) < 1e-6 && std::abs(n.Y()) < 1e-6 && n.Z() < 0)) {
+            n.Reverse();
+            d = -d;
+        }
+        char b[96];
+        std::snprintf(b, sizeof b, "%.2f,%.2f,%.2f,%.2f", n.X(), n.Y(), n.Z(), d);
+        return b;
+    };
+    TopTools_IndexedDataMapOfShapeListOfShape e2f;
+    TopExp::MapShapesAndAncestors(body, TopAbs_EDGE, TopAbs_FACE, e2f);
+    int seams = 0;
+    for (int i = 1; i <= e2f.Extent(); ++i) {
+        const auto& fl = e2f.FindFromIndex(i);
+        if (fl.Extent() != 2) continue;
+        TopoDS_Face fa = TopoDS::Face(fl.First()), fb;
+        for (const auto& f : fl)
+            if (!f.IsSame(fa)) { fb = TopoDS::Face(f); break; }
+        if (fb.IsNull()) continue;
+        bool oa, ob;
+        std::string ka = key(fa, oa), kb = key(fb, ob);
+        if (oa && ob && ka == kb) seams++;
+    }
+    return seams;
 }
 
 // Box 40x20x10; the "front top" edge runs along X at y=0, z=10.
@@ -651,6 +695,78 @@ TEST(BlendCut, OutsideCornerGetsFan) {
         EXPECT_EQ(sc.State(), TopAbs_IN)
             << "outside corner has no fan — abrupt end walls";
     }
+    EXPECT_EQ(coplanarSeamPairs(out), 0)
+        << "ramp fragmented into coplanar facets (visible fan of seams)";
+}
+
+// Forward contract for the multi-edge fill: chamfer several adjacent base
+// edges of a raised boss in ONE op, each crossing a pocket so the FILL path
+// fires, forming mitered corners all round. The fused ramps + miters must
+// leave NO coplanar-adjacent seam pairs (the "fan across the ramp"). NOTE:
+// this synthetic case does NOT reproduce the specific FixSmallEdges-corruption
+// that caused #59 on the real light cover (it passes on the pre-#59 code
+// too) — the genuine regression guard for that is the real-file rebuild probe
+// (wip-tests/probe_rebuild_render, 27 seams pre-fix → 0 post-fix). This test
+// still holds the invariant against a DIFFERENT future merge regression.
+TEST(BlendCut, PictureFrameFillHasNoCoplanarSeams) {
+    // Boss 0..40 x 0..30, 3 tall, on a 60x50 plate (margins all round so
+    // every base edge's ramp toe lands on open floor, not the plate edge).
+    auto bossBody = []() {
+        TopoDS_Shape plate = BRepPrimAPI_MakeBox(
+            gp_Pnt(-10.0, -10.0, 0.0), gp_Pnt(50.0, 40.0, 2.0)).Shape();
+        TopoDS_Shape boss = BRepPrimAPI_MakeBox(
+            gp_Pnt(0.0, 0.0, 2.0), gp_Pnt(40.0, 30.0, 5.0)).Shape();
+        return BRepAlgoAPI_Fuse(plate, boss).Shape();
+    };
+    // A shallow pocket straddling each of the four base edges → fill path.
+    auto pocket = [](double x0, double y0, double x1, double y1) {
+        return BRepPrimAPI_MakeBox(gp_Pnt(x0, y0, 1.0), gp_Pnt(x1, y1, 3.0))
+            .Shape();
+    };
+    TopoDS_Shape b = bossBody();
+    b = BRepAlgoAPI_Cut(b, pocket(15.0, -2.0, 21.0, 4.0)).Shape();   // y=0 edge
+    b = BRepAlgoAPI_Cut(b, pocket(15.0, 26.0, 21.0, 32.0)).Shape();  // y=30 edge
+    b = BRepAlgoAPI_Cut(b, pocket(-2.0, 12.0, 4.0, 18.0)).Shape();   // x=0 edge
+    b = BRepAlgoAPI_Cut(b, pocket(36.0, 12.0, 42.0, 18.0)).Shape();  // x=40 edge
+
+    auto findEdges = [](const TopoDS_Shape& s, auto pred) {
+        std::vector<TopoDS_Edge> out;
+        for (TopExp_Explorer ex(s, TopAbs_EDGE); ex.More(); ex.Next()) {
+            const TopoDS_Edge& e = TopoDS::Edge(ex.Current());
+            if (BRepAdaptor_Curve(e).GetType() != GeomAbs_Line) continue;
+            bool ok = true;
+            int nv = 0;
+            for (TopExp_Explorer vx(e, TopAbs_VERTEX); vx.More();
+                 vx.Next(), ++nv)
+                if (!pred(BRep_Tool::Pnt(TopoDS::Vertex(vx.Current()))))
+                    ok = false;
+            if (ok && nv == 2) out.push_back(e);
+        }
+        return out;
+    };
+
+    Document doc;
+    int id = doc.addBody(b, "Frame");
+    // All four base edges (z=2, on the boss footprint boundary) in one op.
+    std::vector<TopoDS_Edge> edges = findEdges(
+        doc.getBody(id), [](const gp_Pnt& p) {
+            if (std::abs(p.Z() - 2.0) > 1e-7) return false;
+            const bool onX = std::abs(p.X()) < 1e-7 || std::abs(p.X() - 40.0) < 1e-7;
+            const bool onY = std::abs(p.Y()) < 1e-7 || std::abs(p.Y() - 30.0) < 1e-7;
+            return onX || onY;
+        });
+    ASSERT_GE(edges.size(), 4u);
+    ChamferOp op;
+    op.setBody(id);
+    op.setEdges(edges);
+    op.setDistance(2.5);   // up the boss
+    op.setDistance2(5.0);  // across the floor, over each pocket
+    ASSERT_TRUE(op.execute(doc));
+
+    const TopoDS_Shape& out = doc.getBody(id);
+    EXPECT_TRUE(BRepCheck_Analyzer(out).IsValid());
+    EXPECT_EQ(coplanarSeamPairs(out), 0)
+        << "picture-frame ramp fanned into coplanar facets (the light-cover bug)";
 }
 
 // The miter's clip face lies exactly IN the neighbour bevel's plane, so after
