@@ -149,6 +149,16 @@ add_executable(test_stepped_hole_profile test_stepped_hole_profile.cpp)
 target_link_libraries(test_stepped_hole_profile PRIVATE materializr_core gtest gtest_main)
 add_test(NAME test_stepped_hole_profile COMMAND test_stepped_hole_profile)
 
+# test_sketch_edit_cascade - editing a sketch drives a hole through a chamfer
+add_executable(test_sketch_edit_cascade test_sketch_edit_cascade.cpp)
+target_link_libraries(test_sketch_edit_cascade PRIVATE materializr_core gtest gtest_main)
+add_test(NAME test_sketch_edit_cascade COMMAND test_sketch_edit_cascade)
+
+# test_extrude_recovered_profile - seed miss uses saved footprint, not ALL regions
+add_executable(test_extrude_recovered_profile test_extrude_recovered_profile.cpp)
+target_link_libraries(test_extrude_recovered_profile PRIVATE materializr_core gtest gtest_main)
+add_test(NAME test_extrude_recovered_profile COMMAND test_extrude_recovered_profile)
+
 # test_section_cap - section-view cross-section cap geometry (issue #15)
 add_executable(test_section_cap test_section_cap.cpp)
 target_link_libraries(test_section_cap PRIVATE materializr_core gtest gtest_main)
@@ -396,3 +406,4 @@ target_link_libraries(probe_validity_fuzz PRIVATE materializr_core)
 add_executable(test_blend_cut test_blend_cut.cpp)
 target_link_libraries(test_blend_cut PRIVATE materializr_core gtest gtest_main)
 add_test(NAME test_blend_cut COMMAND test_blend_cut)
+

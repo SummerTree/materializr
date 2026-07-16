@@ -581,32 +581,37 @@ bool ExtrudeOp::rehydrateFromReload(const ReloadState& state, Document& doc) {
         if (state.created.empty()) return false;
         m_createdBodyId = state.created.front();
 
-        // OLD-FILE region recovery (#53): a pre-regions save carries no
-        // region points, but the step's SAVED result body does — its planar
-        // faces lying ON the sketch plane are exactly the regions this
-        // extrude swept. Derive the points once so the replay stops grabbing
-        // every region of the final sketch state.
-        if (m_regionPts.empty() && m_sketchId >= 0 &&
-            !state.createdAfter.empty()) {
+        // Footprint recovery from the SAVED result body — its planar faces
+        // lying ON the sketch plane are exactly the regions this extrude
+        // swept. ALWAYS recover the profile (not just for pre-regions saves):
+        // it is the historically-exact fallback when the stored region seeds
+        // fail to re-match on replay. Without it, a seed miss drops to the
+        // #53 catastrophe (sweep EVERY region of the sketch's current state),
+        // which corrupts the body and breaks every downstream fillet/chamfer.
+        // For old files that carry no seeds, derive them here too so the
+        // replay stops grabbing every region.
+        if (m_sketchId >= 0 && !state.createdAfter.empty()) {
             auto sk = doc.getSketch(m_sketchId);
             const TopoDS_Shape& made = state.createdAfter.front().second;
             if (sk && !made.IsNull()) {
                 const gp_Pln pln = sk->getPlane();
                 auto faces = footprintFacesOnPlane(made, pln);
-                std::vector<std::pair<double,double>> pts =
-                    footprintPoints(faces, pln);
-                if (!faces.empty()) {
+                if (!faces.empty() && m_recoveredProfile.IsNull()) {
                     BRep_Builder rb;
                     TopoDS_Compound rc;
                     rb.MakeCompound(rc);
                     for (const auto& f : faces) rb.Add(rc, f);
                     m_recoveredProfile = unifyProfile(rc);
                 }
-                if (!pts.empty()) {
-                    m_regionPts = std::move(pts);
-                    std::fprintf(stderr, "[Extrude] derived %zu region "
-                                 "point(s) from the saved body's footprint\n",
-                                 m_regionPts.size());
+                if (m_regionPts.empty()) {
+                    std::vector<std::pair<double,double>> pts =
+                        footprintPoints(faces, pln);
+                    if (!pts.empty()) {
+                        m_regionPts = std::move(pts);
+                        std::fprintf(stderr, "[Extrude] derived %zu region "
+                                     "point(s) from the saved body's "
+                                     "footprint\n", m_regionPts.size());
+                    }
                 }
             }
         }
@@ -618,11 +623,13 @@ bool ExtrudeOp::rehydrateFromReload(const ReloadState& state, Document& doc) {
         }
         if (m_previousTargetShape.IsNull()) return false;
 
-        // OLD-FILE region recovery, boolean modes (#53): the swept material
-        // is the before/after DELTA — added for Union, removed for
-        // Subtract/Intersect. Its planar faces on the sketch plane are the
-        // regions this extrude used.
-        if (m_regionPts.empty() && m_sketchId >= 0) {
+        // Footprint recovery, boolean modes: the swept material is the
+        // before/after DELTA — added for Union, removed for Subtract/Intersect.
+        // Its planar faces on the sketch plane are the regions this extrude
+        // used. ALWAYS recover the profile (the historically-exact fallback
+        // when stored seeds fail to re-match — see the NewBody note above);
+        // derive seeds only for old files that lack them.
+        if (m_sketchId >= 0) {
             TopoDS_Shape after;
             for (const auto& [id, shp] : state.modifiedAfter)
                 if (id == m_targetBodyId) { after = shp; break; }
@@ -635,20 +642,22 @@ bool ExtrudeOp::rehydrateFromReload(const ReloadState& state, Document& doc) {
                             : BRepAlgoAPI_Cut(m_previousTargetShape, after).Shape();
                     const gp_Pln pln = sk->getPlane();
                     auto faces = footprintFacesOnPlane(delta, pln);
-                    std::vector<std::pair<double,double>> pts =
-                        footprintPoints(faces, pln);
-                    if (!faces.empty()) {
+                    if (!faces.empty() && m_recoveredProfile.IsNull()) {
                         BRep_Builder rb;
                         TopoDS_Compound rc;
                         rb.MakeCompound(rc);
                         for (const auto& f : faces) rb.Add(rc, f);
                         m_recoveredProfile = unifyProfile(rc);
                     }
-                    if (!pts.empty()) {
-                        m_regionPts = std::move(pts);
-                        std::fprintf(stderr, "[Extrude] derived %zu region "
-                                     "point(s) from the boolean delta "
-                                     "footprint\n", m_regionPts.size());
+                    if (m_regionPts.empty()) {
+                        std::vector<std::pair<double,double>> pts =
+                            footprintPoints(faces, pln);
+                        if (!pts.empty()) {
+                            m_regionPts = std::move(pts);
+                            std::fprintf(stderr, "[Extrude] derived %zu region "
+                                         "point(s) from the boolean delta "
+                                         "footprint\n", m_regionPts.size());
+                        }
                     }
                 } catch (...) {}
             }
