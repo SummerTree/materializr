@@ -54,6 +54,36 @@ double faceBlendRadius(const TopoDS_Face& face) {
         }
     } catch (...) { return -1.0; }
 }
+
+// Faces present in `result` but NOT in `prev` (surface type + centre) — the
+// blend faces this fillet created. Reload fallback for the history-hover
+// highlight when a save lacks generated-face indices (churn-dropped `gen=`).
+std::vector<TopoDS_Shape> facesCreatedVsPrev(const TopoDS_Shape& result,
+                                             const TopoDS_Shape& prev) {
+    auto surfType = [](const TopoDS_Face& f) -> int {
+        try { return static_cast<int>(BRepAdaptor_Surface(f).GetType()); }
+        catch (...) { return -1; }
+    };
+    struct FC { int t; gp_Pnt c; };
+    std::vector<FC> prevF;
+    for (TopExp_Explorer ex(prev, TopAbs_FACE); ex.More(); ex.Next()) {
+        gp_Pnt c;
+        if (faceCenter(TopoDS::Face(ex.Current()), c))
+            prevF.push_back({surfType(TopoDS::Face(ex.Current())), c});
+    }
+    std::vector<TopoDS_Shape> out;
+    for (TopExp_Explorer ex(result, TopAbs_FACE); ex.More(); ex.Next()) {
+        const TopoDS_Face f = TopoDS::Face(ex.Current());
+        gp_Pnt c;
+        if (!faceCenter(f, c)) continue;
+        const int t = surfType(f);
+        bool wasThere = false;
+        for (const auto& p : prevF)
+            if (p.t == t && p.c.Distance(c) < 1e-4) { wasThere = true; break; }
+        if (!wasThere) out.push_back(f);
+    }
+    return out;
+}
 } // namespace
 
 // Every sketch in the document, as EdgeAnchor references. Real bodies are
@@ -537,6 +567,12 @@ bool FilletOp::rehydrateFromReload(const ReloadState& state, Document& /*doc*/) 
             m_generatedFaces = std::move(gen);
         }
     }
+    // Fallback for a save without generated-face indices (churn-dropped gen=):
+    // recover the blend faces geometrically so the history-hover highlight
+    // still previews. See ChamferOp.
+    if (m_generatedFaces.empty() && !m_resultShape.IsNull() &&
+        !m_previousShape.IsNull())
+        m_generatedFaces = facesCreatedVsPrev(m_resultShape, m_previousShape);
     return true;
 }
 

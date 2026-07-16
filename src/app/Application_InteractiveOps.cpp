@@ -708,17 +708,33 @@ void Application::refreshAllEdgeOpFaces() {
         // filleted lid that was then deleted). getBody() throws on a missing id,
         // which — uncaught here — aborted the whole app on load ("Fatal error:
         // Body not found: N"). Skip any op whose body is gone; nothing to refresh.
-        try {
-            if (auto* f = const_cast<FilletOp*>(dynamic_cast<const FilletOp*>(op))) {
-                TopoDS_Shape b = m_document->getBody(f->getBodyId());
-                if (!b.IsNull())
-                    f->refreshGeneratedFaces(b, m_document->bodyFaceIds(f->getBodyId()));
-            } else if (auto* c = const_cast<ChamferOp*>(dynamic_cast<const ChamferOp*>(op))) {
-                TopoDS_Shape b = m_document->getBody(c->getBodyId());
-                if (!b.IsNull())
-                    c->refreshGeneratedFaces(b, m_document->bodyFaceIds(c->getBodyId()));
+        auto* f = const_cast<FilletOp*>(dynamic_cast<const FilletOp*>(op));
+        auto* c = const_cast<ChamferOp*>(dynamic_cast<const ChamferOp*>(op));
+        if (!f && !c) continue;
+        const int bodyId = f ? f->getBodyId() : c->getBodyId();
+        auto refresh = [&](const TopoDS_Shape& s, int id) {
+            if (f) f->refreshGeneratedFaces(s, m_document->bodyFaceIds(id));
+            else   c->refreshGeneratedFaces(s, m_document->bodyFaceIds(id));
+        };
+        TopoDS_Shape own;
+        try { own = m_document->getBody(bodyId); } catch (...) {}
+        if (!own.IsNull()) {
+            try { refresh(own, bodyId); } catch (...) {}
+        } else {
+            // The op's own body was CONSUMED by a downstream boolean — its
+            // bevel faces now live on the successor body. Refresh against every
+            // current body; refreshGeneratedFaces matches by the op's stable
+            // face-lineage ids (exact) or blend geometry, so only the body that
+            // actually carried the faces forward updates — the rest are no-ops.
+            // Without this a filleted/chamfered body that was later unioned into
+            // another lost its history-hover highlight entirely.
+            for (int b : m_document->getAllBodyIds()) {
+                try {
+                    TopoDS_Shape bs = m_document->getBody(b);
+                    if (!bs.IsNull()) refresh(bs, b);
+                } catch (...) {}
             }
-        } catch (...) { /* body deleted downstream — nothing to refresh */ }
+        }
     }
 }
 

@@ -149,6 +149,11 @@ add_executable(test_stepped_hole_profile test_stepped_hole_profile.cpp)
 target_link_libraries(test_stepped_hole_profile PRIVATE materializr_core gtest gtest_main)
 add_test(NAME test_stepped_hole_profile COMMAND test_stepped_hole_profile)
 
+# test_edgeop_highlight_reload - fallback recovers bevel faces without gen=
+add_executable(test_edgeop_highlight_reload test_edgeop_highlight_reload.cpp)
+target_link_libraries(test_edgeop_highlight_reload PRIVATE materializr_core gtest gtest_main)
+add_test(NAME test_edgeop_highlight_reload COMMAND test_edgeop_highlight_reload)
+
 # test_sketch_edit_cascade - editing a sketch drives a hole through a chamfer
 add_executable(test_sketch_edit_cascade test_sketch_edit_cascade.cpp)
 target_link_libraries(test_sketch_edit_cascade PRIVATE materializr_core gtest gtest_main)

@@ -41,6 +41,38 @@ bool faceCenter(const TopoDS_Face& face, gp_Pnt& out) {
         return true;
     } catch (...) { return false; }
 }
+
+// Faces present in `result` but NOT in `prev` (matched by surface type +
+// centre) — i.e. the faces this op CREATED. Reload fallback for the
+// history-hover highlight when a save carries no generated-face indices (an
+// older/churn-corrupted file where the fill chamfer's `gen=` was dropped): the
+// bevel faces are exactly the new ones, and they render at the correct place.
+std::vector<TopoDS_Shape> facesCreatedVsPrev(const TopoDS_Shape& result,
+                                             const TopoDS_Shape& prev) {
+    auto surfType = [](const TopoDS_Face& f) -> int {
+        try { return static_cast<int>(BRepAdaptor_Surface(f).GetType()); }
+        catch (...) { return -1; }
+    };
+    struct FC { int t; gp_Pnt c; };
+    std::vector<FC> prevF;
+    for (TopExp_Explorer ex(prev, TopAbs_FACE); ex.More(); ex.Next()) {
+        gp_Pnt c;
+        if (faceCenter(TopoDS::Face(ex.Current()), c))
+            prevF.push_back({surfType(TopoDS::Face(ex.Current())), c});
+    }
+    std::vector<TopoDS_Shape> out;
+    for (TopExp_Explorer ex(result, TopAbs_FACE); ex.More(); ex.Next()) {
+        const TopoDS_Face f = TopoDS::Face(ex.Current());
+        gp_Pnt c;
+        if (!faceCenter(f, c)) continue;
+        const int t = surfType(f);
+        bool wasThere = false;
+        for (const auto& p : prevF)
+            if (p.t == t && p.c.Distance(c) < 1e-4) { wasThere = true; break; }
+        if (!wasThere) out.push_back(f);
+    }
+    return out;
+}
 } // namespace
 
 ChamferOp::ChamferOp() = default;
@@ -774,6 +806,13 @@ bool ChamferOp::rehydrateFromReload(const ReloadState& state, Document& /*doc*/)
             m_generatedFaces = std::move(gen);
         }
     }
+    // Fallback: a save without generated-face indices (a fill chamfer whose
+    // `gen=` was dropped during heavy undo/redo churn) leaves the history-hover
+    // highlight blank. Recover the bevel faces geometrically — the faces the
+    // chamfer added to the result — so the step still previews.
+    if (m_generatedFaces.empty() && !m_resultShape.IsNull() &&
+        !m_previousShape.IsNull())
+        m_generatedFaces = facesCreatedVsPrev(m_resultShape, m_previousShape);
     return true;
 }
 
