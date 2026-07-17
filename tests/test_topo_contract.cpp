@@ -509,6 +509,81 @@ TEST(TopoContract, ChamferOnSeam_SurvivesEditOfInterveningTransform) {
     EXPECT_TRUE(found) << "bevel must land on the seam at its NEW position";
 }
 
+// ───────────────────────────────────────────────────────────────────────────
+// CASE 7 — DISTINCT-CLAIM in the lineage edge tier. Fragment edges of one
+// span share the SAME adjacent-face-id pair; without per-edge claiming the
+// resolver handed every pair the first matching edge, collapsing a
+// 3-fragment selection to 1 and starving the rebuild — which made edits
+// ORDER-DEPENDENT ("17 works fresh, fails after any successful edit").
+// Contract: two consecutive successful edits on a fragmented-edge chamfer.
+TEST(TopoContract, FragmentedEdgeChamfer_SurvivesConsecutiveEdits) {
+    Document doc;
+    History hist;
+    int pid[4];
+    auto sk = makeRect(0, 0, 40, 20, pid);
+    int sid = doc.addSketch(sk);
+    int body = pushExtrude(doc, hist, sid, 10.0);
+
+    // Two notches crossing the top-front edge (y=0, z=10) — fragments it
+    // into three pieces.
+    for (double x0 : {10.0, 26.0}) {
+        int npid[4];
+        auto nk = makeRect(x0, -2, x0 + 4, 2, npid);
+        int nsid = doc.addSketch(nk);
+        auto cut = std::make_unique<ExtrudeOp>();
+        cut->setSketchSource(nsid);
+        cut->setMode(ExtrudeMode::Subtract);
+        cut->setTargetBody(body);
+        cut->setDirection(ExtrudeDirection::Symmetric);
+        cut->setDistance(30.0);
+        ASSERT_TRUE(cut->rebuildProfileFromSketch(doc));
+        ASSERT_TRUE(cut->execute(doc));
+        hist.pushExecuted(std::move(cut));
+    }
+
+    // Chamfer all three fragments of the front-top edge.
+    std::vector<TopoDS_Edge> frags;
+    for (TopExp_Explorer ex(doc.getBody(body), TopAbs_EDGE); ex.More();
+         ex.Next()) {
+        BRepAdaptor_Curve c(TopoDS::Edge(ex.Current()));
+        if (c.GetType() != GeomAbs_Line) continue;
+        gp_Pnt a = c.Value(c.FirstParameter()), b = c.Value(c.LastParameter());
+        if (std::abs(a.Y()) > 1e-7 || std::abs(b.Y()) > 1e-7) continue;
+        if (std::abs(a.Z() - 10.0) > 1e-7 || std::abs(b.Z() - 10.0) > 1e-7)
+            continue;
+        bool dup = false;
+        for (const auto& e : frags)
+            if (e.IsSame(ex.Current())) { dup = true; break; }
+        if (!dup) frags.push_back(TopoDS::Edge(ex.Current()));
+    }
+    ASSERT_EQ(frags.size(), 3u) << "notches must fragment the edge into 3";
+    auto ch = std::make_unique<ChamferOp>();
+    ChamferOp* chP = ch.get();
+    ch->setBody(body);
+    ch->setEdges(frags);
+    ch->setDistance(2.0);
+    ASSERT_TRUE(ch->execute(doc));
+    hist.pushExecuted(std::move(ch));
+    const int chIdx = hist.stepCount() - 1;
+    const double vol2 = volumeOf(doc.getBody(body));
+
+    // Two consecutive edits. The FIRST recaptures the (identical) face-id
+    // pairs; the SECOND resolves through them — pre-fix it collapsed to one
+    // fragment and failed / built a partial bevel.
+    chP->setDistance(3.0);
+    ASSERT_TRUE(hist.editStep(chIdx, doc, /*transactional=*/true))
+        << "first re-edit must succeed";
+    chP->setDistance(4.0);
+    ASSERT_TRUE(hist.editStep(chIdx, doc, /*transactional=*/true))
+        << "second re-edit must succeed (order-independence)";
+    const TopoDS_Shape& out = doc.getBody(body);
+    EXPECT_TRUE(BRepCheck_Analyzer(out).IsValid());
+    // d=4 removes strictly more than d=2 did — all three fragments beveled,
+    // not a collapsed single-fragment partial.
+    EXPECT_LT(volumeOf(out), vol2 - 1.0)
+        << "full-width bevel must be present at d=4";
+}
+
 // Same chain, consumer is a FILLET (no lineage tier today) — parity contract.
 TEST(TopoContract, FilletOnSeam_SurvivesEditOfInterveningTransform) {
     Document doc;

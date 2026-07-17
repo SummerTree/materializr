@@ -270,10 +270,16 @@ bool FilletOp::execute(Document& doc) {
                         if (faceHas(f, a)) hasA = true;
                         if (faceHas(f, b)) hasB = true;
                     }
-                    if (hasA && hasB) {
-                        hit = TopoDS::Edge(efm.FindKey(i));
-                        break;
-                    }
+                    if (!hasA || !hasB) continue;
+                    // DISTINCT-CLAIM (see ChamferOp): fragments of one span
+                    // share the same face-id pair — first-hit collapsed the
+                    // selection onto one edge and starved the rebuild.
+                    bool claimed = false;
+                    for (const auto& u : found)
+                        if (u.IsSame(efm.FindKey(i))) { claimed = true; break; }
+                    if (claimed) continue;
+                    hit = TopoDS::Edge(efm.FindKey(i));
+                    break;
                 }
                 if (hit.IsNull()) { found.clear(); break; }
                 found.push_back(hit);

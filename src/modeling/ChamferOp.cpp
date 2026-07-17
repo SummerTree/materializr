@@ -255,6 +255,7 @@ bool ChamferOp::execute(Document& doc) {
         // adjacent faces' ancestry ids — immune to ordinal drift and to the
         // geometric divergence of a replayed body. All-or-nothing; on miss,
         // fall through to the classic rebind → anchors → topo-refs chain.
+        const char* dbgTier = "rebind";
         bool edgesResolvedByLineage = false;
         if (!m_edgeFaceIdPairs.empty() &&
             m_edgeFaceIdPairs.size() == m_edges.size()) {
@@ -275,10 +276,18 @@ bool ChamferOp::execute(Document& doc) {
                         if (faceHas(f, a)) hasA = true;
                         if (faceHas(f, b)) hasB = true;
                     }
-                    if (hasA && hasB) {
-                        hit = TopoDS::Edge(efm.FindKey(i));
-                        break;
-                    }
+                    if (!hasA || !hasB) continue;
+                    // DISTINCT-CLAIM (EdgeAnchor's rule): fragment edges of
+                    // one span share the SAME face-id pair, so first-hit
+                    // handed every pair the same edge — collapsing a
+                    // 3-fragment selection to 1 and starving the rebuild
+                    // (Steve's "17 works fresh, fails after an edit").
+                    bool claimed = false;
+                    for (const auto& u : found)
+                        if (u.IsSame(efm.FindKey(i))) { claimed = true; break; }
+                    if (claimed) continue;
+                    hit = TopoDS::Edge(efm.FindKey(i));
+                    break;
                 }
                 if (hit.IsNull()) { found.clear(); break; }
                 found.push_back(hit);
@@ -286,6 +295,7 @@ bool ChamferOp::execute(Document& doc) {
             if (found.size() == m_edges.size()) {
                 m_edges = std::move(found);
                 edgesResolvedByLineage = true;
+                dbgTier = "lineage";
             }
         }
 
@@ -297,7 +307,9 @@ bool ChamferOp::execute(Document& doc) {
             !SubShapeIndex::rebindEdges(m_previousShape, m_edges)) {
             // Ordinal/carrier match failed (a sketch dimension edit moved the
             // edges) — re-find them by their sketch feature. See EdgeAnchor.
+            dbgTier = "anchors";
             if (!resolveAnchors(doc, m_previousShape)) {
+                dbgTier = "toporefs";
                 // LAST RESORT: topological names — the boolean-SEAM case,
                 // where anchors fail by construction. Mirrors FilletOp.
                 bool topoOk = false;
@@ -344,6 +356,20 @@ bool ChamferOp::execute(Document& doc) {
                              "upstream\n", m_edges.size(), uniq.size());
                 m_edges = std::move(uniq);
             }
+        }
+        if (std::getenv("MZR_CHAMFER_DBG")) {
+            std::fprintf(stderr, "[chdbg] d=%.2f/%.2f tier=%s edges=%zu:",
+                         m_distance, m_distance2, dbgTier, m_edges.size());
+            for (const auto& e : m_edges) {
+                try {
+                    BRepAdaptor_Curve c(e);
+                    gp_Pnt m = c.Value(
+                        0.5 * (c.FirstParameter() + c.LastParameter()));
+                    std::fprintf(stderr, " (%.2f,%.2f,%.2f)",
+                                 m.X(), m.Y(), m.Z());
+                } catch (...) { std::fprintf(stderr, " (?)"); }
+            }
+            std::fprintf(stderr, "\n");
         }
         if (m_edgeAnchors.empty()) computeAnchors(doc);
         // Topological names, minted with the body's producing ledger in
