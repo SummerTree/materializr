@@ -42,17 +42,17 @@ android {
         targetSdkVersion 35
         // Multi-APK: one ABI per build, chosen with -PtargetAbi=arm64-v8a
         // (default) or -PtargetAbi=x86_64 (Chromebooks / Intel tablets).
-        // Each ABI needs its own versionCode on the Play Store; x86_64 gets
-        // the higher code so x86 devices with ARM translation still receive
-        // the native build.
-        //   -PallAbi  → single build with BOTH ABIs and ONE versionCode, for an
-        //               app bundle (bundleRelease). Play splits per device, so a
-        //               universal AAB replaces the two per-ABI APKs.
+        //   -PallAbi  → single build with BOTH ABIs, for an app bundle
+        //               (bundleRelease). Play splits per device, so the AAB
+        //               replaces the two per-ABI APKs there.
+        // versionCode is UNIFIED across all variants as of 1.5.0 (was
+        // per-ABI 35/36/39 when the APKs themselves went to Play; the
+        // sideload APKs and the AAB now share one code per release).
         def targetAbi = project.hasProperty('targetAbi') ? project.targetAbi
                                                          : 'arm64-v8a'
         def allAbi    = project.hasProperty('allAbi')
         def abiList   = allAbi ? ['arm64-v8a', 'x86_64'] : [targetAbi]
-        versionCode (allAbi ? 40 : (targetAbi == 'x86_64' ? 38 : 37))
+        versionCode 40
         def vName = '1.5.0'
         versionName vName
 
