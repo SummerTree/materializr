@@ -418,3 +418,12 @@ add_executable(test_blend_cut test_blend_cut.cpp)
 target_link_libraries(test_blend_cut PRIVATE materializr_core gtest gtest_main)
 add_test(NAME test_blend_cut COMMAND test_blend_cut)
 
+
+# test_audit_hardening — audit residual-finding fixes: settings clamping and
+# .cfg injection, transactional-on-failure ProjectIO::load, SVG vertex budget
+add_executable(test_audit_hardening test_audit_hardening.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/Settings.cpp
+    ${CMAKE_SOURCE_DIR}/src/modeling/SvgImport.cpp)
+target_link_libraries(test_audit_hardening PRIVATE materializr_core gtest gtest_main
+    TKV3d TKService)
+add_test(NAME test_audit_hardening COMMAND test_audit_hardening)

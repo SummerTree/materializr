@@ -307,7 +307,6 @@ add_executable(materializr
     src/ui/DrawingView.cpp
     src/ui/VersionPanel.cpp
     src/ui/SectionPanel.cpp
-    src/ui/SettingsPanel.cpp
     src/ui/ToastNotification.cpp
     src/ui/ShortcutsPanel.cpp
     src/ui/AboutDialog.cpp
@@ -330,7 +329,6 @@ add_executable(materializr
     src/io/DxfExport.cpp
     src/io/DxfImport.cpp
     src/io/ThreeMfExport.cpp
-    src/io/ImageExport.cpp
     src/io/GltfExport.cpp
     src/io/FileDialogs.cpp
 )

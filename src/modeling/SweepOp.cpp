@@ -1,5 +1,8 @@
 #include "SweepOp.h"
+#include <BRepCheck_Analyzer.hxx>
+#include <BRepGProp.hxx>
 #include <BRepOffsetAPI_MakePipe.hxx>
+#include <GProp_GProps.hxx>
 #include <TopoDS.hxx>
 #include <imgui.h>
 
@@ -26,6 +29,15 @@ bool SweepOp::execute(Document& doc) {
         }
 
         TopoDS_Shape sweptShape = pipe.Shape();
+        // Validate-or-refuse (same gate as BooleanOp/FilletOp/ShellOp): a pipe
+        // along a self-intersecting or degenerate path can report IsDone() yet
+        // produce a null, empty, or topologically invalid shape that would
+        // later crash tessellation/boolean/save.
+        if (sweptShape.IsNull()) return false;
+        GProp_GProps gp;
+        BRepGProp::VolumeProperties(sweptShape, gp);
+        if (gp.Mass() < 1e-6) return false;
+        if (!BRepCheck_Analyzer(sweptShape).IsValid()) return false;
         doc.addOrPutBody(m_createdBodyId, sweptShape, "Sweep");
 
         return true;

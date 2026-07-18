@@ -487,6 +487,13 @@ std::string svgTextRuns(const std::string& inner) {
 }
 
 void expandSvgText(std::string& svg) {
+    // DoS budget: <text> content goes through OCCT glyph tessellation
+    // (Font_BRepTextBuilder), which is heavy per character — an adversarial
+    // file with megabytes of text (or thousands of elements) would otherwise
+    // pin the CPU and balloon the heap while every neighbouring stage
+    // (inlineSvgCss, expandSvgUses) is already budgeted.
+    const size_t kMaxTextChars = 4096; // per <text> element
+    const int    kMaxTextElems = 256;  // rendered elements per file
     std::string result;
     size_t pos = 0;
     int rendered = 0;
@@ -511,6 +518,17 @@ void expandSvgText(std::string& svg) {
         // trim leading/trailing whitespace from the run
         content = cssTrim(content);
         if (content.empty()) continue; // nothing to render
+        if (rendered >= kMaxTextElems) {
+            std::fprintf(stderr, "[SVG] <text> element cap (%d) hit — "
+                         "dropping the rest\n", kMaxTextElems);
+            continue;
+        }
+        if (content.size() > kMaxTextChars) {
+            std::fprintf(stderr, "[SVG] <text> content %zu chars exceeds "
+                         "%zu-char cap — truncating\n",
+                         content.size(), kMaxTextChars);
+            content.resize(kMaxTextChars);
+        }
 
         std::string sx, sy, sfs, fam, weight, style, anchor, fill, transform;
         findAttr(openTag, "x", 0, &sx);
@@ -700,14 +718,22 @@ bool SvgImport::load(const std::string& path, SvgPaths& out) {
     const float ref = std::max(1.0f, std::max(img->width, img->height));
 
     bool haveBB = false;
-    for (NSVGshape* sh = img->shapes; sh; sh = sh->next) {
+    // Global vertex budget: per-segment sampling is capped (sampleCubic), but
+    // nothing else bounds the TOTAL across a file — tens of thousands of path
+    // commands would otherwise flatten into millions of sketch entities and
+    // freeze buildWires/regions/snapping. Generous for real artwork; refused
+    // (not silently truncated) so the user gets honest feedback.
+    const size_t kMaxTotalPts = 500000;
+    size_t totalPts = 0;
+    bool overBudget = false;
+    for (NSVGshape* sh = img->shapes; sh && !overBudget; sh = sh->next) {
         // SVG fills open paths by implicitly closing them to their start (the
         // even-odd / nonzero fill rules act on the implicitly-closed region).
         // The Aperture logo's blades use `d="m... c... l..."` with no `z` and
         // rely on this: visually filled, but nanosvg reports closed=false. We
         // honour the fill semantics so the imported region is closed too.
         const bool filled = (sh->fill.type != NSVG_PAINT_NONE);
-        for (NSVGpath* p = sh->paths; p; p = p->next) {
+        for (NSVGpath* p = sh->paths; p && !overBudget; p = p->next) {
             if (p->npts < 4) continue;
             // Skip paths with non-finite coordinates (a crafted SVG can make
             // nanosvg emit inf/NaN); they'd otherwise poison the bounds and the
@@ -738,6 +764,8 @@ bool SvgImport::load(const std::string& path, SvgPaths& out) {
                 pts.pop_back();
             auto emit = [&](std::vector<glm::vec2> loop, bool isClosed) {
                 if (loop.size() < (isClosed ? 3u : 2u)) return;
+                totalPts += loop.size();
+                if (totalPts > kMaxTotalPts) { overBudget = true; return; }
                 for (const auto& q : loop) {
                     if (!haveBB) { out.bbMin = out.bbMax = q; haveBB = true; }
                     else { out.bbMin = glm::min(out.bbMin, q);
@@ -774,6 +802,11 @@ bool SvgImport::load(const std::string& path, SvgPaths& out) {
     }
     nsvgDelete(img);
 
+    if (overBudget) {
+        std::fprintf(stderr, "[SVG] '%s' exceeds the %zu-vertex budget — "
+                     "too complex, refusing\n", path.c_str(), kMaxTotalPts);
+        return false;
+    }
     if (out.empty()) {
         std::fprintf(stderr, "[SVG] '%s' holds no usable paths\n",
                      path.c_str());

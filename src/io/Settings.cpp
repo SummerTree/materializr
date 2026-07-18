@@ -27,6 +27,19 @@ void readInt(const std::map<std::string, std::string>& kv, const char* key, int&
     try { out = std::stoi(it->second); } catch (...) { /* keep default */ }
 }
 
+// Range-clamped variant for ints that index arrays or select fixed enums —
+// a hand-edited (or injected) out-of-range value must not survive load.
+// orbitButton=99 would otherwise index past ImGui's MouseDown[5] on every
+// drag frame (IM_ASSERT is a no-op under NDEBUG).
+void readIntClamped(const std::map<std::string, std::string>& kv, const char* key,
+                    int& out, int lo, int hi) {
+    int v = out;
+    readInt(kv, key, v);
+    if (v < lo) v = lo;
+    if (v > hi) v = hi;
+    out = v;
+}
+
 void readFloat(const std::map<std::string, std::string>& kv, const char* key, float& out) {
     auto it = kv.find(key);
     if (it == kv.end()) return;
@@ -62,7 +75,7 @@ const char* uiLayoutName(UiLayout l) {
 // loader and the JSON importer so both honour the same keys and tolerance
 // rules (unknown keys ignored, missing keys keep their defaults).
 void applyKv(const std::map<std::string, std::string>& kv, AppSettings& s) {
-    readInt (kv, "theme",                s.theme);
+    readIntClamped(kv, "theme",          s.theme, 0, 1);
     readFloat(kv, "desktopUiScale",      s.desktopUiScale);
     readBool(kv, "touchMode",            s.touchMode);
     // Interface layout. Legacy first (older builds wrote the coupled bool
@@ -87,22 +100,22 @@ void applyKv(const std::map<std::string, std::string>& kv, AppSettings& s) {
     readBool(kv, "imTouchTree",          s.imTouchTree);
     readBool(kv, "imTouchLiteTimeline",  s.imTouchTimeline);  // legacy key
     readBool(kv, "imTouchTimeline",      s.imTouchTimeline);
-    readInt (kv, "touchRightTab",        s.touchRightTab);
+    readIntClamped(kv, "touchRightTab",  s.touchRightTab, 0, 1);
     readFloat(kv, "touchRightW",         s.touchRightW);
     readFloat(kv, "touchRailW",          s.touchRailW);
-    readInt (kv, "orbitButton",          s.orbitButton);
-    readInt (kv, "panButton",            s.panButton);
+    readIntClamped(kv, "orbitButton",    s.orbitButton, 0, 2);
+    readIntClamped(kv, "panButton",      s.panButton,   0, 2);
     readBool(kv, "levelOrbit",           s.levelOrbit);
     readFloat(kv, "mouseSensitivity",    s.mouseSensitivity);
     readBool(kv, "autosaveEnabled",      s.autosaveEnabled);
-    readInt (kv, "autosaveIntervalSec",  s.autosaveIntervalSec);
+    readIntClamped(kv, "autosaveIntervalSec", s.autosaveIntervalSec, 5, 86400);
     readBool(kv, "invertCubeDrag",       s.invertCubeDrag);
     readFloat(kv, "doubleClickTimeSec",  s.doubleClickTimeSec);
     readFloat(kv, "lightAmbient",        s.lightAmbient);
     readBool(kv, "lightHeadlight",       s.lightHeadlight);
     readBool(kv, "lightFill",            s.lightFill);
-    readInt (kv, "msaaSamples",          s.msaaSamples);
-    readInt (kv, "meshQuality",          s.meshQuality);
+    readIntClamped(kv, "msaaSamples",    s.msaaSamples, 0, 8);
+    readIntClamped(kv, "meshQuality",    s.meshQuality, 0, 3);
     readFloat(kv, "selectionLineWidth",  s.selectionLineWidth);
     readFloat(kv, "sketchLineWidth",     s.sketchLineWidth);
     readFloat(kv, "sketchGridOpacity",   s.sketchGridOpacity);
@@ -128,9 +141,9 @@ void applyKv(const std::map<std::string, std::string>& kv, AppSettings& s) {
     readBool(kv, "supporter",            s.supporter);
     readBool(kv, "snapToGrid",           s.snapToGrid);
     readFloat(kv, "sketchGridStep",      s.sketchGridStep); // was written but never read back
-    readInt (kv, "inferenceLevel",       s.inferenceLevel);
+    readIntClamped(kv, "inferenceLevel", s.inferenceLevel, 0, 3);
     readBool(kv, "showInferenceToolbarToggle", s.showInferenceToolbarToggle);
-    readInt (kv, "angleSnapDeg",         s.angleSnapDeg);
+    readIntClamped(kv, "angleSnapDeg",   s.angleSnapDeg, 1, 90);
     readFloat(kv, "stlImportAccuracy",   s.stlImportAccuracy);
     readBool(kv, "meshShowWireframe",    s.meshShowWireframe);
 
@@ -146,6 +159,19 @@ void applyKv(const std::map<std::string, std::string>& kv, AppSettings& s) {
         rp.name = (nit != kv.end() && !nit->second.empty()) ? nit->second : rp.ref;
         s.recentProjects.push_back(rp);
     }
+}
+
+// Strip control characters from a string value before it's written to the
+// `.cfg`. The file format is line-oriented `key = value`; a value carrying an
+// embedded newline (legal in a POSIX filename) would otherwise be re-parsed as
+// extra `key = value` lines on the next load — an injection channel into every
+// other setting. Control chars have no business in a path/name; drop them.
+std::string sanitizeValue(const std::string& v) {
+    std::string out;
+    out.reserve(v.size());
+    for (char c : v)
+        if (static_cast<unsigned char>(c) >= 0x20) out += c;
+    return out;
 }
 
 // Make sure the parent directory of `path` exists. Best-effort: a failure here
@@ -344,11 +370,11 @@ bool SettingsIO::save(const std::string& path, const AppSettings& s) {
     ofs << "showToolbarTooltips = " << (s.showToolbarTooltips ? "true" : "false") << "\n";
     ofs << "showFps = "             << (s.showFps ? "true" : "false") << "\n";
     ofs << "autoOpenLastProject = " << (s.autoOpenLastProject ? "true" : "false") << "\n";
-    ofs << "lastProjectPath = "     << s.lastProjectPath     << "\n";
-    ofs << "lastFileDir = "         << s.lastFileDir         << "\n";
+    ofs << "lastProjectPath = "     << sanitizeValue(s.lastProjectPath) << "\n";
+    ofs << "lastFileDir = "         << sanitizeValue(s.lastFileDir)     << "\n";
     for (size_t i = 0; i < s.recentProjects.size(); ++i) {
-        ofs << "recent" << i << "_ref = "  << s.recentProjects[i].ref  << "\n";
-        ofs << "recent" << i << "_name = " << s.recentProjects[i].name << "\n";
+        ofs << "recent" << i << "_ref = "  << sanitizeValue(s.recentProjects[i].ref)  << "\n";
+        ofs << "recent" << i << "_name = " << sanitizeValue(s.recentProjects[i].name) << "\n";
     }
     ofs << "checkForUpdatesOnLaunch = " << (s.checkForUpdatesOnLaunch ? "true" : "false") << "\n";
     ofs << "includePrereleases = "      << (s.includePrereleases ? "true" : "false") << "\n";

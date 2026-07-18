@@ -123,7 +123,7 @@ radius, length, centre — with totals across a multi-selection).
 control — sketch directly on a scanned part's flat faces) and STL/glTF
 export (Z-up corrected for printing), **sketch → SVG export** (1:1 mm, for
 laser cutters and 2.5D CNC) that round-trips cleanly back into sketches,
-SVG import, PNG viewport export, and a compact native `.materializr`
+SVG import, and a compact native `.materializr`
 format that stores bodies, sketches, and the full history.
 
 ## Known limitations

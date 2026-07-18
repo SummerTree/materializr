@@ -700,8 +700,10 @@ void readSketch(std::istream& ifs, const std::string& startLine, Document& doc) 
 
 } // namespace
 
-ProjectLoadResult ProjectIO::load(const std::string& filePath, Document& doc,
-                                  ProjectHistory* historyOut) {
+namespace {
+
+ProjectLoadResult loadImpl(const std::string& filePath, Document& doc,
+                           ProjectHistory* historyOut) {
     ProjectLoadResult result;
 
     // OCCT BinTools::Read / BRepTools::Read run on untrusted bytes below and throw
@@ -1241,6 +1243,19 @@ ProjectLoadResult ProjectIO::load(const std::string& filePath, Document& doc,
         result.success = false;
         result.errorMessage = "Project load failed: unrecognized error";
     }
+    return result;
+}
+
+} // namespace
+
+ProjectLoadResult ProjectIO::load(const std::string& filePath, Document& doc,
+                                  ProjectHistory* historyOut) {
+    ProjectLoadResult result = loadImpl(filePath, doc, historyOut);
+    // Transactional guarantee: loadImpl clears the document and then mutates
+    // it incrementally, so a mid-parse failure (corrupt/hostile file) would
+    // otherwise hand the caller a silently truncated document. Reset to a
+    // clean empty state so failure is unambiguous — never half a project.
+    if (!result.success) doc.clear();
     return result;
 }
 
