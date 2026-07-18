@@ -31,15 +31,34 @@ with `-DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake`.
 
 ## macOS (Apple Silicon)
 
+Do **not** `brew install sdl2`: Homebrew's `sdl2` formula is now an alias for
+[`sdl2-compat`](https://github.com/libsdl-org/sdl2-compat), an SDL3-backed shim
+whose dylib initializer aborts before `main()` when bundled into the `.app`
+(issue #12). Build real SDL2 from source instead, the same way CI does:
+
 ```sh
-brew install cmake opencascade sdl2
-cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$(brew --prefix)"
+brew install cmake opencascade
+
+# SDL 2.30.9 from source (matches .github/workflows/macos.yml and the Android
+# pin). MACOSX_DEPLOYMENT_TARGET=14.0 keeps a packaged .dmg loadable on
+# macOS 14+ while still compiling against the current SDK.
+curl -L --fail -o /tmp/sdl2.tar.gz \
+  https://github.com/libsdl-org/SDL/releases/download/release-2.30.9/SDL2-2.30.9.tar.gz
+echo "24b574f71c87a763f50704bbb630cbe38298d544a1f890f099a4696b1d6beba4  /tmp/sdl2.tar.gz" | shasum -a 256 -c -
+tar -xzf /tmp/sdl2.tar.gz -C /tmp
+cmake -S /tmp/SDL2-2.30.9 -B /tmp/sdl2-build -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 -DCMAKE_INSTALL_PREFIX="$HOME/sdl2-prefix"
+cmake --build /tmp/sdl2-build -j$(sysctl -n hw.ncpu)
+cmake --install /tmp/sdl2-build
+
+cmake -B build -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_PREFIX_PATH="$HOME/sdl2-prefix;$(brew --prefix)"
 cmake --build build -j$(sysctl -n hw.ncpu)
 ./build/materializr
 ```
 
 Needs the Xcode Command Line Tools (`xcode-select --install`) for AppleClang.
-GLM and Dear ImGui are fetched by CMake; OpenCASCADE and SDL2 come from Homebrew,
+GLM and Dear ImGui are fetched by CMake; OpenCASCADE comes from Homebrew,
 and curl + zlib from the macOS SDK. The GL backend uses the system OpenGL
 framework (`<OpenGL/gl3.h>`) — no GLEW loader — with a forward-compatible **3.3
 Core** context running the same GLSL 330 shaders as the other desktop targets.
@@ -56,10 +75,11 @@ quarantined, so the first launch needs **System Settings ▸ Privacy & Security 
 "Open Anyway"** (macOS 15 removed the old right-click ▸ Open bypass), or
 `xattr -dr com.apple.quarantine Materializr.app`.
 
-The bundled Homebrew dylibs are built for the macOS they were compiled on, so a
+The bundled dylibs are built for the macOS they were compiled on, so a
 locally built `.dmg` requires that macOS or newer — the script writes the true
-floor into `LSMinimumSystemVersion`. CI builds on the `macos-14` runner, so the
-released `.dmg` targets **macOS 14+**; it is built, the bundle is launch-tested,
+floor into `LSMinimumSystemVersion`. CI builds on the latest macOS runner with
+SDL2 source-built at `MACOSX_DEPLOYMENT_TARGET=14.0`, so the released `.dmg`
+targets **macOS 14+**; it is built, the bundle is launch-tested,
 and the artifact uploaded on pushes to `main` (`.github/workflows/macos.yml`).
 Not yet wired up: Intel/universal binaries and Developer-ID signing/notarization.
 
