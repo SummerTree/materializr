@@ -277,7 +277,8 @@ static void writeSketchBody(std::ostream& os, const Sketch& sk, int sketchId,
     for (const auto& c : cs) {
         os << "CONSTRAINT " << c.id << " " << static_cast<int>(c.type)
            << " " << c.entityA << " " << c.entityB
-           << " " << c.value << " " << c.valueY << "\n";
+           << " " << c.value << " " << c.valueY
+           << " " << c.labelOffX << " " << c.labelOffY << "\n";
     }
 
     os << "SKETCH_END\n";

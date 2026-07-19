@@ -661,22 +661,9 @@ void parseSketchBodyImpl(std::istream& ifs, materializr::Sketch& sk,
                 // Label offsets are trailing optional fields (since the
                 // dimension tool); legacy 6-field K lines default to auto
                 // placement.
-                c.labelOffX = 0.0;
-                c.labelOffY = 0.0;
-                // Extract offsets from end of line if present (8+ fields total)
-                std::istringstream tokens_counter(line);
-                std::string token;
-                int token_count = 0;
-                while (tokens_counter >> token) token_count++;
-                // If we have 9 tokens (K + 8 fields), read the last 2 as offsets
-                if (token_count >= 9) {
-                    // Re-parse to get the last two values
-                    std::istringstream parse_again(line);
-                    std::string dummy;
-                    int dummy_int;
-                    double dummy_val;
-                    parse_again >> dummy >> dummy_int >> dummy_int >> dummy_int >> dummy_int
-                                >> dummy_val >> dummy_val >> c.labelOffX >> c.labelOffY;
+                if (!(s >> c.labelOffX >> c.labelOffY)) {
+                    c.labelOffX = 0.0;
+                    c.labelOffY = 0.0;
                 }
                 c.isSatisfied = false;
                 maxConstraintId = std::max(maxConstraintId, c.id);
@@ -1385,7 +1372,8 @@ void ProjectIO::writeSketchBody(std::ostream& os, const Sketch& sk) {
     for (const auto& c : cns)
         os << "K " << c.id << " " << static_cast<int>(c.type) << " "
            << c.entityA << " " << c.entityB << " "
-           << c.value << " " << c.valueY << "\n";
+           << c.value << " " << c.valueY << " "
+           << c.labelOffX << " " << c.labelOffY << "\n";
 
     os << "SKETCH_END\n";
 }

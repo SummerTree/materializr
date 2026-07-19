@@ -139,53 +139,61 @@ TEST(DimensionPersistence, KLineRoundTripsTypeAndLabelOffsets) {
 }
 
 TEST(DimensionPersistence, LegacySixFieldKLineDefaultsOffsetsToZero) {
-    // Save with the new writer, then truncate every K line back to the legacy
-    // 6-field form and reload — offsets must default to 0, load must succeed.
-    Document doc;
-    auto sk = std::make_shared<Sketch>();
-    int a = sk->addPoint({0.0f, 0.0f});
-    int b = sk->addPoint({4.0f, 0.0f});
-    sk->addLine(a, b);
+    // Legacy (pre-offset) K lines carry 6 fields; parseSketchBody must
+    // default offsets to 0 and still load the constraint.
+    std::string body =
+        "PLANE 0 0 0 0 0 1 1 0 0 0 1 0\n"
+        "POINT_COUNT 2\n"
+        "P 1 0 0 0 0\n"
+        "P 2 4 0 0 0\n"
+        "LINE_COUNT 1\n"
+        "L 3 1 2 0 0\n"
+        "CIRCLE_COUNT 0\n"
+        "ARC_COUNT 0\n"
+        "SPLINE_COUNT 0\n"
+        "POLYGON_COUNT 0\n"
+        "CONSTRAINT_COUNT 1\n"
+        "K 4 3 1 2 4 0\n"          // 6 fields, no offsets — ConstraintType 3 = Distance
+        "SKETCH_END\n";
+    std::istringstream is(body);
+    Sketch sk;
+    materializr::ProjectIO::parseSketchBody(is, sk, "SKETCH_END");
+    ASSERT_EQ(sk.getConstraints().size(), 1u);
+    EXPECT_EQ(sk.getConstraints()[0].type, ConstraintType::Distance);
+    EXPECT_DOUBLE_EQ(sk.getConstraints()[0].value, 4.0);
+    EXPECT_DOUBLE_EQ(sk.getConstraints()[0].labelOffX, 0.0);
+    EXPECT_DOUBLE_EQ(sk.getConstraints()[0].labelOffY, 0.0);
+}
+
+TEST(DimensionPersistence, WriteSketchBodyPreservesLabelOffsets) {
+    // writeSketchBody is used by SketchEditOp for undo/redo snapshots.
+    // Verify that label offsets roundtrip through it.
+    Sketch sk;
+    int a = sk.addPoint({0.0f, 0.0f});
+    int b = sk.addPoint({10.0f, 0.0f});
+    int ln = sk.addLine(a, b);
+    int p = sk.addPoint({5.0f, 3.0f});
     Constraint c{};
-    c.type = ConstraintType::Distance;
-    c.entityA = a;
-    c.entityB = b;
-    c.value = 4.0;
-    c.labelOffX = 9.0; // will be stripped below
-    c.labelOffY = 9.0;
-    sk->addConstraint(c);
-    doc.addSketch(sk, "legacy");
+    c.type = ConstraintType::DistancePointLine;
+    c.entityA = p;
+    c.entityB = ln;
+    c.value = 3.0;
+    c.labelOffX = 2.5;
+    c.labelOffY = -1.75;
+    sk.addConstraint(c);
 
-    std::string path = tmpProjectPath("dim_legacy.mzr");
-    ASSERT_TRUE(ProjectIO::save(path, doc).success);
+    // Serialize via writeSketchBody
+    std::stringstream ss;
+    materializr::ProjectIO::writeSketchBody(ss, sk);
 
-    // Strip trailing fields from K lines: keep "K id type eA eB value valueY".
-    std::ifstream in(path);
-    std::stringstream out;
-    std::string line;
-    while (std::getline(in, line)) {
-        if (line.rfind("K ", 0) == 0) {
-            std::istringstream ls(line);
-            std::string tok, kept;
-            for (int i = 0; i < 7 && (ls >> tok); ++i) { // "K" + 6 fields
-                if (i) kept += ' ';
-                kept += tok;
-            }
-            out << kept << '\n';
-        } else {
-            out << line << '\n';
-        }
-    }
-    in.close();
-    std::ofstream ow(path, std::ios::trunc);
-    ow << out.str();
-    ow.close();
+    // Deserialize via parseSketchBody
+    Sketch loaded;
+    materializr::ProjectIO::parseSketchBody(ss, loaded, "SKETCH_END");
 
-    Document loaded;
-    ASSERT_TRUE(ProjectIO::load(path, loaded).success);
-    std::remove(path.c_str());
-    auto lsk = loaded.getSketch(loaded.getAllSketchIds()[0]);
-    ASSERT_EQ(lsk->getConstraints().size(), 1u);
-    EXPECT_DOUBLE_EQ(lsk->getConstraints()[0].labelOffX, 0.0);
-    EXPECT_DOUBLE_EQ(lsk->getConstraints()[0].labelOffY, 0.0);
+    ASSERT_EQ(loaded.getConstraints().size(), 1u);
+    const Constraint& lc = loaded.getConstraints()[0];
+    EXPECT_EQ(lc.type, ConstraintType::DistancePointLine);
+    EXPECT_DOUBLE_EQ(lc.value, 3.0);
+    EXPECT_DOUBLE_EQ(lc.labelOffX, 2.5);
+    EXPECT_DOUBLE_EQ(lc.labelOffY, -1.75);
 }
