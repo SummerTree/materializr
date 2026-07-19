@@ -5,7 +5,7 @@ speed up debugging and navigation. It is organised top-down: a high-level
 architecture overview and the cross-cutting patterns first, then a
 directory-by-directory file reference, then a "where do I look if…" index.
 
-> Roughly 67k lines of C++17 across ~250 files in `src/`. The geometry kernel is
+> Roughly 105k lines of C++17 across ~320 files in `src/`. The geometry kernel is
 > [OpenCASCADE](https://dev.opencascade.org/) (OCCT); the UI is Dear ImGui on an
 > SDL2 + OpenGL (Core on desktop, ES 3.0 on Android) backend.
 
@@ -28,7 +28,7 @@ The code is layered. Higher layers depend on lower ones, not the reverse:
         │            src/core/       Document, History, Selection, events
         │
  View + IO           src/viewport/   renderers, picking, camera, gizmo
-                     src/io/         load/save, STEP/STL/IGES/glTF/SVG/PNG
+                     src/io/         load/save, STEP/STL/IGES/glTF/SVG/DXF/OBJ/3MF/BREP
 ```
 
 **Data flow for a typical edit:** a plugin's toolbar action (or an interactive
@@ -93,7 +93,7 @@ viewport+popup plumbing call `ctx.requestInteractiveOp("name")`; the host picks
 it up next frame (see interactive controllers).
 
 > **`src/plugin/` (singular)** = the plugin *infrastructure*.
-> **`src/plugins/` (plural)** = the ~28 actual feature plugins.
+> **`src/plugins/` (plural)** = the ~33 actual feature plugins.
 
 ### EventBus (`src/core/EventBus.h`, `src/core/Events.h`)
 A typed publish/subscribe bus decouples producers from the host. Events include
@@ -161,6 +161,7 @@ apply this conversion so parts stand up correctly for printing.
 | `VariableManager.{cpp,h}` | Named user variables/parameters usable in dimensions. |
 | `VersionManager.{cpp,h}` | In-project version snapshots + auto-save. |
 | `Material.{cpp,h}` | Material/appearance definitions for bodies. |
+| `NumFormat.h` | Shared numeric formatting helpers for UI labels/fields. |
 | `Verbose.{cpp,h}` | `--verbose` logging plumbing. |
 
 ### `src/modeling/` — the geometry operations & sketch engine
@@ -184,15 +185,18 @@ The heart of the kernel-facing code. Grouped by role:
 | File | Purpose |
 |---|---|
 | `PrimitiveOp.{cpp,h}` | Box / Cylinder / Sphere / Cone / Torus (Z-up authored). |
-| `ExtrudeOp.{cpp,h}` | Extrude a sketch region into a solid (carries `ExtrudeMode`). |
+| `ExtrudeOp.{cpp,h}` | Extrude a sketch region into a solid (carries `ExtrudeMode`); remembers its regions for the sketch-edit cascade. |
 | `RevolveOp.{cpp,h}` | Spin a profile around an axis — UI "Lathe" (sketch) / "Revolve" (body). |
-| `LoftOp.{cpp,h}` · `SweepOp.{cpp,h}` | Loft between profiles / sweep a profile along a path. |
+| `LoftOp.{cpp,h}` · `SweepOp.{cpp,h}` | Loft between profiles (N sections) / sweep a profile along a path (dormant — no UI, replay-only). |
+| `GuidedLoftOp.{cpp,h}` | Loft steered by guide curves. |
+| `BoundaryFillOp.{cpp,h}` | Fill a closed boundary of faces/edges into a solid. |
 
 **Modify / feature**
 | File | Purpose |
 |---|---|
 | `PushPullOp.{cpp,h}` | Push/pull a face (both directions, snapshot preview engine). |
-| `FilletOp.{cpp,h}` · `ChamferOp.{cpp,h}` | Edge blends / bevels (asymmetric chamfer supported). |
+| `FilletOp.{cpp,h}` · `ChamferOp.{cpp,h}` | Edge blends / bevels (asymmetric chamfer supported); native OCCT build first, escalating fallbacks after. |
+| `BlendCut.{cpp,h}` | Cut-based blend fallback: sweep the blend cross-section along the edge and subtract, for edges a surface feature crosses (#55). |
 | `ShellOp.{cpp,h}` | Hollow a body removing a face. |
 | `ThreadOp.{cpp,h}` | Validated internal/external screw threads (per-turn dual-family engine). |
 | `DefeatureOp.{cpp,h}` | Remove features/faces from a body. |
@@ -209,6 +213,7 @@ The heart of the kernel-facing code. Grouped by role:
 |---|---|
 | `BooleanOp.{cpp,h}` | Cut/Fuse/Common with escalating fuzzy + `BRepCheck_Analyzer` validity gate; multi-target Subtract with keep-tool. |
 | `SplitBodyOp.{cpp,h}` | Split a body by a plane. |
+| `SeparateBodyOp.{cpp,h}` | Split a body's disconnected solids into individual bodies. |
 
 **Transform / placement / arrange**
 | File | Purpose |
@@ -229,6 +234,8 @@ The heart of the kernel-facing code. Grouped by role:
 | `OperationFactory.{cpp,h}` | typeId → fresh op, for re-editable reloaded history. |
 | `ReplayOp.{cpp,h}` | Baked geometry-replay fallback for ops that can't yet rehydrate. |
 | `SubShapeIndex.{cpp,h}` | Map ops to the sub-shapes (faces/edges) they generated. |
+| `FaceLineage.{cpp,h}` | Face → ancestry-id map (topological naming): which op made a face, surviving downstream splits/merges (#49/#51). |
+| `FaceSurfSig.h` | Geometric "same underlying surface?" test — tells created faces from re-trimmed ones for history-hover highlights. |
 
 > Note: there is **no** `RotateOp` — rotation goes through `TransformOp` /
 > `AxisTransformOp` driven by the gizmo. (The old map listed one in error.)
@@ -236,13 +243,18 @@ The heart of the kernel-facing code. Grouped by role:
 ### `src/io/` — persistence & exchange
 | File | Purpose |
 |---|---|
-| `ProjectIO.{cpp,h}` | Native `.materializr` save/load (v3 gzip format): bodies, sketches, full op history. |
-| `Settings.{cpp,h}` | Persisted app settings (incl. `--safe-mode` recovery). |
+| `ProjectIO.{cpp,h}` | Native `.mzr` / `.materializr` save/load (v3 gzip format): bodies, sketches, full op history. Transactional on failure — a bad file leaves an empty document. |
+| `ProjectRecovery.{cpp,h}` | Crash-recovery autosave of the whole project (quiescence-debounced) + restore prompt. |
+| `Settings.{cpp,h}` | Persisted app settings (incl. `--safe-mode` recovery); ints clamped and strings sanitized on the `.cfg` round trip. |
 | `SketchRecovery.{cpp,h}` | Draft autosave sidecar + restore prompt for an uncommitted sketch. |
-| `StepIO.{cpp,h}` · `IgesIO.{cpp,h}` | STEP / IGES import + export. |
-| `StlExport.{cpp,h}` · `GltfExport.{cpp,h}` | STL / glTF export (Z-up corrected). |
+| `StepIO.{cpp,h}` · `IgesIO.{cpp,h}` | STEP / IGES import + export (IGES applies the Y-up/Z-up conversion). |
+| `BrepIO.{cpp,h}` | OCCT BREP import + export (exact geometry, no tessellation). |
+| `StlIO.{cpp,h}` · `StlExport.{cpp,h}` · `GltfExport.{cpp,h}` | STL import / STL / glTF export (Z-up corrected). |
+| `MeshDecimate.{cpp,h}` | Mesh simplification for imported STL. |
+| `ObjExport.{cpp,h}` · `ThreeMfExport.{cpp,h}` | OBJ / 3MF export. |
 | `SvgExport.{cpp,h}` | Sketch → SVG at 1:1 mm (laser / 2.5D CNC). |
-| `ImageExport.{cpp,h}` | PNG viewport export. |
+| `DxfExport.{cpp,h}` · `DxfImport.{cpp,h}` | Sketch → DXF export / DXF → sketch import (laser/CNC profiles). |
+| `ImageDecode.{cpp,h}` | PNG/JPEG decode (stb_image) for reference images. |
 | `FileDialogs.{cpp,h}` | Native open/save dialog wrapper (scrubs AppImage env when spawning). |
 | `portable-file-dialogs.h` | Vendored single-header native-dialog bridge. |
 
@@ -254,7 +266,6 @@ The heart of the kernel-facing code. Grouped by role:
 | `HistoryPanel.{cpp,h}` | History tree, Today/Yesterday/date buckets, Apply-changes. |
 | `ItemsPanel.{cpp,h}` | Bodies / folders / sketches / planes / axes tree. |
 | `MaterialPanel.{cpp,h}` | Material assignment. |
-| `SettingsPanel.{cpp,h}` | Settings UI. |
 | `MeasureTool.{cpp,h}` | Measurement tool + panel. |
 | `SectionPanel.{cpp,h}` | Section View controls. |
 | `VariablePanel.{cpp,h}` | User variable editor. |
@@ -283,6 +294,7 @@ The heart of the kernel-facing code. Grouped by role:
 | `AxisRenderer.{cpp,h}` · `PlaneRenderer.{cpp,h}` | Construction axes / planes draw. |
 | `ViewCube.{cpp,h}` | Orientation cube. |
 | `SectionView.{cpp,h}` | Shader clip plane + section-curve overlay. |
+| `RefImageRenderer.{cpp,h}` | Reference-image planes in the viewport (textured quads, opacity). |
 | `BackgroundRenderer.{cpp,h}` | Gradient/background pass. |
 | `PBRShaders.h` | Embedded PBR shader sources. |
 
@@ -303,14 +315,15 @@ from being stripped.
 | `CoreCommandsPlugin.cpp` | New/Open/Save/Undo/Redo and core menu items. |
 | `SketchPlugin.cpp` | Start-sketch + the sketch toolset. |
 | `ExtrudePlugin.cpp` · `PushPullPlugin.cpp` | Extrude / push-pull. |
-| `RevolvePlugin.cpp` · `LoftPlugin.cpp` | Lathe/Revolve / Loft. |
+| `RevolvePlugin.cpp` · `LoftPlugin.cpp` | Lathe/Revolve / Loft (incl. guided + N-section). |
+| `BoundaryFillPlugin.cpp` · `RefImagePlugin.cpp` | Boundary Fill / reference-image import + overlay. |
 | `FilletPlugin.cpp` · `ChamferPlugin.cpp` · `ShellPlugin.cpp` | Fillet / chamfer / shell. |
 | `BooleanPlugin.cpp` | Subtract (multi-target modal) / Union / Intersect. |
 | `SplitBodyPlugin.cpp` · `MirrorPlugin.cpp` · `PatternPlugin.cpp` | Split / mirror / Linear+Circular pattern. |
 | `PrimitivesPlugin.cpp` | Box/Cylinder/Sphere/Cone/Torus buttons. |
 | `TransformPlugin.cpp` · `GizmoDragPlugin.cpp` · `CopyPlugin.cpp` · `DeletePlugin.cpp` | Move/Rotate / gizmo-drag → TransformOp / copy / delete. |
 | `ConstructionPlanePlugin.cpp` · `ConstructionAxisPlugin.cpp` | Add Plane… / Add Axis + their render passes. |
-| `StepIOPlugin.cpp` · `IgesIOPlugin.cpp` · `StlExportPlugin.cpp` · `GltfExportPlugin.cpp` · `SvgImportPlugin.cpp` · `ImageExportPlugin.cpp` | IO-format contributions. |
+| `StepIOPlugin.cpp` · `IgesIOPlugin.cpp` · `BrepIOPlugin.cpp` · `StlImportPlugin.cpp` · `StlExportPlugin.cpp` · `GltfExportPlugin.cpp` · `SvgImportPlugin.cpp` · `DxfImportPlugin.cpp` · `ObjExportPlugin.cpp` · `ThreeMfExportPlugin.cpp` | IO-format contributions. |
 | `TutorialPlugin.cpp` | Onboarding overlay (non-modal). |
 | `ForceLink.cpp` | Calls every plugin's force-link symbol. |
 
@@ -318,6 +331,7 @@ from being stripped.
 | File | Purpose |
 |---|---|
 | `nanosvg.h` | Vendored SVG parser used by SVG import. |
+| `stb_image.h` | Vendored image decoder (PNG/JPEG…) behind `ImageDecode` for reference images. |
 
 ---
 

@@ -1,7 +1,7 @@
 # Materializr
 
 **Open-source parametric 3D CAD for makers** — constraint sketches, solid
-modeling, threads, SVG & text engraving, STL/STEP/SVG export.
+modeling, threads, SVG & text engraving, STEP/STL/SVG/DXF/OBJ/3MF exchange.
 
 > **📱 Now on Android and iPad:** Materializr runs on Android (arm64-v8a) and
 > **iPad — [get it on the App Store](https://apps.apple.com/us/app/materializr/id6787741207)** —
@@ -85,11 +85,14 @@ SketchUp-style inference snapping (endpoints, midpoints, perpendicular,
 tangent, 15° increments) and opt-in dimensions & constraints. **Text** as
 real outline geometry (three bundled fonts) and **SVG import** with live
 placement preview — both become ordinary closed regions you can extrude.
+Drop a **reference image** into the viewport and model against it.
 
 **Model** — push/pull, extrude, **lathe** (spin a sketch profile around an
 axis into a solid), **revolve** (rotate a body around an axis — watch a fan
-spin or a hinge open), loft, booleans, fillet/chamfer, shell, mirror,
-linear & circular patterns, split. Drop in a **primitive** (box,
+spin or a hinge open), loft (N sections, plus **guided loft** steered by
+guide curves), **boundary fill**, booleans, fillet/chamfer, shell, mirror,
+linear & circular patterns, split, and **separate** (break a body's
+disconnected solids into individual bodies). Drop in a **primitive** (box,
 cylinder, sphere, cone, torus) when that's the faster start. Direct face
 editing: **taper** (draft), **scale face** (pinch a wing tip into a winglet),
 **twist a face** about its normal to spiral the walls, edit a hole or boss to
@@ -119,12 +122,13 @@ live preview and a tour that teaches the app in the layout you picked.
 Select any face, edge or vertex for instant measurement readouts (area,
 radius, length, centre — with totals across a multi-selection).
 
-**Exchange** — STEP and IGES import/export, **STL import** (with accuracy
-control — sketch directly on a scanned part's flat faces) and STL/glTF
-export (Z-up corrected for printing), **sketch → SVG export** (1:1 mm, for
-laser cutters and 2.5D CNC) that round-trips cleanly back into sketches,
-SVG import, and a compact native `.materializr`
-format that stores bodies, sketches, and the full history.
+**Exchange** — STEP, IGES and **BREP** import/export, **STL import** (with
+accuracy control — sketch directly on a scanned part's flat faces),
+STL/glTF/**OBJ**/**3MF** export (Z-up corrected for printing), **sketch →
+SVG and DXF export** (1:1 mm, for laser cutters and 2.5D CNC) that
+round-trip cleanly back into sketches, SVG and **DXF import**, and a
+compact native **`.mzr`** format (`.materializr` still opens) that stores
+bodies, sketches, and the full history.
 
 ## Known limitations
 
@@ -146,16 +150,18 @@ up front:
   threading is a terminal finishing step. (Re-threading is cheap now — the
   1.4.0 swept engine builds threads near-instantly.)
 
-- **Chamfering an edge that meets a fillet fails.** If a chamfer's edge runs
-  into a rounded (filleted) edge, the operation is refused where the chamfer and
-  the swept fillet surface intersect — there's no tolerance setting that rescues
-  it. *Why:* it's an upstream limit in OpenCASCADE's chamfer builder, not
-  something a knob fixes. *Workaround:* cut the chamfer with a sketch instead, or
-  chamfer the edge before you fillet its neighbour.
+- **Chamfering an edge that meets a fillet can still fail.** 1.5.0 added a
+  **cut-based fallback** (the blend's cross-section is swept along the edge
+  and subtracted) that rescues many cases OpenCASCADE's native chamfer
+  builder refuses — including edges crossed by holes and pockets — but it
+  covers straight, convex, planar-walled edges; where it doesn't apply the
+  operation is still refused rather than producing garbage. *Workaround
+  when refused:* cut the chamfer with a sketch, or chamfer the edge before
+  you fillet its neighbour.
 
-Topological naming landed in 1.4.0 and keeps shrinking the first case; the
-chamfer/fillet case is an upstream OpenCASCADE limit we're tracking for a
-cut-based fallback. All three are on the roadmap.
+Topological naming landed in 1.4.0 (and 1.5.0's face lineage extends it
+through boolean splits), which keeps shrinking the first case. All three are
+on the roadmap.
 
 ## Documentation
 
