@@ -1794,6 +1794,9 @@ void Application::handleToolAction(int action) {
         case ToolAction::Trim:
             if (m_inSketchMode) m_sketchTool->setMode(SketchToolMode::Trim);
             break;
+        case ToolAction::SketchDimension:
+            if (m_inSketchMode) m_sketchTool->setMode(SketchToolMode::Dimension);
+            break;
         case ToolAction::SketchText:
             if (m_inSketchMode) {
                 // First activation: default to the UI font (always bundled).

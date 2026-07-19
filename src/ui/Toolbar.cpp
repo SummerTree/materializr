@@ -123,7 +123,7 @@ std::vector<Toolbar::RailTool> Toolbar::railTools() const {
     };
 
     if (m_sketchMode) {
-        // SketchToolMode ints per setActiveSketchMode(): 1=Select … 8=Trim.
+        // SketchToolMode ints per setActiveSketchMode(): 1=Select … 8=Trim, 12=Dimension.
         add(MZ_ICON_SELECT,  "Select",  ToolAction::SelectSketch, m_activeSketchMode == 1,
             "Pick sketch elements (points, lines, regions). Drag a selection to move it.");
         add(MZ_ICON_LINE,    "Line",    ToolAction::Line,         m_activeSketchMode == 2,
@@ -159,6 +159,9 @@ std::vector<Toolbar::RailTool> Toolbar::railTools() const {
             "width in the popup, tap to place.");
         add(MZ_ICON_TRIM,    "Trim",    ToolAction::Trim,         m_activeSketchMode == 8,
             "Trim a sketch segment at its nearest intersections.");
+        add(MZ_ICON_MEASURE, "Dimension", ToolAction::SketchDimension,
+            m_activeSketchMode == 12,
+            "Dimension: tap entities, tap to place the label, type the value.");
         // Sketch-element transforms — mirror the classic sketch toolbar so all
         // three layouts behave identically. Like classic, they're always here
         // in a sketch and simply no-op if nothing is selected. (The rail
@@ -648,6 +651,9 @@ ToolAction Toolbar::renderSketchTools() {
         "extrude a logo or engrave it onto a face.");
     if (skBtn("Trim",      8))     action = ToolAction::Trim;
     tip("Trim a sketch segment at the nearest intersections.");
+    if (skBtn("Dimension", 12))    action = ToolAction::SketchDimension;
+    tip("Dimension tool (D): click a line, circle, point pair, or two lines, "
+        "place the label, then type the value.");
 
     // Transforms operate on the current sketch-element selection (Select tool +
     // click/Ctrl+click on points and lines). No-op if nothing is selected.
