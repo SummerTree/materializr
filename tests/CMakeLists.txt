@@ -464,3 +464,10 @@ add_test(NAME test_audit_hardening COMMAND test_audit_hardening)
 add_executable(test_brepio_dos test_brepio_dos.cpp)
 target_link_libraries(test_brepio_dos PRIVATE materializr_core gtest gtest_main)
 add_test(NAME test_brepio_dos COMMAND test_brepio_dos)
+
+# test_sketch_dimension — DistancePointLine solver, dimension pair resolution,
+# and K-line label-offset persistence (Onshape-style dimension tool).
+add_executable(test_sketch_dimension test_sketch_dimension.cpp)
+target_link_libraries(test_sketch_dimension PRIVATE materializr_core gtest gtest_main)
+add_test(NAME test_sketch_dimension COMMAND test_sketch_dimension)
+

@@ -66,6 +66,9 @@ bool SketchSolver::solve(Sketch& sketch, int maxIterations, double tolerance) {
             case ConstraintType::Angle:
                 numEquations += 1; // one angle equation between two lines
                 break;
+            case ConstraintType::DistancePointLine:
+                numEquations += 1;
+                break;
         }
     }
 
@@ -349,6 +352,27 @@ double SketchSolver::computeError(const Constraint& c, const Sketch& sketch) con
             while (diff >  M_PI) diff -= TWO_PI;
             while (diff < -M_PI) diff += TWO_PI;
             return diff;
+        }
+
+        case ConstraintType::DistancePointLine: {
+            // entityA = point id, entityB = line id. Distance is to the
+            // line's INFINITE carrier, matching how CAD dimensions read.
+            const SketchPoint* p = sketch.getPoint(c.entityA);
+            if (!p) return 0.0;
+            for (const auto& line : sketch.getLines()) {
+                if (line.id != c.entityB) continue;
+                const SketchPoint* a = sketch.getPoint(line.startPointId);
+                const SketchPoint* b = sketch.getPoint(line.endPointId);
+                if (!a || !b) return 0.0;
+                glm::vec2 dir = b->pos - a->pos;
+                float len = glm::length(dir);
+                if (len < 1e-10f) return 0.0; // degenerate line: inert, no NaN
+                glm::vec2 rel = p->pos - a->pos;
+                double dist = std::abs(static_cast<double>(dir.x) * rel.y -
+                                       static_cast<double>(dir.y) * rel.x) / len;
+                return dist - c.value;
+            }
+            return 0.0;
         }
     }
 
@@ -637,6 +661,30 @@ void SketchSolver::applyCorrection(const Constraint& c, Sketch& sketch, double e
             float lenB = glm::length(epB->pos - spB->pos);
             glm::vec2 newDir(std::cos(targetAng), std::sin(targetAng));
             sketch.movePoint(lineB->endPointId, spB->pos + newDir * lenB);
+            break;
+        }
+
+        case ConstraintType::DistancePointLine: {
+            const SketchPoint* p = sketch.getPoint(c.entityA);
+            if (!p) return;
+            for (const auto& line : sketch.getLines()) {
+                if (line.id != c.entityB) continue;
+                const SketchPoint* a = sketch.getPoint(line.startPointId);
+                const SketchPoint* b = sketch.getPoint(line.endPointId);
+                if (!a || !b) return;
+                glm::vec2 dir = b->pos - a->pos;
+                float len = glm::length(dir);
+                if (len < 1e-10f) return;
+                dir /= len;
+                glm::vec2 n(-dir.y, dir.x); // unit normal
+                float s = glm::dot(p->pos - a->pos, n); // signed distance
+                if (s < 0.0f) { n = -n; s = -s; }       // n points line → point
+                float corr = (static_cast<float>(c.value) - s) * 0.5f;
+                sketch.movePoint(c.entityA, p->pos + n * corr);
+                sketch.movePoint(line.startPointId, a->pos - n * corr);
+                sketch.movePoint(line.endPointId,   b->pos - n * corr);
+                return;
+            }
             break;
         }
     }
