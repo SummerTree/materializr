@@ -294,6 +294,17 @@ TEST(DimensionResolve, ParallelLinesGiveDistance_NonParallelGiveAngle) {
     EXPECT_NEAR(ra.measured, 30.0 * 3.14159265358979 / 180.0, 1e-4); // signed, B rel A
 }
 
+TEST(DimensionResolve, AntiParallelLinesGiveDistance) {
+    // 179.5° apart folds to 0.5° — inside the parallel threshold.
+    DimFixture f(179.5f);
+    auto r = SketchTool::resolveDimension(f.sk, pick(DimEntityKind::Line, f.lnAB),
+                                          pick(DimEntityKind::Line, f.lnCD));
+    ASSERT_TRUE(r.valid);
+    EXPECT_EQ(r.type, ConstraintType::DistancePointLine);
+    EXPECT_EQ(r.entityA, f.pC);
+    EXPECT_EQ(r.entityB, f.lnAB);
+}
+
 TEST(DimensionResolve, InvalidCombosAreInvalid) {
     Sketch sk;
     int c = sk.addPoint({0.0f, 0.0f});

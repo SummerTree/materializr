@@ -3145,10 +3145,11 @@ DimPick SketchTool::hitTestDimEntity(glm::vec2 pos) const {
     if (!m_sketch) return out;
     int nearPt = findCoincidentPoint(pos, -1);
     if (nearPt >= 0) {
-        // Text glyph geometry is not dimensionable.
+        // Text glyph geometry is not dimensionable — fall through and let a
+        // real line/circle/arc at this position win instead (a fromText hit
+        // must not abort the whole hit test).
         const SketchPoint* p = m_sketch->getPoint(nearPt);
-        if (p && !p->fromText) { out = {DimEntityKind::Point, nearPt}; }
-        return out;
+        if (p && !p->fromText) return {DimEntityKind::Point, nearPt};
     }
     const float tol = std::max(m_gridStep * 0.5f, 0.5f) * snapScale();
     // Lines (segment distance), skipping fromText — same math as handleSelectTool.
