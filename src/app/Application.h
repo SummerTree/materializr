@@ -666,6 +666,16 @@ private:
     // next frame — OpenPopup only works when called from the window that
     // owns the popup's ID stack, which the app-level commit path isn't in.
     bool m_dimOpenEditRequested = false;
+    // Set by the ##DimEdit popup block (Application_Viewport.cpp) the frame
+    // an Escape press is seen while the popup is up — BEFORE ImGui closes
+    // it and the block clears m_dimEditingId. renderViewport() runs before
+    // handleShortcuts() each frame, so by the time the global Escape chain
+    // asks "is a dimension popup open", m_dimEditingId is already -1; this
+    // flag is how the chain learns the popup just consumed this Escape
+    // press instead of falling through to the Dimension-mode / sketch-exit
+    // steps. Consumed (cleared) by the chain on the SAME press it gates;
+    // also cleared on every sketch enter/exit reset to avoid staleness.
+    bool m_dimPopupConsumedEsc = false;
 
     // Sketch grid step in mm (drives both the visual face grid and snap-to-line)
     float m_sketchGridStep = 1.0f;

@@ -25,6 +25,17 @@ struct PendingDimension {
     bool valid = false;
 };
 
+// Shared "close enough to parallel/anti-parallel to dimension as a gap
+// rather than an angle" threshold (1 degree), in radians. Single source of
+// truth for SketchTool::resolveDimension's line-line branch AND
+// Application::applyPendingDimension's mirrored-DistancePointLine dedup
+// (which must not treat two genuinely angled lines as the same gap just
+// because their picked point/line ids happen to cross-reference each
+// other's endpoints — see SketchTool::linesParallelWithinDimTol). Written as
+// a literal rather than via M_PI/180 so this header doesn't need to pull in
+// <cmath> or the M_PI portability guard every other file including it uses.
+constexpr double kDimParallelTolRad = 0.017453292519943295; // 1.0 deg
+
 enum class DimPhase { PickFirst, PickSecondOrPlace, PlaceLabel };
 
 // One drawing-time alignment hint. Inferences are transient — they describe
@@ -326,6 +337,14 @@ public:
     void clearDimState();                                       // back to PickFirst, pending invalidated
     DimPick dimHitTest(glm::vec2 pos) const { return hitTestDimEntity(pos); } // hover highlight for the viewport
     static PendingDimension resolveDimension(const Sketch& sk, DimPick a, DimPick b);
+    // True when the two lines' directions are parallel or anti-parallel
+    // within kDimParallelTolRad — the same test resolveDimension's line-line
+    // branch uses to decide DistancePointLine vs Angle. Exposed standalone
+    // so callers outside resolveDimension (the mirrored-DistancePointLine
+    // dedup in Application::applyPendingDimension) can gate on the same
+    // definition of "parallel enough" instead of re-deriving it. False for
+    // a missing line id or a degenerate (zero-length) line.
+    static bool linesParallelWithinDimTol(const Sketch& sk, int lineIdA, int lineIdB);
 
 private:
     // Catch-range multipliers — >1 only at the Max inference tier, so Full and

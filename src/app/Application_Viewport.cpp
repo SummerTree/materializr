@@ -2836,6 +2836,23 @@ void Application::renderViewport() {
                 // edit and leaves the constraint unchanged. Enter commits the
                 // typed value, re-runs the solver, and marks the project dirty.
                 if (m_dimEditingId >= 0) {
+                    // Latch "the popup just consumed an Escape" BEFORE
+                    // BeginPopup below can act on it and clear
+                    // m_dimEditingId — the global Escape chain in
+                    // handleShortcuts() runs AFTER this render pass, so by
+                    // then m_dimEditingId would already read -1 and the
+                    // chain would wrongly treat the press as a fresh
+                    // Dimension-mode / sketch-exit step instead of "just
+                    // closed the popup". Covers both ImGui Escape behaviours
+                    // here: while the InputText has focus, the first Escape
+                    // only defocuses it (BeginPopup still returns true,
+                    // m_dimEditingId unchanged) — this block is still
+                    // entered next frame with the popup still up, so a
+                    // second Escape (the one that actually closes it) is
+                    // caught the same way.
+                    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+                        m_dimPopupConsumedEsc = true;
+                    }
                     // Restore normal padding — the viewport window's
                     // WindowPadding(0,0) is still pushed here, and the popup
                     // captures the style at its own Begin.

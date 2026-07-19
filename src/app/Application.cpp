@@ -2556,7 +2556,21 @@ void Application::handleShortcuts() {
             // Select mode), so a SECOND Escape lands here again with the
             // mode now Select, isPlacing() still false, and exits the sketch
             // as usual.
-            if (m_sketchTool && m_sketchTool->getMode() == SketchToolMode::Dimension) {
+            //
+            // The ##DimEdit value-entry popup (Application_Viewport.cpp)
+            // ALSO wants Escape (to dismiss itself and keep the measured
+            // value, staying in Dimension/idle-picking, per spec). It runs
+            // during renderViewport(), which happens before this shortcut
+            // handler each frame, and it clears m_dimEditingId as part of
+            // closing — so by the time we get here a naive check can no
+            // longer tell the popup was even open. m_dimPopupConsumedEsc is
+            // set by that render pass on any Escape seen while the popup was
+            // up; consume it here and do NOTHING else, so this press closes
+            // ONLY the popup. The mode-level step above happens on the NEXT
+            // Escape, once the popup is actually gone.
+            if (m_dimPopupConsumedEsc) {
+                m_dimPopupConsumedEsc = false;
+            } else if (m_sketchTool && m_sketchTool->getMode() == SketchToolMode::Dimension) {
                 m_sketchTool->onCancel();
             } else if (m_sketchTool && m_sketchTool->isPlacing()) {
                 m_sketchTool->onCancel();
@@ -4054,6 +4068,7 @@ void Application::enterSketchMode() {
     // constraint id from a different sketch.
     m_dimOpenEditRequested = false;
     m_dimEditingId = -1;
+    m_dimPopupConsumedEsc = false;
     alignCameraToActiveSketch();
 }
 
@@ -4082,6 +4097,7 @@ void Application::enterSketchOnPlane(const gp_Pln& plane) {
     // constraint id from a different sketch.
     m_dimOpenEditRequested = false;
     m_dimEditingId = -1;
+    m_dimPopupConsumedEsc = false;
     alignCameraToActiveSketch();
 }
 
@@ -4767,6 +4783,7 @@ void Application::enterSketchOnFace(const TopoDS_Face& face, int sourceBodyId) {
     // constraint id from a different sketch.
     m_dimOpenEditRequested = false;
     m_dimEditingId = -1;
+    m_dimPopupConsumedEsc = false;
     alignCameraToActiveSketch();
 }
 
@@ -5011,7 +5028,20 @@ void Application::applyPendingDimension() {
                                     pd.entityA == cLine->endPointId);
             bool cPointOnPdLine = (c.entityA == pdLine->startPointId ||
                                     c.entityA == pdLine->endPointId);
-            return pdPointOnCLine && cPointOnPdLine;
+            if (!(pdPointOnCLine && cPointOnPdLine)) return false;
+            // Endpoint cross-membership alone isn't enough: a triangle
+            // altitude dimensioned from each of two non-parallel sides in
+            // turn (P-on-L2 then P-on-L1, sharing no special relationship
+            // beyond "each point happens to be an endpoint of the other
+            // line") satisfies the membership check above but is NOT the
+            // same physical gap — treating it as a match would silently
+            // overwrite the first dimension's constraint with the second
+            // pick's entity ids while keeping the first's stale value.
+            // Mirrored derivation is only actually the same measurement
+            // when the two lines are parallel (see resolveDimension's
+            // line-line branch, which is the only place that produces this
+            // point/line pairing shape in the first place).
+            return SketchTool::linesParallelWithinDimTol(*m_activeSketch, cLine->id, pdLine->id);
         };
         for (auto& c : m_activeSketch->getMutableConstraints()) {
             if (c.type != pd.type) continue;
@@ -5373,6 +5403,7 @@ void Application::editSketch(int sketchId) {
     // constraint id from a different sketch.
     m_dimOpenEditRequested = false;
     m_dimEditingId = -1;
+    m_dimPopupConsumedEsc = false;
     m_selection->clear();
     alignCameraToActiveSketch();
 }
@@ -5656,6 +5687,7 @@ void Application::exitSketchMode() {
     // now-dangling constraint id) on the next sketch session.
     m_dimOpenEditRequested = false;
     m_dimEditingId = -1;
+    m_dimPopupConsumedEsc = false;
 
     // Persist the sketch into the document if it has any geometry. New sketches get added;
     // edits to existing sketches are already reflected via the shared_ptr.

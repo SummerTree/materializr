@@ -418,3 +418,49 @@ TEST(DimensionResolve, ParallelThresholdBoundary) {
     ASSERT_TRUE(pastThreshold.valid);
     EXPECT_EQ(pastThreshold.type, ConstraintType::Angle);
 }
+
+// linesParallelWithinDimTol is the shared "same tolerance as
+// resolveDimension's line-line branch" helper the mirrored-DistancePointLine
+// dedup in Application::applyPendingDimension gates on (Application-level
+// logic remains untestable here per the established exception; this
+// standalone helper is the part of that fix that IS unit-testable).
+TEST(DimensionResolve, LinesParallelWithinDimTol) {
+    DimFixture par(0.5f);   // inside the 1 deg threshold
+    EXPECT_TRUE(SketchTool::linesParallelWithinDimTol(par.sk, par.lnAB, par.lnCD));
+
+    DimFixture ang(30.0f);  // well past the threshold
+    EXPECT_FALSE(SketchTool::linesParallelWithinDimTol(ang.sk, ang.lnAB, ang.lnCD));
+
+    DimFixture anti(179.5f); // anti-parallel: folds to 0.5 deg, inside threshold
+    EXPECT_TRUE(SketchTool::linesParallelWithinDimTol(anti.sk, anti.lnAB, anti.lnCD));
+
+    // Dangling / self / degenerate inputs are all false, not crashes.
+    EXPECT_FALSE(SketchTool::linesParallelWithinDimTol(par.sk, par.lnAB, 9999));
+    Sketch degenerate;
+    int dp1 = degenerate.addPoint({0.0f, 0.0f});
+    int dp2 = degenerate.addPoint({0.0f, 0.0f}); // zero-length line
+    int dln = degenerate.addLine(dp1, dp2);
+    int dp3 = degenerate.addPoint({5.0f, 0.0f});
+    int dp4 = degenerate.addPoint({10.0f, 0.0f});
+    int dln2 = degenerate.addLine(dp3, dp4);
+    EXPECT_FALSE(SketchTool::linesParallelWithinDimTol(degenerate, dln, dln2));
+}
+
+// The triangle-altitude scenario the parallel gate exists to prevent: two
+// lines sharing endpoint p2 but at a real (non-parallel) angle. Dimensioning
+// p1-to-L2 then, separately, p2-to-L1 satisfies the OLD mirrored-DPL
+// endpoint-membership check (each picked point is an endpoint of the OTHER
+// line) but is not the same physical gap — the fix's parallel gate must
+// reject it so applyPendingDimension (untestable here) falls through to
+// adding a second, independent constraint instead of overwriting the first.
+TEST(DimensionResolve, TriangleAltitudeIsNotMirroredDPL) {
+    Sketch sk;
+    // A right-angle-ish triangle: L1 = p1-p2 (horizontal), L2 = p2-p3
+    // (vertical) — 90 deg apart, nowhere near the 1 deg parallel tolerance.
+    int p1 = sk.addPoint({0.0f, 0.0f});
+    int p2 = sk.addPoint({10.0f, 0.0f});
+    int l1 = sk.addLine(p1, p2);
+    int p3 = sk.addPoint({10.0f, 10.0f});
+    int l2 = sk.addLine(p2, p3);
+    EXPECT_FALSE(SketchTool::linesParallelWithinDimTol(sk, l1, l2));
+}

@@ -3319,12 +3319,11 @@ PendingDimension SketchTool::resolveDimension(const Sketch& sk, DimPick a, DimPi
         double ang = std::atan2(db.y, db.x) - std::atan2(da.y, da.x);
         while (ang >  M_PI) ang -= 2.0 * M_PI;
         while (ang < -M_PI) ang += 2.0 * M_PI;
-        // Parallel (or anti-parallel) within 1°: distance dim. The point is
-        // the SECOND line's start, measured to the FIRST line, so the first
-        // pick stays the reference for both branches.
-        const double kParallelTol = 1.0 * M_PI / 180.0;
+        // Parallel (or anti-parallel) within kDimParallelTolRad: distance
+        // dim. The point is the SECOND line's start, measured to the FIRST
+        // line, so the first pick stays the reference for both branches.
         double folded = std::min(std::abs(ang), M_PI - std::abs(ang));
-        if (folded <= kParallelTol) {
+        if (folded <= kDimParallelTolRad) {
             const SketchLine* lb = lineById(b.id);
             const SketchLine* la = lineById(a.id);
             // Same degenerate-pick hazard as the point+line branch above,
@@ -3343,6 +3342,31 @@ PendingDimension SketchTool::resolveDimension(const Sketch& sk, DimPick a, DimPi
         return out;
     }
     return out; // circle/arc pairs and circle+point: out of scope
+}
+
+bool SketchTool::linesParallelWithinDimTol(const Sketch& sk, int lineIdA, int lineIdB) {
+    auto lineEnds = [&sk](int id, glm::vec2& s, glm::vec2& e) {
+        for (const auto& l : sk.getLines()) {
+            if (l.id != id) continue;
+            const SketchPoint* sp = sk.getPoint(l.startPointId);
+            const SketchPoint* ep = sk.getPoint(l.endPointId);
+            if (!sp || !ep) return false;
+            s = sp->pos; e = ep->pos;
+            return true;
+        }
+        return false;
+    };
+    glm::vec2 as, ae, bs, be;
+    if (!lineEnds(lineIdA, as, ae) || !lineEnds(lineIdB, bs, be)) return false;
+    glm::vec2 da = ae - as, db = be - bs;
+    if (glm::length(da) < 1e-10f || glm::length(db) < 1e-10f) return false;
+    // Same signed-angle-then-fold test as resolveDimension's line-line
+    // branch, so "parallel enough" means the same thing everywhere.
+    double ang = std::atan2(db.y, db.x) - std::atan2(da.y, da.x);
+    while (ang >  M_PI) ang -= 2.0 * M_PI;
+    while (ang < -M_PI) ang += 2.0 * M_PI;
+    double folded = std::min(std::abs(ang), M_PI - std::abs(ang));
+    return folded <= kDimParallelTolRad;
 }
 
 } // namespace materializr
