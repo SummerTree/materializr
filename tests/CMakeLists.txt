@@ -418,3 +418,9 @@ add_executable(test_blend_cut test_blend_cut.cpp)
 target_link_libraries(test_blend_cut PRIVATE materializr_core gtest gtest_main)
 add_test(NAME test_blend_cut COMMAND test_blend_cut)
 
+
+# test_brepio_dos — the BREP length-prefix DoS guard (impossible section count
+# rejected fast, valid file still round-trips, truncated file fails cleanly)
+add_executable(test_brepio_dos test_brepio_dos.cpp)
+target_link_libraries(test_brepio_dos PRIVATE materializr_core gtest gtest_main)
+add_test(NAME test_brepio_dos COMMAND test_brepio_dos)

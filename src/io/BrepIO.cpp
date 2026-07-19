@@ -12,6 +12,11 @@
 #include <TopoDS_Iterator.hxx>
 #include <gp_Trsf.hxx>
 
+#include <cstdint>
+#include <fstream>
+#include <sstream>
+#include <string>
+
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
@@ -59,12 +64,78 @@ int addShapeAsBodies(const TopoDS_Shape& shape, Document& doc, int& counter) {
     return added;
 }
 
+// Pre-scan guard against a length-prefix DoS in OCCT's BREP reader. The ASCII
+// BREP format is a run of section tables (Curves, Curve2ds, Surfaces, …) each
+// introduced by a "Keyword <count>" line, and BRepTools::Read trusts each
+// count — it reserves/reads that many records before validating anything. A
+// ~90-byte file whose header says "Curves 999999999" makes it spin/OOM for
+// many seconds, which neither OCC_CATCH_SIGNALS nor the try/catch below can
+// interrupt (it's a long allocation/read loop, not a signal or a throw). No
+// legitimate file can have a section count larger than its own byte size — a
+// single record is always several bytes on disk — so a count exceeding the
+// file length is provably fake. Reject those (and absurdly large files) up
+// front, before handing the path to the kernel reader.
+//
+// Returns false and fills `why` when the file should be refused; true = safe
+// to hand to BRepTools::Read (including genuinely-broken-but-bounded files,
+// which the reader itself rejects quickly and cleanly).
+bool brepHeaderCountsSane(const std::string& filePath, std::string& why) {
+    constexpr std::uintmax_t kMaxBytes = 512ull * 1024 * 1024; // 512 MB, as ProjectIO
+
+    std::ifstream in(filePath, std::ios::in | std::ios::binary);
+    if (!in.is_open()) return true; // let BRepTools::Read report the open error
+
+    in.seekg(0, std::ios::end);
+    std::streamoff endPos = in.tellg();
+    in.seekg(0, std::ios::beg);
+    if (endPos < 0) return true; // unseekable — nothing to pre-scan, let OCCT try
+    const std::uintmax_t size = static_cast<std::uintmax_t>(endPos);
+    if (size > kMaxBytes) {
+        why = "BREP file too large (> 512 MB) — refusing to load";
+        return false;
+    }
+
+    // The dangerous counts live on their own "Keyword <int>" lines in the
+    // header run. Scan line-by-line; a section count can never exceed the file
+    // size in bytes, so that's the reject threshold (generous — real records
+    // are far bigger than a byte, so this never trips a valid file).
+    static const char* kKeywords[] = {
+        "Locations", "Curve2ds", "Curves", "Polygon3D",
+        "PolygonOnTriangulations", "Surfaces", "Triangulations", "TShapes",
+    };
+    std::string line;
+    while (std::getline(in, line)) {
+        for (const char* kw : kKeywords) {
+            const std::size_t klen = std::char_traits<char>::length(kw);
+            if (line.compare(0, klen, kw) != 0) continue;
+            if (line.size() <= klen || line[klen] != ' ') continue;
+            // Parse the count token; a value beyond the file size is impossible.
+            std::istringstream ls(line.substr(klen + 1));
+            unsigned long long count = 0;
+            if (!(ls >> count)) break; // not a count line for this keyword
+            if (count > size) {
+                why = std::string("BREP header declares an impossible ") + kw +
+                      " count — refusing (likely a malformed/hostile file)";
+                return false;
+            }
+            break;
+        }
+    }
+    return true;
+}
+
 } // namespace
 
 ImportResult BrepIO::import(const std::string& filePath, Document& doc) {
     ImportResult result;
     try {
         OCC_CATCH_SIGNALS // kernel fault on a crafted file → the catch below
+        // Bound the untrusted length-prefixed section counts before the kernel
+        // reader trusts them (see brepHeaderCountsSane).
+        if (std::string why; !brepHeaderCountsSane(filePath, why)) {
+            result.errorMessage = why;
+            return result;
+        }
         TopoDS_Shape shape;
         BRep_Builder builder;
         if (!BRepTools::Read(shape, filePath.c_str(), builder)) {
