@@ -63,6 +63,7 @@ class PropertiesPanel;
 class Sketch;
 class SketchSolver;
 class SketchTool;
+struct PendingDimension;
 class EventBus;
 class PluginContext;
 
@@ -346,6 +347,16 @@ private:
     // doesn't match the constraint's requirements. Routed from the toolbar
     // Constraints section; constraints are always opt-in.
     void applySketchConstraint(ConstraintType type);
+
+    // Commit the Dimension tool's resolved pending dimension: one undoable
+    // constraint add (or value+label update when the same pair is already
+    // dimensioned), then open the ##DimEdit popup on it for value entry.
+    void applyPendingDimension();
+
+    // Sketch-space auto anchor of a dimension's label: line/pair midpoint,
+    // circle/arc center, or the midpoint of the point-to-line perpendicular
+    // foot segment. Label offsets are stored relative to this.
+    glm::vec2 dimensionAutoAnchor(const PendingDimension& pd) const;
 
     // Align the orbit camera to look straight at the active sketch's plane in ortho.
     // Called when entering sketch mode / editing an existing sketch.
@@ -650,6 +661,11 @@ private:
     char m_dimEditingBuf[32] = "";
     bool m_dimEditingFocus = false;
     bool m_dimEditingClickedThisFrame = false;
+    // Set by applyPendingDimension() (Dimension tool commit) to defer
+    // ImGui::OpenPopup("##DimEdit") to the viewport's own ImGui window scope
+    // next frame — OpenPopup only works when called from the window that
+    // owns the popup's ID stack, which the app-level commit path isn't in.
+    bool m_dimOpenEditRequested = false;
 
     // Sketch grid step in mm (drives both the visual face grid and snap-to-line)
     float m_sketchGridStep = 1.0f;

@@ -720,6 +720,7 @@ void PropertiesPanel::renderSketchConstraintsPanel(int sketchId, bool& modified)
                 case ConstraintType::Equal:         tn = "Equal";         break;
                 case ConstraintType::Concentric:    tn = "Concentric";    break;
                 case ConstraintType::Angle:         tn = "Angle";         break;
+                case ConstraintType::DistancePointLine: tn = "Dist\xE2\x8A\xA5"; break;
             }
             std::fprintf(stderr, " %s=%.2f", tn, c.value);
         }
@@ -758,6 +759,7 @@ void PropertiesPanel::renderSketchConstraintsPanel(int sketchId, bool& modified)
             case ConstraintType::Tangent:       return "Tangent";
             case ConstraintType::Equal:         return "Equal length";
             case ConstraintType::Concentric:    return "Concentric";
+            case ConstraintType::DistancePointLine: return "Dist\xE2\x8A\xA5";
             default:                            return "Constraint";
         }
     };

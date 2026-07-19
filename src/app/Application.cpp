@@ -2330,6 +2330,12 @@ void Application::handleShortcuts() {
     if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_O)) {
         loadProject();
     }
+    // Plain D — Dimension tool in sketch mode (Onshape-style). Ctrl+D stays
+    // Duplicate (handled below); text-input focus swallows the key.
+    if (m_inSketchMode && m_sketchTool && !io.KeyCtrl && !io.WantTextInput &&
+        ImGui::IsKeyPressed(ImGuiKey_D, false)) {
+        m_sketchTool->setMode(SketchToolMode::Dimension);
+    }
     // Ctrl+D — Duplicate in place. Branches on selection type:
     //   Body   → CopyOp (full history support, undoable via Ctrl+Z)
     //   Axis   → Document::addAxis with the source's origin/direction
@@ -4898,6 +4904,73 @@ void Application::applySketchConstraint(ConstraintType type) {
     }
     }); // end recordSketchMutation
     if (added > 0) markDirty();
+}
+
+void Application::applyPendingDimension() {
+    if (!m_inSketchMode || !m_activeSketch || !m_sketchTool) return;
+    const PendingDimension& pd = m_sketchTool->getPendingDimension();
+    if (!pd.valid || !m_sketchTool->dimReadyToCommit()) return;
+
+    // Label offset = placed position minus the auto anchor the renderer uses.
+    // The renderer resolves anchor per type; store the raw placed position
+    // relative to the dimension's geometric anchor (computed the same way the
+    // label pass does — see dimensionAutoAnchor in Application_Viewport.cpp).
+    glm::vec2 anchor = dimensionAutoAnchor(pd);
+    glm::vec2 off = m_sketchTool->getDimLabelPos() - anchor;
+
+    int editId = -1;
+    recordSketchMutation([&] {
+        // Dedup: same type on the same (unordered) entity pair replaces the
+        // value + label instead of stacking — matches applyDimension's policy.
+        bool replaced = false;
+        for (auto& c : m_activeSketch->getMutableConstraints()) {
+            if (c.type != pd.type) continue;
+            bool same = (c.entityA == pd.entityA && c.entityB == pd.entityB);
+            bool swapped = (c.type == ConstraintType::Distance &&
+                            c.entityA == pd.entityB && c.entityB == pd.entityA);
+            if (same || swapped) {
+                c.value = pd.measured;
+                c.labelOffX = off.x;
+                c.labelOffY = off.y;
+                editId = c.id;
+                replaced = true;
+                break;
+            }
+        }
+        if (!replaced) {
+            Constraint c{};
+            c.type = pd.type;
+            c.entityA = pd.entityA;
+            c.entityB = pd.entityB;
+            c.value = pd.measured;
+            c.labelOffX = off.x;
+            c.labelOffY = off.y;
+            editId = m_activeSketch->addConstraint(c);
+        }
+        if (m_sketchSolver) {
+            m_sketchSolver->setSketch(m_activeSketch.get());
+            m_sketchSolver->solve(*m_activeSketch);
+        }
+    });
+    m_sketchTool->clearDimState();
+
+    // Open the existing edit popup, prefilled with the measured value —
+    // Enter drives the geometry, Esc keeps the measured value.
+    if (editId >= 0) {
+        m_dimEditingId = editId;
+        if (pd.type == ConstraintType::Angle)
+            std::snprintf(m_dimEditingBuf, sizeof(m_dimEditingBuf), "%.2f",
+                          pd.measured * 180.0 / M_PI);
+        else if (pd.type == ConstraintType::Radius)
+            std::snprintf(m_dimEditingBuf, sizeof(m_dimEditingBuf), "%.2f",
+                          pd.measured * 2.0); // edited as diameter
+        else
+            std::snprintf(m_dimEditingBuf, sizeof(m_dimEditingBuf), "%.2f", pd.measured);
+        m_dimEditingFocus = true;
+        m_dimOpenEditRequested = true; // viewport calls OpenPopup("##DimEdit") next frame
+        markDirty();
+        m_meshesDirty = true;
+    }
 }
 
 void Application::recordSketchMutation(const std::function<void()>& mutator) {

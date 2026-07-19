@@ -45,6 +45,7 @@ static const char* constraintName(ConstraintType t) {
         case ConstraintType::Equal:         return "Equal";
         case ConstraintType::Concentric:    return "Concentric";
         case ConstraintType::Angle:         return "Angle";
+        case ConstraintType::DistancePointLine: return "Distance to Line";
     }
     return "Constraint";
 }

@@ -197,6 +197,66 @@ void Application::gizmoPreviewApply(const glm::mat4& m) {
     }
 }
 
+// Sketch-space auto anchor of a dimension's label: line/pair midpoint,
+// circle/arc center, or the midpoint of the point-to-line perpendicular foot
+// segment. Label offsets (Constraint::labelOffX/Y) are stored relative to
+// this, so it has to stay in sync with the dimension-label render pass below.
+glm::vec2 Application::dimensionAutoAnchor(const PendingDimension& pd) const {
+    if (!m_activeSketch || !pd.valid) return glm::vec2(0.0f);
+    const Sketch& sk = *m_activeSketch;
+    auto lineEnds = [&sk](int id, glm::vec2& s, glm::vec2& e) {
+        for (const auto& l : sk.getLines())
+            if (l.id == id) {
+                const SketchPoint* sp = sk.getPoint(l.startPointId);
+                const SketchPoint* ep = sk.getPoint(l.endPointId);
+                if (!sp || !ep) return false;
+                s = sp->pos; e = ep->pos; return true;
+            }
+        return false;
+    };
+    switch (pd.type) {
+        case ConstraintType::Distance: {
+            const SketchPoint* a = sk.getPoint(pd.entityA);
+            const SketchPoint* b = sk.getPoint(pd.entityB);
+            return (a && b) ? 0.5f * (a->pos + b->pos) : glm::vec2(0.0f);
+        }
+        case ConstraintType::Radius: {
+            for (const auto& c : sk.getCircles())
+                if (c.id == pd.entityA) {
+                    const SketchPoint* ctr = sk.getPoint(c.centerPointId);
+                    if (ctr) return ctr->pos;
+                }
+            for (const auto& a : sk.getArcs())
+                if (a.id == pd.entityA) {
+                    const SketchPoint* ctr = sk.getPoint(a.centerPointId);
+                    if (ctr) return ctr->pos;
+                }
+            return glm::vec2(0.0f);
+        }
+        case ConstraintType::DistancePointLine: {
+            const SketchPoint* p = sk.getPoint(pd.entityA);
+            glm::vec2 s, e;
+            if (p && lineEnds(pd.entityB, s, e)) {
+                glm::vec2 d = e - s;
+                float len2 = glm::dot(d, d);
+                if (len2 > 1e-12f) {
+                    float t = glm::dot(p->pos - s, d) / len2; // foot on infinite line
+                    glm::vec2 foot = s + d * t;
+                    return 0.5f * (p->pos + foot);
+                }
+            }
+            return p ? p->pos : glm::vec2(0.0f);
+        }
+        case ConstraintType::Angle: {
+            glm::vec2 as, ae, bs, be;
+            if (lineEnds(pd.entityA, as, ae) && lineEnds(pd.entityB, bs, be))
+                return 0.25f * (as + ae + bs + be);
+            return glm::vec2(0.0f);
+        }
+        default: return glm::vec2(0.0f);
+    }
+}
+
 void Application::renderViewport() {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     ImGuiWindowFlags vpFlags = 0;
@@ -2440,6 +2500,16 @@ void Application::renderViewport() {
                 // Reset the per-frame "click swallowed by a label" flag —
                 // re-evaluated below as labels are drawn and hit-tested.
                 m_dimEditingClickedThisFrame = false;
+                // The Dimension tool's commit path (applyPendingDimension, in
+                // Application.cpp) sets m_dimEditingId + this flag from outside
+                // any ImGui window scope. OpenPopup only takes effect when
+                // called from the window that owns the popup's ID stack, so
+                // defer it to here — same scope as the label-click OpenPopup
+                // calls below.
+                if (m_dimOpenEditRequested) {
+                    ImGui::OpenPopup("##DimEdit");
+                    m_dimOpenEditRequested = false;
+                }
                 auto drawLabel = [&](glm::vec2 pos, const char* text,
                                      const Constraint& c) {
                     ImVec2 sp;
@@ -5895,6 +5965,12 @@ void Application::renderViewport() {
                         // it. Snapshot manually for the drag-commit on mouse-up.
                         m_sketchDragBefore = std::make_shared<Sketch>(*m_activeSketch);
                         recordSketchMutation([&]{ m_sketchTool->onMouseDown(sketchCoord, io.KeyCtrl); });
+                    } else if (m_sketchTool->getMode() == SketchToolMode::Dimension) {
+                        // Picking mutates nothing — no undo record. The commit
+                        // below records the constraint add as one SketchEditOp.
+                        m_sketchTool->onMouseDown(sketchCoord, false);
+                        if (m_sketchTool->dimReadyToCommit())
+                            applyPendingDimension();
                     } else if (materializr::touchMode()) {
                         // A held circle awaiting its ✗/✓ bubble: drawing the
                         // next shape auto-commits it as-released (the bubble
