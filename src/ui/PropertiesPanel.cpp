@@ -708,18 +708,18 @@ void PropertiesPanel::renderSketchConstraintsPanel(int sketchId, bool& modified)
         for (const auto& c : sk->getConstraints()) {
             const char* tn = "?";
             switch (c.type) {
-                case ConstraintType::Coincident:    tn = "Coincident";    break;
-                case ConstraintType::Horizontal:    tn = "Horizontal";    break;
-                case ConstraintType::Vertical:      tn = "Vertical";      break;
-                case ConstraintType::Distance:      tn = "Distance";      break;
-                case ConstraintType::Radius:        tn = "Radius";        break;
-                case ConstraintType::Parallel:      tn = "Parallel";      break;
-                case ConstraintType::Perpendicular: tn = "Perpendicular"; break;
-                case ConstraintType::Fixed:         tn = "Fixed";         break;
-                case ConstraintType::Tangent:       tn = "Tangent";       break;
-                case ConstraintType::Equal:         tn = "Equal";         break;
-                case ConstraintType::Concentric:    tn = "Concentric";    break;
-                case ConstraintType::Angle:         tn = "Angle";         break;
+                case ConstraintType::Coincident:        tn = "Coincident";       break;
+                case ConstraintType::Horizontal:        tn = "Horizontal";       break;
+                case ConstraintType::Vertical:          tn = "Vertical";         break;
+                case ConstraintType::Distance:          tn = "Distance";         break;
+                case ConstraintType::Radius:            tn = "Radius";           break;
+                case ConstraintType::Parallel:          tn = "Parallel";         break;
+                case ConstraintType::Perpendicular:     tn = "Perpendicular";    break;
+                case ConstraintType::Fixed:             tn = "Fixed";            break;
+                case ConstraintType::Tangent:           tn = "Tangent";          break;
+                case ConstraintType::Equal:             tn = "Equal";            break;
+                case ConstraintType::Concentric:        tn = "Concentric";       break;
+                case ConstraintType::Angle:             tn = "Angle";            break;
                 case ConstraintType::DistancePointLine: tn = "Dist\xE2\x8A\xA5"; break;
             }
             std::fprintf(stderr, " %s=%.2f", tn, c.value);

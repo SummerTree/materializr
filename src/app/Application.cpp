@@ -4908,7 +4908,10 @@ void Application::applySketchConstraint(ConstraintType type) {
 
 void Application::applyPendingDimension() {
     if (!m_inSketchMode || !m_activeSketch || !m_sketchTool) return;
-    const PendingDimension& pd = m_sketchTool->getPendingDimension();
+    // Value copy: clearDimState() below resets the tool's live m_dimPending
+    // to defaults, so a reference here would read back type=Distance,
+    // measured=0.0 by the time the prefill code runs.
+    const PendingDimension pd = m_sketchTool->getPendingDimension();
     if (!pd.valid || !m_sketchTool->dimReadyToCommit()) return;
 
     // Label offset = placed position minus the auto anchor the renderer uses.
@@ -4968,8 +4971,13 @@ void Application::applyPendingDimension() {
             std::snprintf(m_dimEditingBuf, sizeof(m_dimEditingBuf), "%.2f", pd.measured);
         m_dimEditingFocus = true;
         m_dimOpenEditRequested = true; // viewport calls OpenPopup("##DimEdit") next frame
+        // No m_meshesDirty here: pd.measured is always the geometry's CURRENT
+        // value (resolveDimension reads it off the live picks), so this commit
+        // never moves anything for the solver to re-tessellate — same as
+        // applySketchConstraint's Distance/Angle path just above, which
+        // doesn't set it either. The ##DimEdit popup's own commit handler
+        // sets m_meshesDirty when a typed value actually changes geometry.
         markDirty();
-        m_meshesDirty = true;
     }
 }
 
