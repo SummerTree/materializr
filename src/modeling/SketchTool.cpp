@@ -3296,6 +3296,14 @@ PendingDimension SketchTool::resolveDimension(const Sketch& sk, DimPick a, DimPi
         const SketchPoint* p = sk.getPoint(a.id);
         glm::vec2 s, e;
         if (p && lineEnds(b.id, s, e)) {
+            // Reject a point that IS an endpoint of the target line: the
+            // perpendicular distance is then 0 by construction, so a
+            // DistancePointLine constraint pinned at 0 has no direction to
+            // correct along — applyCorrection's ~value/2 nudge on the point
+            // and the line's endpoints cancels itself out every iteration
+            // and flings the other endpoint outward instead of converging.
+            const SketchLine* bl = lineById(b.id);
+            if (bl && (a.id == bl->startPointId || a.id == bl->endPointId)) return out;
             double d = perpDist(p->pos, s, e);
             if (d >= 0.0) out = {ConstraintType::DistancePointLine, a.id, b.id, d, true};
         }
@@ -3318,6 +3326,14 @@ PendingDimension SketchTool::resolveDimension(const Sketch& sk, DimPick a, DimPi
         double folded = std::min(std::abs(ang), M_PI - std::abs(ang));
         if (folded <= kParallelTol) {
             const SketchLine* lb = lineById(b.id);
+            const SketchLine* la = lineById(a.id);
+            // Same degenerate-pick hazard as the point+line branch above,
+            // reached a different way: chained near-collinear segments where
+            // the second line's start point IS one of the first line's own
+            // endpoints (a zero-distance pick in disguise).
+            if (lb && la &&
+                (lb->startPointId == la->startPointId || lb->startPointId == la->endPointId))
+                return out;
             double d = perpDist(bs, as, ae);
             if (lb && d >= 0.0)
                 out = {ConstraintType::DistancePointLine, lb->startPointId, a.id, d, true};

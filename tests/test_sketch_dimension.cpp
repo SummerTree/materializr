@@ -80,6 +80,38 @@ TEST(DistancePointLine, MissingEntitiesAreInert) {
     EXPECT_NEAR(sk.getPoint(p)->pos.y, 1.0f, 1e-6);
 }
 
+TEST(DistancePointLine, DegeneratePointOnOwnLineStaysBounded) {
+    // entityA == the line's own start point is a degenerate constraint that
+    // resolveDimension now refuses to produce (see the DimensionResolve
+    // rejection tests below), but a constraint can still reach the solver
+    // another way — an older project file, or direct injection as here.
+    // Before the applyCorrection identity guard, this residual-0 constraint
+    // fed a non-zero ~value/2 correction into BOTH the point and the line's
+    // endpoints every iteration, which cancelled out for the point (moved
+    // back to where it started) but not for the far endpoint, which got
+    // flung outward without bound. The guard should leave everything inert.
+    Sketch sk;
+    int a = sk.addPoint({0.0f, 0.0f});
+    int b = sk.addPoint({10.0f, 0.0f});
+    int ln = sk.addLine(a, b);
+    glm::vec2 origA = sk.getPoint(a)->pos;
+    glm::vec2 origB = sk.getPoint(b)->pos;
+    const double value = 5.0;
+    sk.addConstraint(makeDPL(a, ln, value));
+
+    SketchSolver solver;
+    solver.solve(sk, 200, 1e-4); // must not crash, NaN, or diverge
+
+    for (const auto& pt : sk.getPoints()) {
+        EXPECT_TRUE(std::isfinite(pt.pos.x));
+        EXPECT_TRUE(std::isfinite(pt.pos.y));
+    }
+    double dispA = glm::length(sk.getPoint(a)->pos - origA);
+    double dispB = glm::length(sk.getPoint(b)->pos - origB);
+    EXPECT_LT(dispA, 10.0 * value);
+    EXPECT_LT(dispB, 10.0 * value);
+}
+
 #include "core/Document.h"
 #include "io/ProjectIO.h"
 
@@ -320,4 +352,69 @@ TEST(DimensionResolve, InvalidCombosAreInvalid) {
     // dangling id
     auto r3 = SketchTool::resolveDimension(sk, pick(DimEntityKind::Line, 9999), DimPick{});
     EXPECT_FALSE(r3.valid);
+}
+
+// Degenerate pick: a point that IS an endpoint of the target line measures a
+// perpendicular distance of 0 by construction, which — if resolveDimension
+// let it through — would create a DistancePointLine constraint whose
+// applyCorrection has nothing to correct along (see the solver-side
+// DegeneratePointOnOwnLineStaysBounded test above). Both reachable paths
+// (direct point+line pick, and the line-line parallel branch whose derived
+// point is the second line's own start) must reject instead.
+TEST(DimensionResolve, RejectsPointOnOwnLineEndpoint) {
+    DimFixture f(30.0f);
+    // pA is the START point of lnAB itself.
+    auto r1 = SketchTool::resolveDimension(f.sk, pick(DimEntityKind::Point, f.pA),
+                                           pick(DimEntityKind::Line, f.lnAB));
+    EXPECT_FALSE(r1.valid);
+    // pB is the END point of lnAB — same rejection, opposite endpoint and
+    // opposite pick order (line first, point second).
+    auto r2 = SketchTool::resolveDimension(f.sk, pick(DimEntityKind::Line, f.lnAB),
+                                           pick(DimEntityKind::Point, f.pB));
+    EXPECT_FALSE(r2.valid);
+    // Sanity: a genuinely off-line point through the same branch still
+    // resolves normally (guards against an over-broad rejection).
+    auto r3 = SketchTool::resolveDimension(f.sk, pick(DimEntityKind::Point, f.pFree),
+                                           pick(DimEntityKind::Line, f.lnAB));
+    EXPECT_TRUE(r3.valid);
+}
+
+TEST(DimensionResolve, RejectsChainedCollinearLineLineSharedVertex) {
+    Sketch sk;
+    int pA = sk.addPoint({0.0f, 0.0f});
+    int pB = sk.addPoint({10.0f, 0.0f});
+    int lnAB = sk.addLine(pA, pB);
+    // Second line starts exactly AT pB (a chained segment sharing the
+    // vertex, e.g. drawn as a continuing line chain) and is nearly
+    // collinear with AB (~0.29 deg) — inside the parallel threshold. The
+    // parallel branch's derived point (second line's start == pB) is an
+    // endpoint of the FIRST line, so this must reject just like the direct
+    // point+line pick above.
+    int pF = sk.addPoint({20.0f, 0.05f});
+    int lnBF = sk.addLine(pB, pF);
+    auto r = SketchTool::resolveDimension(sk, pick(DimEntityKind::Line, lnAB),
+                                          pick(DimEntityKind::Line, lnBF));
+    EXPECT_FALSE(r.valid);
+}
+
+// TEST GAP 9: pin the parallel/angle threshold's boundary behaviour. The
+// tolerance check in resolveDimension is `folded <= kParallelTol` with
+// kParallelTol == 1.0 degree in double precision. DimFixture builds its
+// rotated line through a FLOAT pi/180 conversion and float sin/cos, so the
+// angle it actually produces for deg=1.0 is not bit-identical to the double
+// 1-degree tolerance — empirically (see scratch probe) it lands a hair
+// UNDER the tolerance, so <= keeps 1.0 deg on the parallel
+// (DistancePointLine) side. 1.5 deg is unambiguously past the threshold.
+TEST(DimensionResolve, ParallelThresholdBoundary) {
+    DimFixture at1(1.0f);
+    auto atThreshold = SketchTool::resolveDimension(
+        at1.sk, pick(DimEntityKind::Line, at1.lnAB), pick(DimEntityKind::Line, at1.lnCD));
+    ASSERT_TRUE(atThreshold.valid);
+    EXPECT_EQ(atThreshold.type, ConstraintType::DistancePointLine);
+
+    DimFixture at15(1.5f);
+    auto pastThreshold = SketchTool::resolveDimension(
+        at15.sk, pick(DimEntityKind::Line, at15.lnAB), pick(DimEntityKind::Line, at15.lnCD));
+    ASSERT_TRUE(pastThreshold.valid);
+    EXPECT_EQ(pastThreshold.type, ConstraintType::Angle);
 }

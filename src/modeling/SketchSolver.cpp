@@ -669,6 +669,18 @@ void SketchSolver::applyCorrection(const Constraint& c, Sketch& sketch, double e
             if (!p) return;
             for (const auto& line : sketch.getLines()) {
                 if (line.id != c.entityB) continue;
+                // Defensive identity guard: resolveDimension rejects picking
+                // a point that IS an endpoint of the target line, but a
+                // constraint reaching the solver this way (e.g. loaded from
+                // an older project file, or injected directly) has zero
+                // ACTUAL perpendicular distance (the point sits on the line
+                // by construction) with no correction direction to separate
+                // them along — the ~value/2 nudge below would cancel itself
+                // for the point (it's also one of the endpoints being
+                // corrected) but not for the OTHER endpoint, which gets
+                // flung outward every iteration instead of settling. Leave
+                // it alone; computeError() above returns 0-value harmlessly.
+                if (c.entityA == line.startPointId || c.entityA == line.endPointId) return;
                 const SketchPoint* a = sketch.getPoint(line.startPointId);
                 const SketchPoint* b = sketch.getPoint(line.endPointId);
                 if (!a || !b) return;
