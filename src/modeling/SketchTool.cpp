@@ -51,6 +51,8 @@ void SketchTool::setMode(SketchToolMode mode) {
     m_rectDimStage = 0;
     m_rectDimH = 0.0f;
     m_mirrorActive = false; // switching tools aborts any in-progress mirror
+    // Entering or leaving Dimension mode always starts a fresh pick sequence.
+    clearDimState();
 }
 
 SketchToolMode SketchTool::getMode() const {
@@ -64,9 +66,12 @@ void SketchTool::onMouseDown(glm::vec2 pos, bool addToSel) {
     m_charged = {};
     m_hoverCandidate = {};
 
-    // Trim picks by proximity to existing geometry; snapping the cursor first
-    // would pull the click toward unrelated nearby points/edges and pick wrong.
-    glm::vec2 snapped = (m_mode == SketchToolMode::Trim) ? pos : snap(pos);
+    // Trim (and Dimension) pick by proximity to existing geometry; snapping
+    // the cursor first would pull the click toward unrelated nearby
+    // points/edges and pick wrong.
+    glm::vec2 snapped = (m_mode == SketchToolMode::Trim || m_mode == SketchToolMode::Dimension)
+                             ? pos
+                             : snap(pos);
 
     // Rectangle stage-1 (width typed-in, cursor still drives height): the
     // click that commits the second corner should use the LOCKED width on the
@@ -120,12 +125,22 @@ void SketchTool::onMouseDown(glm::vec2 pos, bool addToSel) {
         case SketchToolMode::Svg:
             handleSvgTool(snapped);
             break;
+        case SketchToolMode::Dimension:
+            handleDimensionTool(snapped);
+            break;
         default:
             break;
     }
 }
 
 void SketchTool::onMouseMove(glm::vec2 pos) {
+    // Dimension mode has no drag/preview snapping of its own — just record the
+    // raw cursor for the ghost-label / hover-highlight overlay and bail before
+    // the snapping logic below (which doesn't apply to picking entities).
+    if (m_mode == SketchToolMode::Dimension) {
+        m_currentPos = pos;
+        return;
+    }
     // Trim uses the raw cursor for picking; snapping would pull the click toward
     // unrelated nearby targets and pick the wrong element.
     glm::vec2 newPos = (m_mode == SketchToolMode::Trim) ? pos : snap(pos);
@@ -267,6 +282,17 @@ void SketchTool::onConfirm() {
 }
 
 void SketchTool::onCancel() {
+    // Dimension mode: Escape backs out of an in-progress pick/placement
+    // first; only once nothing is pending does it fall through to exiting
+    // the tool (the app maps that by switching to Select).
+    if (m_mode == SketchToolMode::Dimension) {
+        if (m_dimPhase != DimPhase::PickFirst || m_dimReady) {
+            clearDimState();
+        } else {
+            setMode(SketchToolMode::Select);
+        }
+        return;
+    }
     // If only the first click of a line chain was made and we created its
     // anchor point fresh (no existing point was reused), drop that orphan so
     // a cancelled draw doesn't leave a stray yellow endpoint marker behind.
@@ -3110,6 +3136,196 @@ void SketchTool::undoLastStamp() {
     std::fprintf(stderr, "[Stamp] removed last placement (%zu elements, %zu stamp(s) left)\n",
                  ids.size(), m_stampStack.size() - 1);
     m_stampStack.pop_back();
+}
+
+// --- Dimension tool ---------------------------------------------------
+
+DimPick SketchTool::hitTestDimEntity(glm::vec2 pos) const {
+    DimPick out;
+    if (!m_sketch) return out;
+    int nearPt = findCoincidentPoint(pos, -1);
+    if (nearPt >= 0) {
+        // Text glyph geometry is not dimensionable.
+        const SketchPoint* p = m_sketch->getPoint(nearPt);
+        if (p && !p->fromText) { out = {DimEntityKind::Point, nearPt}; }
+        return out;
+    }
+    const float tol = std::max(m_gridStep * 0.5f, 0.5f) * snapScale();
+    // Lines (segment distance), skipping fromText — same math as handleSelectTool.
+    float bestD = 0.0f; int bestLine = -1;
+    for (const auto& l : m_sketch->getLines()) {
+        if (l.fromText) continue;
+        const SketchPoint* a = m_sketch->getPoint(l.startPointId);
+        const SketchPoint* b = m_sketch->getPoint(l.endPointId);
+        if (!a || !b) continue;
+        glm::vec2 ab = b->pos - a->pos;
+        float len2 = glm::dot(ab, ab);
+        if (len2 < 1e-12f) continue;
+        float t = glm::clamp(glm::dot(pos - a->pos, ab) / len2, 0.0f, 1.0f);
+        float d = glm::distance(a->pos + ab * t, pos);
+        if (d < tol && (bestLine < 0 || d < bestD)) { bestLine = l.id; bestD = d; }
+    }
+    if (bestLine >= 0) return {DimEntityKind::Line, bestLine};
+    // Circle then arc perimeters — same as handleSelectTool.
+    float bestCd = 0.0f; int bestCircle = -1;
+    for (const auto& c : m_sketch->getCircles()) {
+        const SketchPoint* ctr = m_sketch->getPoint(c.centerPointId);
+        if (!ctr) continue;
+        float d = std::abs(glm::distance(pos, ctr->pos) - static_cast<float>(c.radius));
+        if (d < tol && (bestCircle < 0 || d < bestCd)) { bestCircle = c.id; bestCd = d; }
+    }
+    if (bestCircle >= 0) return {DimEntityKind::Circle, bestCircle};
+    float bestAd = 0.0f; int bestArc = -1;
+    for (const auto& a : m_sketch->getArcs()) {
+        const SketchPoint* ctr = m_sketch->getPoint(a.centerPointId);
+        if (!ctr) continue;
+        float d = std::abs(glm::distance(pos, ctr->pos) - static_cast<float>(a.radius));
+        if (d < tol && (bestArc < 0 || d < bestAd)) { bestArc = a.id; bestAd = d; }
+    }
+    if (bestArc >= 0) return {DimEntityKind::Arc, bestArc};
+    return out;
+}
+
+void SketchTool::handleDimensionTool(glm::vec2 pos) {
+    if (!m_sketch) return;
+    m_currentPos = pos;
+    switch (m_dimPhase) {
+        case DimPhase::PickFirst: {
+            DimPick hit = hitTestDimEntity(pos);
+            if (hit.kind == DimEntityKind::None) return;
+            if (hit.kind == DimEntityKind::Circle || hit.kind == DimEntityKind::Arc) {
+                m_dimPending = resolveDimension(*m_sketch, hit, DimPick{});
+                if (m_dimPending.valid) { m_dimPickA = hit; m_dimPhase = DimPhase::PlaceLabel; }
+                return;
+            }
+            m_dimPickA = hit;
+            if (hit.kind == DimEntityKind::Line)
+                m_dimPending = resolveDimension(*m_sketch, hit, DimPick{}); // tentative length
+            else
+                m_dimPending = PendingDimension{}; // lone point: no dim yet
+            m_dimPhase = DimPhase::PickSecondOrPlace;
+            return;
+        }
+        case DimPhase::PickSecondOrPlace: {
+            DimPick hit = hitTestDimEntity(pos);
+            if (hit.kind != DimEntityKind::None) {
+                if (hit.kind == m_dimPickA.kind && hit.id == m_dimPickA.id) return; // same entity
+                PendingDimension pair = resolveDimension(*m_sketch, m_dimPickA, hit);
+                if (pair.valid) { m_dimPending = pair; m_dimPhase = DimPhase::PlaceLabel; }
+                return; // invalid combo: ignore the click, picks unchanged
+            }
+            // Empty space: places the tentative single-entity dim (line length).
+            if (m_dimPending.valid) { m_dimLabelPos = pos; m_dimReady = true; }
+            return; // lone point + empty space: no-op, pick stays pending
+        }
+        case DimPhase::PlaceLabel: {
+            m_dimLabelPos = pos;
+            m_dimReady = true;
+            return;
+        }
+    }
+}
+
+void SketchTool::clearDimState() {
+    m_dimPhase = DimPhase::PickFirst;
+    m_dimPickA = DimPick{};
+    m_dimPending = PendingDimension{};
+    m_dimReady = false;
+}
+
+PendingDimension SketchTool::resolveDimension(const Sketch& sk, DimPick a, DimPick b) {
+    PendingDimension out;
+    auto lineById = [&sk](int id) -> const SketchLine* {
+        for (const auto& l : sk.getLines()) if (l.id == id) return &l;
+        return nullptr;
+    };
+    auto lineEnds = [&sk, &lineById](int id, glm::vec2& s, glm::vec2& e) {
+        const SketchLine* l = lineById(id);
+        if (!l) return false;
+        const SketchPoint* sp = sk.getPoint(l->startPointId);
+        const SketchPoint* ep = sk.getPoint(l->endPointId);
+        if (!sp || !ep) return false;
+        s = sp->pos; e = ep->pos;
+        return true;
+    };
+    auto perpDist = [](glm::vec2 p, glm::vec2 s, glm::vec2 e) -> double {
+        glm::vec2 d = e - s;
+        float len = glm::length(d);
+        if (len < 1e-10f) return -1.0;
+        glm::vec2 r = p - s;
+        return std::abs(static_cast<double>(d.x) * r.y -
+                        static_cast<double>(d.y) * r.x) / len;
+    };
+
+    // Single-entity dims.
+    if (b.kind == DimEntityKind::None) {
+        if (a.kind == DimEntityKind::Circle) {
+            for (const auto& c : sk.getCircles())
+                if (c.id == a.id) { out = {ConstraintType::Radius, a.id, -1, c.radius, true}; break; }
+            return out;
+        }
+        if (a.kind == DimEntityKind::Arc) {
+            for (const auto& ar : sk.getArcs())
+                if (ar.id == a.id) { out = {ConstraintType::Radius, a.id, -1, ar.radius, true}; break; }
+            return out;
+        }
+        if (a.kind == DimEntityKind::Line) {
+            const SketchLine* l = lineById(a.id);
+            glm::vec2 s, e;
+            if (l && lineEnds(a.id, s, e))
+                out = {ConstraintType::Distance, l->startPointId, l->endPointId,
+                       static_cast<double>(glm::distance(s, e)), true};
+            return out;
+        }
+        return out; // lone point: invalid
+    }
+
+    // Normalize point-first for the mixed pair.
+    if (a.kind == DimEntityKind::Line && b.kind == DimEntityKind::Point) std::swap(a, b);
+
+    if (a.kind == DimEntityKind::Point && b.kind == DimEntityKind::Point) {
+        const SketchPoint* pa = sk.getPoint(a.id);
+        const SketchPoint* pb = sk.getPoint(b.id);
+        if (pa && pb)
+            out = {ConstraintType::Distance, a.id, b.id,
+                   static_cast<double>(glm::distance(pa->pos, pb->pos)), true};
+        return out;
+    }
+    if (a.kind == DimEntityKind::Point && b.kind == DimEntityKind::Line) {
+        const SketchPoint* p = sk.getPoint(a.id);
+        glm::vec2 s, e;
+        if (p && lineEnds(b.id, s, e)) {
+            double d = perpDist(p->pos, s, e);
+            if (d >= 0.0) out = {ConstraintType::DistancePointLine, a.id, b.id, d, true};
+        }
+        return out;
+    }
+    if (a.kind == DimEntityKind::Line && b.kind == DimEntityKind::Line) {
+        glm::vec2 as, ae, bs, be;
+        if (!lineEnds(a.id, as, ae) || !lineEnds(b.id, bs, be)) return out;
+        glm::vec2 da = ae - as, db = be - bs;
+        if (glm::length(da) < 1e-10f || glm::length(db) < 1e-10f) return out;
+        // Signed angle of B relative to A, wrapped to [-π, π] — same
+        // convention as the solver's Angle error term.
+        double ang = std::atan2(db.y, db.x) - std::atan2(da.y, da.x);
+        while (ang >  M_PI) ang -= 2.0 * M_PI;
+        while (ang < -M_PI) ang += 2.0 * M_PI;
+        // Parallel (or anti-parallel) within 1°: distance dim. The point is
+        // the SECOND line's start, measured to the FIRST line, so the first
+        // pick stays the reference for both branches.
+        const double kParallelTol = 1.0 * M_PI / 180.0;
+        double folded = std::min(std::abs(ang), M_PI - std::abs(ang));
+        if (folded <= kParallelTol) {
+            const SketchLine* lb = lineById(b.id);
+            double d = perpDist(bs, as, ae);
+            if (lb && d >= 0.0)
+                out = {ConstraintType::DistancePointLine, lb->startPointId, a.id, d, true};
+        } else {
+            out = {ConstraintType::Angle, a.id, b.id, ang, true};
+        }
+        return out;
+    }
+    return out; // circle/arc pairs and circle+point: out of scope
 }
 
 } // namespace materializr

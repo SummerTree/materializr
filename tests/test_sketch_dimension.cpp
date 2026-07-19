@@ -197,3 +197,116 @@ TEST(DimensionPersistence, WriteSketchBodyPreservesLabelOffsets) {
     EXPECT_DOUBLE_EQ(lc.labelOffX, 2.5);
     EXPECT_DOUBLE_EQ(lc.labelOffY, -1.75);
 }
+
+#include "modeling/SketchTool.h"
+
+using materializr::DimEntityKind;
+using materializr::DimPick;
+using materializr::PendingDimension;
+using materializr::SketchTool;
+
+namespace {
+
+// 10-unit horizontal line at y=0 and a second line at `deg` degrees from it,
+// plus a free point at (5,3). Returns ids via out-params.
+struct DimFixture {
+    Sketch sk;
+    int pA, pB, lnAB;      // horizontal line
+    int pC, pD, lnCD;      // rotated line
+    int pFree;
+    explicit DimFixture(float deg) {
+        pA = sk.addPoint({0.0f, 0.0f});
+        pB = sk.addPoint({10.0f, 0.0f});
+        lnAB = sk.addLine(pA, pB);
+        float r = deg * 3.14159265358979f / 180.0f;
+        pC = sk.addPoint({0.0f, 5.0f});
+        pD = sk.addPoint({10.0f * std::cos(r), 5.0f + 10.0f * std::sin(r)});
+        lnCD = sk.addLine(pC, pD);
+        pFree = sk.addPoint({5.0f, 3.0f});
+    }
+};
+
+DimPick pick(DimEntityKind k, int id) { return DimPick{k, id}; }
+
+} // namespace
+
+TEST(DimensionResolve, CircleAloneIsRadius) {
+    Sketch sk;
+    int c = sk.addPoint({0.0f, 0.0f});
+    int ci = sk.addCircle(c, 6.5);
+    auto r = SketchTool::resolveDimension(sk, pick(DimEntityKind::Circle, ci), DimPick{});
+    ASSERT_TRUE(r.valid);
+    EXPECT_EQ(r.type, ConstraintType::Radius);
+    EXPECT_EQ(r.entityA, ci);
+    EXPECT_NEAR(r.measured, 6.5, 1e-9);
+}
+
+TEST(DimensionResolve, LineAloneIsEndpointDistance) {
+    DimFixture f(30.0f);
+    auto r = SketchTool::resolveDimension(f.sk, pick(DimEntityKind::Line, f.lnAB), DimPick{});
+    ASSERT_TRUE(r.valid);
+    EXPECT_EQ(r.type, ConstraintType::Distance);
+    EXPECT_EQ(r.entityA, f.pA);
+    EXPECT_EQ(r.entityB, f.pB);
+    EXPECT_NEAR(r.measured, 10.0, 1e-6);
+}
+
+TEST(DimensionResolve, PointPointIsDistance) {
+    DimFixture f(30.0f);
+    auto r = SketchTool::resolveDimension(f.sk, pick(DimEntityKind::Point, f.pA),
+                                          pick(DimEntityKind::Point, f.pFree));
+    ASSERT_TRUE(r.valid);
+    EXPECT_EQ(r.type, ConstraintType::Distance);
+    EXPECT_NEAR(r.measured, std::sqrt(25.0 + 9.0), 1e-6);
+}
+
+TEST(DimensionResolve, PointLineEitherOrderIsDistancePointLine) {
+    DimFixture f(30.0f);
+    auto r1 = SketchTool::resolveDimension(f.sk, pick(DimEntityKind::Point, f.pFree),
+                                           pick(DimEntityKind::Line, f.lnAB));
+    auto r2 = SketchTool::resolveDimension(f.sk, pick(DimEntityKind::Line, f.lnAB),
+                                           pick(DimEntityKind::Point, f.pFree));
+    for (const auto& r : {r1, r2}) {
+        ASSERT_TRUE(r.valid);
+        EXPECT_EQ(r.type, ConstraintType::DistancePointLine);
+        EXPECT_EQ(r.entityA, f.pFree);
+        EXPECT_EQ(r.entityB, f.lnAB);
+        EXPECT_NEAR(r.measured, 3.0, 1e-6);
+    }
+}
+
+TEST(DimensionResolve, ParallelLinesGiveDistance_NonParallelGiveAngle) {
+    DimFixture par(0.5f);   // inside the 1° parallel threshold
+    auto rp = SketchTool::resolveDimension(par.sk, pick(DimEntityKind::Line, par.lnAB),
+                                           pick(DimEntityKind::Line, par.lnCD));
+    ASSERT_TRUE(rp.valid);
+    EXPECT_EQ(rp.type, ConstraintType::DistancePointLine);
+    EXPECT_EQ(rp.entityA, par.pC);   // second line's start point
+    EXPECT_EQ(rp.entityB, par.lnAB); // measured against the first line
+
+    DimFixture ang(30.0f);
+    auto ra = SketchTool::resolveDimension(ang.sk, pick(DimEntityKind::Line, ang.lnAB),
+                                           pick(DimEntityKind::Line, ang.lnCD));
+    ASSERT_TRUE(ra.valid);
+    EXPECT_EQ(ra.type, ConstraintType::Angle);
+    EXPECT_EQ(ra.entityA, ang.lnAB);
+    EXPECT_EQ(ra.entityB, ang.lnCD);
+    EXPECT_NEAR(ra.measured, 30.0 * 3.14159265358979 / 180.0, 1e-4); // signed, B rel A
+}
+
+TEST(DimensionResolve, InvalidCombosAreInvalid) {
+    Sketch sk;
+    int c = sk.addPoint({0.0f, 0.0f});
+    int ci = sk.addCircle(c, 2.0);
+    int p = sk.addPoint({5.0f, 0.0f});
+    // circle + point is out of scope (spec non-goal)
+    auto r = SketchTool::resolveDimension(sk, pick(DimEntityKind::Circle, ci),
+                                          pick(DimEntityKind::Point, p));
+    EXPECT_FALSE(r.valid);
+    // lone point
+    auto r2 = SketchTool::resolveDimension(sk, pick(DimEntityKind::Point, p), DimPick{});
+    EXPECT_FALSE(r2.valid);
+    // dangling id
+    auto r3 = SketchTool::resolveDimension(sk, pick(DimEntityKind::Line, 9999), DimPick{});
+    EXPECT_FALSE(r3.valid);
+}

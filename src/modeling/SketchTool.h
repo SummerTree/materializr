@@ -10,7 +10,22 @@
 
 namespace materializr {
 
-enum class SketchToolMode { None, Select, Line, Circle, Rectangle, Arc, Spline, Polygon, Trim, Text, Svg, Mirror };
+enum class SketchToolMode { None, Select, Line, Circle, Rectangle, Arc, Spline, Polygon, Trim, Text, Svg, Mirror, Dimension };
+
+enum class DimEntityKind { None, Point, Line, Circle, Arc };
+struct DimPick { DimEntityKind kind = DimEntityKind::None; int id = -1; };
+
+// A pick set resolved into the constraint it would create. measured is the
+// current geometry value: mm for distances, RADIUS in mm for Radius (UI
+// doubles it for display), SIGNED radians for Angle (line B rel. line A).
+struct PendingDimension {
+    ConstraintType type = ConstraintType::Distance;
+    int entityA = -1, entityB = -1;
+    double measured = 0.0;
+    bool valid = false;
+};
+
+enum class DimPhase { PickFirst, PickSecondOrPlace, PlaceLabel };
 
 // One drawing-time alignment hint. Inferences are transient — they describe
 // what the cursor IS aligned to right now, get drawn as coloured ghost lines /
@@ -302,6 +317,16 @@ public:
     // back out. Wrap the call in recordSketchMutation for one undo step. Line only.
     bool dropLineChainTail();
 
+    // --- Dimension tool (Onshape-style: pick 1-2 entities, place label) ---
+    DimPhase getDimPhase() const { return m_dimPhase; }
+    DimPick getDimPickA() const { return m_dimPickA; }
+    const PendingDimension& getPendingDimension() const { return m_dimPending; }
+    glm::vec2 getDimLabelPos() const { return m_dimLabelPos; } // valid when dimReadyToCommit()
+    bool dimReadyToCommit() const { return m_dimReady; }       // label placed; app commits + calls clearDimState()
+    void clearDimState();                                       // back to PickFirst, pending invalidated
+    DimPick dimHitTest(glm::vec2 pos) const { return hitTestDimEntity(pos); } // hover highlight for the viewport
+    static PendingDimension resolveDimension(const Sketch& sk, DimPick a, DimPick b);
+
 private:
     // Catch-range multipliers — >1 only at the Max inference tier, so Full and
     // below snap exactly as before on every device. See enum InferenceLevel.
@@ -472,6 +497,15 @@ private:
     // to its own starting position and the drag would feel sticky-broken).
     // Cleared in onMouseUp.
     std::set<int> m_snapExcludePoints;
+
+    // --- Dimension tool state ---
+    DimPhase m_dimPhase = DimPhase::PickFirst;
+    DimPick m_dimPickA;
+    PendingDimension m_dimPending;
+    glm::vec2 m_dimLabelPos{0.0f};
+    bool m_dimReady = false;
+    DimPick hitTestDimEntity(glm::vec2 pos) const;
+    void handleDimensionTool(glm::vec2 pos);
 };
 
 } // namespace materializr

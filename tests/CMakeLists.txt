@@ -34,6 +34,7 @@ add_library(materializr_core STATIC
     ${CMAKE_SOURCE_DIR}/src/modeling/BatchTransformOp.cpp
     ${CMAKE_SOURCE_DIR}/src/modeling/PushPullOp.cpp
     ${CMAKE_SOURCE_DIR}/src/modeling/Sketch.cpp
+    ${CMAKE_SOURCE_DIR}/src/modeling/SketchTool.cpp
     ${CMAKE_SOURCE_DIR}/src/modeling/SketchEditOp.cpp
     ${CMAKE_SOURCE_DIR}/src/modeling/DuplicateSketchOp.cpp
     ${CMAKE_SOURCE_DIR}/src/modeling/MoveHoleOp.cpp
@@ -467,7 +468,14 @@ add_test(NAME test_brepio_dos COMMAND test_brepio_dos)
 
 # test_sketch_dimension — DistancePointLine solver, dimension pair resolution,
 # and K-line label-offset persistence (Onshape-style dimension tool).
-add_executable(test_sketch_dimension test_sketch_dimension.cpp)
-target_link_libraries(test_sketch_dimension PRIVATE materializr_core gtest gtest_main)
+# Pulls in SketchTool.h/.cpp (the Dimension pick state machine), which in turn
+# needs TextSketchOp.cpp (handleTextTool) and SvgImport.cpp (handleSvgTool) —
+# neither is in materializr_core, and SvgImport renders SVG text to outline
+# wires via Font_* (TKV3d/TKService), same as test_svg_roundtrip above.
+add_executable(test_sketch_dimension test_sketch_dimension.cpp
+    ${CMAKE_SOURCE_DIR}/src/modeling/TextSketchOp.cpp
+    ${CMAKE_SOURCE_DIR}/src/modeling/SvgImport.cpp)
+target_link_libraries(test_sketch_dimension PRIVATE materializr_core gtest gtest_main
+    TKV3d TKService)
 add_test(NAME test_sketch_dimension COMMAND test_sketch_dimension)
 
