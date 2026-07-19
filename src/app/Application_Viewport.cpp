@@ -2546,6 +2546,26 @@ void Application::renderViewport() {
                         ImGui::OpenPopup("##DimEdit");
                     }
                 };
+                // Resolves a constraint's label position from its stored
+                // offset (Constraint::labelOffX/Y, relative to the type's
+                // geometric anchor — see dimensionAutoAnchor) or the auto
+                // position when unset (legacy / not yet user-placed). Draws a
+                // thin leader from the anchor to the label whenever the user
+                // has moved it off the auto spot.
+                auto placeLabel = [&](glm::vec2 anchor, glm::vec2 autoOff,
+                                      const char* text, const Constraint& c) {
+                    bool placed = (c.labelOffX != 0.0 || c.labelOffY != 0.0);
+                    glm::vec2 lpos = placed
+                        ? anchor + glm::vec2(static_cast<float>(c.labelOffX),
+                                             static_cast<float>(c.labelOffY))
+                        : anchor + autoOff;
+                    if (placed) {
+                        ImVec2 sa, sb;
+                        if (toImg(dim2world(anchor), sa) && toImg(dim2world(lpos), sb))
+                            dl->AddLine(sa, sb, IM_COL32(255, 235, 120, 90), 1.0f);
+                    }
+                    drawLabel(lpos, text, c);
+                };
                 char lbl[40];
                 for (const auto& c : m_activeSketch->getConstraints()) {
                     if (c.type == ConstraintType::Distance) {
@@ -2566,7 +2586,7 @@ void Application::renderViewport() {
                             perp = perp / pl * off;
                         }
                         std::snprintf(lbl, sizeof(lbl), "%.2f mm", c.value);
-                        drawLabel(mid + perp, lbl, c);
+                        placeLabel(mid, perp, lbl, c);
                     } else if (c.type == ConstraintType::Radius) {
                         glm::vec2 center(0.0f);
                         float radius = 1.0f;
@@ -2596,15 +2616,15 @@ void Application::renderViewport() {
                             }
                         }
                         if (!found) continue;
-                        // Place the label tangentially outside the circle (up
+                        // Auto label sits tangentially outside the circle (up
                         // and to the right) so the centre stays clear for
                         // concentric-circle drawing. Offset is the radius + a
                         // small constant so it floats just past the perimeter.
-                        glm::vec2 labelPos = center +
+                        glm::vec2 autoOff =
                             glm::vec2(0.7071f, 0.7071f) * (radius + 1.2f);
                         std::snprintf(lbl, sizeof(lbl), "\xC3\x98 %.2f mm",
                                       c.value * 2.0);
-                        drawLabel(labelPos, lbl, c);
+                        placeLabel(center, autoOff, lbl, c);
                     } else if (c.type == ConstraintType::Angle) {
                         // SolidWorks-style angle dim: find the vertex where the
                         // two constrained lines meet, draw a small arc spanning
@@ -2682,13 +2702,132 @@ void Application::renderViewport() {
                                             0, 1.5f);
                         }
 
-                        // Label hugs the outside of the arc midpoint.
+                        // Auto label hugs the outside of the arc midpoint.
                         float midA = angA + diff * 0.5f;
                         glm::vec2 labelPos = vertex +
                             glm::vec2(std::cos(midA), std::sin(midA)) * (arcR + 2.5f);
                         float deg = std::abs(static_cast<float>(diff * 180.0 / M_PI));
                         std::snprintf(lbl, sizeof(lbl), "%.1f\xC2\xB0", deg);
-                        drawLabel(labelPos, lbl, c);
+                        // The stored offset is relative to dimensionAutoAnchor's
+                        // Angle anchor (mean of all four line endpoints), NOT
+                        // `vertex` — applyPendingDimension() computed it that
+                        // way, so the leader/placed-position math has to match
+                        // or a placed label would drift from where it was
+                        // dropped. autoOff folds that mismatch away: it's
+                        // defined so anchor + autoOff == labelPos exactly,
+                        // reproducing today's arc-hugging auto placement
+                        // whenever the constraint has no stored offset.
+                        glm::vec2 angleAnchor =
+                            0.25f * (aS->pos + aE->pos + bS->pos + bE->pos);
+                        glm::vec2 autoOff = labelPos - angleAnchor;
+                        placeLabel(angleAnchor, autoOff, lbl, c);
+                    } else if (c.type == ConstraintType::DistancePointLine) {
+                        // Validate the entities exist before trusting
+                        // dimensionAutoAnchor's result — it silently returns
+                        // (0,0) on a dangling id, which would otherwise plant
+                        // a stray label at the sketch origin.
+                        const SketchPoint* dp = m_activeSketch->getPoint(c.entityA);
+                        const SketchLine* dpLine = nullptr;
+                        for (const auto& l : m_activeSketch->getLines())
+                            if (l.id == c.entityB) { dpLine = &l; break; }
+                        if (!dp || !dpLine) continue;
+                        PendingDimension pd;
+                        pd.type = c.type; pd.entityA = c.entityA;
+                        pd.entityB = c.entityB; pd.valid = true;
+                        glm::vec2 anchor = dimensionAutoAnchor(pd);
+                        std::snprintf(lbl, sizeof(lbl), "%.2f mm", c.value);
+                        placeLabel(anchor, glm::vec2(2.0f, 2.0f), lbl, c);
+                    }
+                }
+
+                // Dimension tool feedback: highlight the hovered pickable
+                // entity while picking, and ghost the pending label at the
+                // cursor (with a leader from its anchor) once enough entities
+                // are picked to resolve a dimension.
+                if (m_sketchTool->getMode() == SketchToolMode::Dimension) {
+                    ImVec2 mp = ImGui::GetMousePos();
+                    glm::vec2 sketchCursor = screenToSketch(
+                        mp.x - imgMin.x, mp.y - imgMin.y, imgSize.x, imgSize.y);
+                    DimPick hov = m_sketchTool->dimHitTest(sketchCursor);
+                    if (hov.kind == DimEntityKind::Point) {
+                        const SketchPoint* p = m_activeSketch->getPoint(hov.id);
+                        ImVec2 sp;
+                        if (p && toImg(dim2world(p->pos), sp))
+                            dl->AddCircle(sp, 7.0f, IM_COL32(255, 235, 120, 255), 0, 2.0f);
+                    } else if (hov.kind == DimEntityKind::Line) {
+                        for (const auto& l : m_activeSketch->getLines()) {
+                            if (l.id != hov.id) continue;
+                            const SketchPoint* a = m_activeSketch->getPoint(l.startPointId);
+                            const SketchPoint* b = m_activeSketch->getPoint(l.endPointId);
+                            ImVec2 sa, sb;
+                            if (a && b && toImg(dim2world(a->pos), sa) &&
+                                toImg(dim2world(b->pos), sb))
+                                dl->AddLine(sa, sb, IM_COL32(255, 235, 120, 200), 3.0f);
+                            break;
+                        }
+                    } else if (hov.kind == DimEntityKind::Circle ||
+                               hov.kind == DimEntityKind::Arc) {
+                        glm::vec2 hCenter(0.0f);
+                        float hRadius = 0.0f;
+                        bool hFound = false;
+                        if (hov.kind == DimEntityKind::Circle) {
+                            for (const auto& circ : m_activeSketch->getCircles())
+                                if (circ.id == hov.id) {
+                                    const SketchPoint* cp = m_activeSketch->getPoint(circ.centerPointId);
+                                    if (cp) {
+                                        hCenter = cp->pos;
+                                        hRadius = static_cast<float>(circ.radius);
+                                        hFound = true;
+                                    }
+                                    break;
+                                }
+                        } else {
+                            for (const auto& arc : m_activeSketch->getArcs())
+                                if (arc.id == hov.id) {
+                                    const SketchPoint* cp = m_activeSketch->getPoint(arc.centerPointId);
+                                    if (cp) {
+                                        hCenter = cp->pos;
+                                        hRadius = static_cast<float>(arc.radius);
+                                        hFound = true;
+                                    }
+                                    break;
+                                }
+                        }
+                        if (hFound) {
+                            // Screen-space radius: project the center and a
+                            // point one radius away along the sketch plane's
+                            // X axis, then measure the pixel span between
+                            // them (the plane may be tilted/scaled on screen).
+                            ImVec2 sc, sr;
+                            if (toImg(dim2world(hCenter), sc) &&
+                                toImg(dim2world(hCenter + glm::vec2(hRadius, 0.0f)), sr)) {
+                                float screenR = std::hypot(sr.x - sc.x, sr.y - sc.y);
+                                dl->AddCircle(sc, screenR, IM_COL32(255, 235, 120, 255), 0, 2.0f);
+                            }
+                        }
+                    }
+
+                    const PendingDimension& pend = m_sketchTool->getPendingDimension();
+                    if (pend.valid &&
+                        (m_sketchTool->getDimPhase() == DimPhase::PlaceLabel ||
+                         m_sketchTool->getDimPhase() == DimPhase::PickSecondOrPlace)) {
+                        char gbuf[40];
+                        if (pend.type == ConstraintType::Angle)
+                            std::snprintf(gbuf, sizeof(gbuf), "%.1f\xC2\xB0",
+                                          std::abs(pend.measured) * 180.0 / M_PI);
+                        else if (pend.type == ConstraintType::Radius)
+                            std::snprintf(gbuf, sizeof(gbuf), "\xC3\x98%.2f",
+                                          pend.measured * 2.0);
+                        else
+                            std::snprintf(gbuf, sizeof(gbuf), "%.2f mm", pend.measured);
+                        glm::vec2 ganchor = dimensionAutoAnchor(pend);
+                        ImVec2 sa, sc;
+                        if (toImg(dim2world(ganchor), sa) &&
+                            toImg(dim2world(sketchCursor), sc)) {
+                            dl->AddLine(sa, sc, IM_COL32(255, 235, 120, 90), 1.0f);
+                            dl->AddText(ImVec2(sc.x + 8, sc.y - 8),
+                                        IM_COL32(255, 235, 120, 220), gbuf);
+                        }
                     }
                 }
 

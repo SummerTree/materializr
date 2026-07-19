@@ -796,12 +796,14 @@ void PropertiesPanel::renderSketchConstraintsPanel(int sketchId, bool& modified)
         Constraint& c = cs[i];
         ImGui::PushID(static_cast<int>(c.id));
 
-        // Render dimensional ones (Distance, Radius/Diameter, Angle) inline.
-        // Non-dimensional ones get a single muted bullet — there's nothing to
-        // tune, but listing them confirms what's actually applied.
+        // Render dimensional ones (Distance, Radius/Diameter, Angle,
+        // point-to-line Distance) inline. Non-dimensional ones get a single
+        // muted bullet — there's nothing to tune, but listing them confirms
+        // what's actually applied.
         bool isDim = (c.type == ConstraintType::Distance ||
                       c.type == ConstraintType::Radius   ||
-                      c.type == ConstraintType::Angle);
+                      c.type == ConstraintType::Angle    ||
+                      c.type == ConstraintType::DistancePointLine);
         if (isDim) {
             ++anyDim;
             auto& edit = m_constraintEdits[c.id];
@@ -820,6 +822,7 @@ void PropertiesPanel::renderSketchConstraintsPanel(int sketchId, bool& modified)
             const char* label =
                 c.type == ConstraintType::Distance ? "Distance"
               : c.type == ConstraintType::Radius   ? "\xC3\x98 (diameter)"
+              : c.type == ConstraintType::DistancePointLine ? "Dist \xE2\x8A\xA5"
                                                    : "Angle";
             if (!edit.focused) {
                 std::snprintf(edit.buf, sizeof(edit.buf), "%.3f", shown);
