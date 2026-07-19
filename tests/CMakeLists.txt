@@ -427,3 +427,9 @@ add_executable(test_audit_hardening test_audit_hardening.cpp
 target_link_libraries(test_audit_hardening PRIVATE materializr_core gtest gtest_main
     TKV3d TKService)
 add_test(NAME test_audit_hardening COMMAND test_audit_hardening)
+
+# test_brepio_dos — the BREP length-prefix DoS guard (impossible section count
+# rejected fast, valid file still round-trips, truncated file fails cleanly)
+add_executable(test_brepio_dos test_brepio_dos.cpp)
+target_link_libraries(test_brepio_dos PRIVATE materializr_core gtest gtest_main)
+add_test(NAME test_brepio_dos COMMAND test_brepio_dos)
