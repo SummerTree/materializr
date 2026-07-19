@@ -323,12 +323,16 @@ ProjectSaveResult ProjectIO::save(const std::string& filePath, const Document& d
         // Constraints: opt-in user-applied sketch constraints. One line each,
         // type stored as the enum's int value (stable as long as we only append
         // to ConstraintType in SketchConstraints.h — which is the policy).
+        // K line format: K id type eA eB value valueY labelOffX labelOffY.
+        // Trailing two fields (label offsets) added for the dimension tool;
+        // readers of older builds ignore trailing tokens.
         const auto& cns = sk->getConstraints();
         ofs << "CONSTRAINT_COUNT " << static_cast<int>(cns.size()) << "\n";
         for (const auto& c : cns) {
             ofs << "K " << c.id << " " << static_cast<int>(c.type) << " "
                 << c.entityA << " " << c.entityB << " "
-                << c.value << " " << c.valueY << "\n";
+                << c.value << " " << c.valueY << " "
+                << c.labelOffX << " " << c.labelOffY << "\n";
         }
 
         ofs << "SKETCH_END\n";
@@ -654,6 +658,26 @@ void parseSketchBodyImpl(std::istream& ifs, materializr::Sketch& sk,
                 int tval = 0;
                 s >> t >> c.id >> tval >> c.entityA >> c.entityB >> c.value >> c.valueY;
                 c.type = static_cast<ConstraintType>(tval);
+                // Label offsets are trailing optional fields (since the
+                // dimension tool); legacy 6-field K lines default to auto
+                // placement.
+                c.labelOffX = 0.0;
+                c.labelOffY = 0.0;
+                // Extract offsets from end of line if present (8+ fields total)
+                std::istringstream tokens_counter(line);
+                std::string token;
+                int token_count = 0;
+                while (tokens_counter >> token) token_count++;
+                // If we have 9 tokens (K + 8 fields), read the last 2 as offsets
+                if (token_count >= 9) {
+                    // Re-parse to get the last two values
+                    std::istringstream parse_again(line);
+                    std::string dummy;
+                    int dummy_int;
+                    double dummy_val;
+                    parse_again >> dummy >> dummy_int >> dummy_int >> dummy_int >> dummy_int
+                                >> dummy_val >> dummy_val >> c.labelOffX >> c.labelOffY;
+                }
                 c.isSatisfied = false;
                 maxConstraintId = std::max(maxConstraintId, c.id);
                 sk.addRawConstraint(c);

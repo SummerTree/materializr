@@ -28,6 +28,11 @@ struct Constraint {
     double value = 0.0;  // Distance / Radius / Angle. For Fixed, the X coord.
     double valueY = 0.0; // Y coord of the locked position (Fixed only).
     bool isSatisfied = false;
+    // Sketch-space offset of the dimension label from its auto-computed
+    // anchor. (0,0) = legacy auto placement (pre-offset files and constraints
+    // created without explicit label placement).
+    double labelOffX = 0.0;
+    double labelOffY = 0.0;
 };
 
 } // namespace materializr
