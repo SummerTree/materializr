@@ -5755,8 +5755,14 @@ void Application::renderSketchRecoveryPrompt() {
     // strands the dialog in the top-left corner for good.
     ImVec2 c = ImGui::GetMainViewport()->GetCenter();
     ImGui::SetNextWindowPos(c, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    // NoSavedSettings: this window's geometry is meaningless across launches
+    // (it's re-centred every frame above), so never let a degenerate Pos/Size
+    // — e.g. from some future popup-stack collision like the update-popup one
+    // this class of bug already caused once — get written to imgui.ini and
+    // self-perpetuate as the window's starting size on the next launch.
     if (ImGui::BeginPopupModal("Recover Sketch?", nullptr,
-                               ImGuiWindowFlags_AlwaysAutoResize)) {
+                               ImGuiWindowFlags_AlwaysAutoResize |
+                               ImGuiWindowFlags_NoSavedSettings)) {
         ImGui::TextUnformatted(
             "An unfinished sketch from your last session was found.");
         ImGui::TextDisabled(
@@ -5878,8 +5884,10 @@ void Application::renderProjectRecoveryPrompt() {
     // Pinned centred every frame — see the Android note on the sketch prompt.
     ImVec2 c = ImGui::GetMainViewport()->GetCenter();
     ImGui::SetNextWindowPos(c, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    // NoSavedSettings — see the identical note on renderSketchRecoveryPrompt.
     if (ImGui::BeginPopupModal("Recover Project?", nullptr,
-                               ImGuiWindowFlags_AlwaysAutoResize)) {
+                               ImGuiWindowFlags_AlwaysAutoResize |
+                               ImGuiWindowFlags_NoSavedSettings)) {
         materializr::ProjectRecoveryMeta meta;
         materializr::readProjectRecoveryMeta(meta);
         ImGui::TextUnformatted(

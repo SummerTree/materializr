@@ -205,6 +205,14 @@ add_executable(test_recovery test_recovery.cpp)
 target_link_libraries(test_recovery PRIVATE materializr_core gtest gtest_main)
 add_test(NAME test_recovery COMMAND test_recovery)
 
+# test_recovery_popup_turntaking — headless dear imgui popup-stack regression
+# for the "Recover Sketch?" modal rendering empty/stuck when it collides with
+# another raw-every-frame OpenPopup (the launch update-check popup). Pure
+# ImGui mechanics — links imgui_lib directly, no OCCT/materializr_core needed.
+add_executable(test_recovery_popup_turntaking test_recovery_popup_turntaking.cpp)
+target_link_libraries(test_recovery_popup_turntaking PRIVATE imgui_lib gtest gtest_main)
+add_test(NAME test_recovery_popup_turntaking COMMAND test_recovery_popup_turntaking)
+
 # Exchange formats: BREP round-trip, OBJ/DXF/3MF structural checks
 add_executable(test_exchange_io test_exchange_io.cpp)
 target_link_libraries(test_exchange_io PRIVATE materializr_core gtest gtest_main)
