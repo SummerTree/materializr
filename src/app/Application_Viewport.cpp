@@ -2557,16 +2557,24 @@ void Application::renderViewport() {
                 // position when unset (legacy / not yet user-placed). Draws a
                 // thin leader from the anchor to the label whenever the user
                 // has moved it off the auto spot.
+                // `leaderFrom` overrides where a placed label's leader starts
+                // (default: the anchor). DistancePointLine passes its dim
+                // line's midpoint — the offset math must stay anchored on
+                // dimensionAutoAnchor (what applyPendingDimension stored
+                // against), but a leader drawn from that anchor points at the
+                // constraint's pinned corner, not the dimension line.
                 auto placeLabel = [&](glm::vec2 anchor, glm::vec2 autoOff,
-                                      const char* text, const Constraint& c) {
+                                      const char* text, const Constraint& c,
+                                      const glm::vec2* leaderFrom = nullptr) {
                     bool placed = (c.labelOffX != 0.0 || c.labelOffY != 0.0);
                     glm::vec2 lpos = placed
                         ? anchor + glm::vec2(static_cast<float>(c.labelOffX),
                                              static_cast<float>(c.labelOffY))
                         : anchor + autoOff;
                     if (placed) {
+                        glm::vec2 lsrc = leaderFrom ? *leaderFrom : anchor;
                         ImVec2 sa, sb;
-                        if (toImg(dim2world(anchor), sa) && toImg(dim2world(lpos), sb))
+                        if (toImg(dim2world(lsrc), sa) && toImg(dim2world(lpos), sb))
                             dl->AddLine(sa, sb, IM_COL32(255, 235, 120, 90), 1.0f);
                     }
                     drawLabel(lpos, text, c);
@@ -2773,7 +2781,7 @@ void Application::renderViewport() {
                         }
                         std::snprintf(lbl, sizeof(lbl), "%.2f mm", c.value);
                         glm::vec2 midDim = 0.5f * (baseA + baseB);
-                        placeLabel(anchor, midDim - anchor, lbl, c);
+                        placeLabel(anchor, midDim - anchor, lbl, c, &midDim);
                     }
                 }
 
