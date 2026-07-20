@@ -2906,6 +2906,15 @@ void Application::renderViewport() {
                 // BeginPopup returning false (Esc / click-outside) closes the
                 // edit and leaves the constraint unchanged. Enter commits the
                 // typed value, re-runs the solver, and marks the project dirty.
+                // A left click landing while the edit popup is up belongs to
+                // the popup (typically the dismiss-click outside it). The
+                // Dimension tool's routing later this frame checks this flag
+                // so that click can't double as a fresh entity pick — without
+                // it, dismissing the popup over a line started an unwanted
+                // new dimension on that line.
+                m_dimPopupSwallowClick =
+                    (m_dimEditingId >= 0) &&
+                    ImGui::IsMouseClicked(ImGuiMouseButton_Left);
                 if (m_dimEditingId >= 0) {
                     // Latch "the popup just consumed an Escape" BEFORE
                     // BeginPopup below can act on it and clear
@@ -6195,9 +6204,13 @@ void Application::renderViewport() {
                     } else if (m_sketchTool->getMode() == SketchToolMode::Dimension) {
                         // Picking mutates nothing — no undo record. The commit
                         // below records the constraint add as one SketchEditOp.
-                        m_sketchTool->onMouseDown(sketchCoord, false);
-                        if (m_sketchTool->dimReadyToCommit())
-                            applyPendingDimension();
+                        // A click that landed while the ##DimEdit popup was up
+                        // belongs to the popup (dismiss) — never a fresh pick.
+                        if (!m_dimPopupSwallowClick) {
+                            m_sketchTool->onMouseDown(sketchCoord, false);
+                            if (m_sketchTool->dimReadyToCommit())
+                                applyPendingDimension();
+                        }
                     } else if (materializr::touchMode()) {
                         // A held circle awaiting its ✗/✓ bubble: drawing the
                         // next shape auto-commits it as-released (the bubble

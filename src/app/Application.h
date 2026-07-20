@@ -676,6 +676,10 @@ private:
     // steps. Consumed (cleared) by the chain on the SAME press it gates;
     // also cleared on every sketch enter/exit reset to avoid staleness.
     bool m_dimPopupConsumedEsc = false;
+    // Same-frame signal: the ##DimEdit popup was open when this frame's left
+    // click landed, so the click belongs to the popup (dismiss/interaction) —
+    // the Dimension tool's click routing must not treat it as a fresh pick.
+    bool m_dimPopupSwallowClick = false;
 
     // Sketch grid step in mm (drives both the visual face grid and snap-to-line)
     float m_sketchGridStep = 1.0f;
