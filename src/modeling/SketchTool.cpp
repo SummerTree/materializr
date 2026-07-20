@@ -3149,7 +3149,18 @@ DimPick SketchTool::hitTestDimEntity(glm::vec2 pos) const {
         // real line/circle/arc at this position win instead (a fromText hit
         // must not abort the whole hit test).
         const SketchPoint* p = m_sketch->getPoint(nearPt);
-        if (p && !p->fromText) return {DimEntityKind::Point, nearPt};
+        if (p && !p->fromText) {
+            // A circle / arc CENTRE resolves to its circle, not the bare
+            // point: dimensioning to a lone centre almost always means the
+            // circle (diameter, or a gap to another circle). Picking the
+            // point would instead make a centre-to-centre distance, which is
+            // rarely what's wanted and blocks the rim-gap dim.
+            for (const auto& c : m_sketch->getCircles())
+                if (c.centerPointId == nearPt) return {DimEntityKind::Circle, c.id};
+            for (const auto& a : m_sketch->getArcs())
+                if (a.centerPointId == nearPt) return {DimEntityKind::Arc, a.id};
+            return {DimEntityKind::Point, nearPt};
+        }
     }
     const float tol = std::max(m_gridStep * 0.5f, 0.5f) * snapScale();
     // Lines (segment distance), skipping fromText — same math as handleSelectTool.
