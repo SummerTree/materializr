@@ -2736,12 +2736,44 @@ void Application::renderViewport() {
                         for (const auto& l : m_activeSketch->getLines())
                             if (l.id == c.entityB) { dpLine = &l; break; }
                         if (!dp || !dpLine) continue;
+                        const SketchPoint* ls = m_activeSketch->getPoint(dpLine->startPointId);
+                        const SketchPoint* le = m_activeSketch->getPoint(dpLine->endPointId);
+                        if (!ls || !le) continue;
+                        glm::vec2 seg = le->pos - ls->pos;
+                        float segLen = glm::length(seg);
+                        if (segLen < 1e-6f) continue;
+                        glm::vec2 dirA = seg / segLen;
+                        glm::vec2 nA(-dirA.y, dirA.x);
+                        float sd = glm::dot(dp->pos - ls->pos, nA);
+
                         PendingDimension pd;
                         pd.type = c.type; pd.entityA = c.entityA;
                         pd.entityB = c.entityB; pd.valid = true;
                         glm::vec2 anchor = dimensionAutoAnchor(pd);
+                        bool hasOff = (c.labelOffX != 0.0 || c.labelOffY != 0.0);
+                        glm::vec2 labelPos = hasOff
+                            ? anchor + glm::vec2(static_cast<float>(c.labelOffX),
+                                                 static_cast<float>(c.labelOffY))
+                            : anchor;
+                        // CAD-style perpendicular dimension line, drawn at the
+                        // label's station along the line. The constraint pins
+                        // one endpoint of the measured pair — in rectangles
+                        // that's a corner sitting on a NEIGHBORING edge, and a
+                        // leader pointing there read as "the dim attached to a
+                        // third line". The dim line spans the measured gap
+                        // wherever the label sits instead.
+                        float tL = glm::clamp(glm::dot(labelPos - ls->pos, dirA),
+                                              0.0f, segLen);
+                        glm::vec2 baseA = ls->pos + dirA * tL;
+                        glm::vec2 baseB = baseA + nA * sd;
+                        ImVec2 pA, pB;
+                        if (toImg(dim2world(baseA), pA) && toImg(dim2world(baseB), pB)) {
+                            dl->AddLine(pA, pB, IM_COL32(20, 20, 28, 200), 3.0f);
+                            dl->AddLine(pA, pB, IM_COL32(255, 235, 120, 230), 1.5f);
+                        }
                         std::snprintf(lbl, sizeof(lbl), "%.2f mm", c.value);
-                        placeLabel(anchor, glm::vec2(2.0f, 2.0f), lbl, c);
+                        glm::vec2 midDim = 0.5f * (baseA + baseB);
+                        placeLabel(anchor, midDim - anchor, lbl, c);
                     }
                 }
 
@@ -2826,6 +2858,40 @@ void Application::renderViewport() {
                         else
                             std::snprintf(gbuf, sizeof(gbuf), "%.2f mm", pend.measured);
                         glm::vec2 ganchor = dimensionAutoAnchor(pend);
+                        // Pending point-to-line / parallel-line dims preview
+                        // the same CAD-style perpendicular dimension line the
+                        // committed render draws, following the cursor's
+                        // station — the leader then hugs the dim line rather
+                        // than the corner point carrying the constraint.
+                        if (pend.type == ConstraintType::DistancePointLine) {
+                            const SketchPoint* gp = m_activeSketch->getPoint(pend.entityA);
+                            const SketchLine* gl = nullptr;
+                            for (const auto& l : m_activeSketch->getLines())
+                                if (l.id == pend.entityB) { gl = &l; break; }
+                            const SketchPoint* gs = gl ? m_activeSketch->getPoint(gl->startPointId) : nullptr;
+                            const SketchPoint* ge = gl ? m_activeSketch->getPoint(gl->endPointId) : nullptr;
+                            if (gp && gs && ge) {
+                                glm::vec2 seg = ge->pos - gs->pos;
+                                float segLen = glm::length(seg);
+                                if (segLen > 1e-6f) {
+                                    glm::vec2 dirA = seg / segLen;
+                                    glm::vec2 nA(-dirA.y, dirA.x);
+                                    float sd = glm::dot(gp->pos - gs->pos, nA);
+                                    float tL = glm::clamp(
+                                        glm::dot(sketchCursor - gs->pos, dirA),
+                                        0.0f, segLen);
+                                    glm::vec2 baseA = gs->pos + dirA * tL;
+                                    glm::vec2 baseB = baseA + nA * sd;
+                                    ImVec2 gA, gB;
+                                    if (toImg(dim2world(baseA), gA) &&
+                                        toImg(dim2world(baseB), gB)) {
+                                        dl->AddLine(gA, gB, IM_COL32(20, 20, 28, 200), 3.0f);
+                                        dl->AddLine(gA, gB, IM_COL32(255, 235, 120, 230), 1.5f);
+                                    }
+                                    ganchor = 0.5f * (baseA + baseB);
+                                }
+                            }
+                        }
                         ImVec2 sa, sc;
                         if (toImg(dim2world(ganchor), sa) &&
                             toImg(dim2world(sketchCursor), sc)) {
