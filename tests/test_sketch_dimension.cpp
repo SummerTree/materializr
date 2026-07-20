@@ -360,19 +360,43 @@ TEST(DimensionResolve, ParallelPickPrefersEndpointOverFirstSegment) {
 
 TEST(DimensionResolve, InvalidCombosAreInvalid) {
     Sketch sk;
-    int c = sk.addPoint({0.0f, 0.0f});
-    int ci = sk.addCircle(c, 2.0);
     int p = sk.addPoint({5.0f, 0.0f});
-    // circle + point is out of scope (spec non-goal)
-    auto r = SketchTool::resolveDimension(sk, pick(DimEntityKind::Circle, ci),
-                                          pick(DimEntityKind::Point, p));
-    EXPECT_FALSE(r.valid);
     // lone point
     auto r2 = SketchTool::resolveDimension(sk, pick(DimEntityKind::Point, p), DimPick{});
     EXPECT_FALSE(r2.valid);
     // dangling id
     auto r3 = SketchTool::resolveDimension(sk, pick(DimEntityKind::Line, 9999), DimPick{});
     EXPECT_FALSE(r3.valid);
+}
+
+TEST(DimensionResolve, TwoCirclesGiveCenterDistance) {
+    Sketch sk;
+    int cA = sk.addPoint({0.0f, 0.0f});
+    int ciA = sk.addCircle(cA, 5.0);
+    int cB = sk.addPoint({8.0f, 6.0f});
+    int ciB = sk.addCircle(cB, 3.0);
+    auto r = SketchTool::resolveDimension(sk, pick(DimEntityKind::Circle, ciA),
+                                          pick(DimEntityKind::Circle, ciB));
+    ASSERT_TRUE(r.valid);
+    EXPECT_EQ(r.type, ConstraintType::Distance);
+    EXPECT_EQ(r.entityA, cA); // centre points, not the circles
+    EXPECT_EQ(r.entityB, cB);
+    EXPECT_NEAR(r.measured, 10.0, 1e-6); // sqrt(8^2 + 6^2)
+}
+
+TEST(DimensionResolve, CirclePlusPointGivesCenterToPointDistance) {
+    Sketch sk;
+    int c = sk.addPoint({0.0f, 0.0f});
+    int ci = sk.addCircle(c, 2.0);
+    int p = sk.addPoint({3.0f, 4.0f});
+    // Either pick order resolves to a centre-to-point Distance.
+    auto r = SketchTool::resolveDimension(sk, pick(DimEntityKind::Circle, ci),
+                                          pick(DimEntityKind::Point, p));
+    ASSERT_TRUE(r.valid);
+    EXPECT_EQ(r.type, ConstraintType::Distance);
+    EXPECT_EQ(r.entityA, p);
+    EXPECT_EQ(r.entityB, c);
+    EXPECT_NEAR(r.measured, 5.0, 1e-6);
 }
 
 // Degenerate pick: a point that IS an endpoint of the target line measures a

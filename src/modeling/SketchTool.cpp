@@ -3194,14 +3194,15 @@ void SketchTool::handleDimensionTool(glm::vec2 pos) {
         case DimPhase::PickFirst: {
             DimPick hit = hitTestDimEntity(pos);
             if (hit.kind == DimEntityKind::None) return;
-            if (hit.kind == DimEntityKind::Circle || hit.kind == DimEntityKind::Arc) {
-                m_dimPending = resolveDimension(*m_sketch, hit, DimPick{});
-                if (m_dimPending.valid) { m_dimPickA = hit; m_dimPhase = DimPhase::PlaceLabel; }
-                return;
-            }
             m_dimPickA = hit;
-            if (hit.kind == DimEntityKind::Line)
-                m_dimPending = resolveDimension(*m_sketch, hit, DimPick{}); // tentative length
+            if (hit.kind == DimEntityKind::Line ||
+                hit.kind == DimEntityKind::Circle ||
+                hit.kind == DimEntityKind::Arc)
+                // Tentative single-entity dim (line length / circle diameter),
+                // but stay open for a second pick: a second circle/arc turns
+                // this into a centre-to-centre distance, a second line into a
+                // distance/angle. Empty space commits the tentative dim.
+                m_dimPending = resolveDimension(*m_sketch, hit, DimPick{});
             else
                 m_dimPending = PendingDimension{}; // lone point: no dim yet
             m_dimPhase = DimPhase::PickSecondOrPlace;
@@ -3257,6 +3258,16 @@ PendingDimension SketchTool::resolveDimension(const Sketch& sk, DimPick a, DimPi
         return std::abs(static_cast<double>(d.x) * r.y -
                         static_cast<double>(d.y) * r.x) / len;
     };
+    // Centre point id of a picked circle or arc (both store centerPointId).
+    auto centerPointId = [&sk](DimPick pk) -> int {
+        if (pk.kind == DimEntityKind::Circle)
+            for (const auto& c : sk.getCircles())
+                if (c.id == pk.id) return c.centerPointId;
+        if (pk.kind == DimEntityKind::Arc)
+            for (const auto& a : sk.getArcs())
+                if (a.id == pk.id) return a.centerPointId;
+        return -1;
+    };
 
     // Single-entity dims.
     if (b.kind == DimEntityKind::None) {
@@ -3279,6 +3290,31 @@ PendingDimension SketchTool::resolveDimension(const Sketch& sk, DimPick a, DimPi
             return out;
         }
         return out; // lone point: invalid
+    }
+
+    auto isCurve = [](DimEntityKind k) {
+        return k == DimEntityKind::Circle || k == DimEntityKind::Arc;
+    };
+    // Two circles/arcs → centre-to-centre distance (Distance between their
+    // centre points). Same for a curve + a bare point.
+    if (isCurve(a.kind) && isCurve(b.kind)) {
+        int ca = centerPointId(a), cb = centerPointId(b);
+        const SketchPoint* pa = sk.getPoint(ca);
+        const SketchPoint* pb = sk.getPoint(cb);
+        if (pa && pb && ca != cb)
+            out = {ConstraintType::Distance, ca, cb,
+                   static_cast<double>(glm::distance(pa->pos, pb->pos)), true};
+        return out;
+    }
+    if (isCurve(a.kind) && b.kind == DimEntityKind::Point) std::swap(a, b);
+    if (a.kind == DimEntityKind::Point && isCurve(b.kind)) {
+        int cb = centerPointId(b);
+        const SketchPoint* pa = sk.getPoint(a.id);
+        const SketchPoint* pb = sk.getPoint(cb);
+        if (pa && pb && a.id != cb)
+            out = {ConstraintType::Distance, a.id, cb,
+                   static_cast<double>(glm::distance(pa->pos, pb->pos)), true};
+        return out;
     }
 
     // Normalize point-first for the mixed pair.
