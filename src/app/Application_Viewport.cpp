@@ -2964,8 +2964,48 @@ void Application::renderViewport() {
                                 }
                             }
                         }
+                        // A pending diameter (single circle/arc picked, still
+                        // deciding whether a second circle turns it into a
+                        // gap) draws a diameter line ACROSS the circle rather
+                        // than a leader from the centre — a centre-anchored
+                        // leader reads as "measuring from the centre" and hid
+                        // that a second circle click makes a rim gap.
+                        bool drewSpecial = false;
+                        if (pend.type == ConstraintType::Radius) {
+                            glm::vec2 ctr(0.0f); float rad = 0.0f; bool found = false;
+                            for (const auto& circ : m_activeSketch->getCircles())
+                                if (circ.id == pend.entityA) {
+                                    const SketchPoint* cp = m_activeSketch->getPoint(circ.centerPointId);
+                                    if (cp) { ctr = cp->pos; rad = static_cast<float>(circ.radius); found = true; }
+                                    break;
+                                }
+                            for (const auto& arc : m_activeSketch->getArcs())
+                                if (arc.id == pend.entityA) {
+                                    const SketchPoint* cp = m_activeSketch->getPoint(arc.centerPointId);
+                                    if (cp) { ctr = cp->pos; rad = static_cast<float>(arc.radius); found = true; }
+                                    break;
+                                }
+                            if (found) {
+                                // Diameter line oriented toward the cursor.
+                                glm::vec2 d = sketchCursor - ctr;
+                                float len = glm::length(d);
+                                glm::vec2 u = (len > 1e-6f) ? d / len : glm::vec2(1.0f, 0.0f);
+                                ImVec2 e1, e2;
+                                if (toImg(dim2world(ctr - u * rad), e1) &&
+                                    toImg(dim2world(ctr + u * rad), e2)) {
+                                    dl->AddLine(e1, e2, IM_COL32(20, 20, 28, 200), 3.0f);
+                                    dl->AddLine(e1, e2, IM_COL32(255, 235, 120, 230), 1.5f);
+                                    ImVec2 sc;
+                                    if (toImg(dim2world(sketchCursor), sc))
+                                        dl->AddText(ImVec2(sc.x + 8, sc.y - 8),
+                                                    IM_COL32(255, 235, 120, 220), gbuf);
+                                    drewSpecial = true;
+                                }
+                            }
+                        }
                         ImVec2 sa, sc;
-                        if (toImg(dim2world(ganchor), sa) &&
+                        if (!drewSpecial &&
+                            toImg(dim2world(ganchor), sa) &&
                             toImg(dim2world(sketchCursor), sc)) {
                             dl->AddLine(sa, sc, IM_COL32(255, 235, 120, 90), 1.0f);
                             dl->AddText(ImVec2(sc.x + 8, sc.y - 8),
