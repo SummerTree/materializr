@@ -5973,6 +5973,13 @@ void Application::renderViewport() {
                         for (auto& [id, orig] : m_sketchGizmoOriginals)
                             m_activeSketch->movePoint(id, orig + delta);
                     }
+                    // Re-solve so dimensional/geometric constraints hold while
+                    // the gizmo drags geometry — otherwise a constrained
+                    // circle/line could be dragged off its dimension and the
+                    // stale value would keep displaying (the select-drag path
+                    // already solves via SketchTool::onMouseMove; the gizmo
+                    // path bypassed it).
+                    if (m_sketchSolver) m_sketchSolver->solve(*m_activeSketch);
 
                     if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
                         if (m_sketchGizmoHandle == SketchGizmoHandle::Rotate) {
