@@ -75,6 +75,10 @@ std::string SketchEditOp::description() const {
                 } else if (c.type == ConstraintType::Angle) {
                     std::snprintf(buf, sizeof(buf), "Add Angle %.1f\xC2\xB0",
                                   c.value * 180.0 / M_PI);
+                } else if (c.type == ConstraintType::DistancePointLine) {
+                    std::snprintf(buf, sizeof(buf), "Add Distance %.2f mm", c.value);
+                } else if (c.type == ConstraintType::CircleGap) {
+                    std::snprintf(buf, sizeof(buf), "Add Gap %.2f mm", c.value);
                 } else {
                     std::snprintf(buf, sizeof(buf), "Add %s", name);
                 }
@@ -109,7 +113,9 @@ std::string SketchEditOp::description() const {
                 } else if (cAfter[i].type == ConstraintType::Radius) {
                     std::snprintf(buf, sizeof(buf), "Edit \xC3\x98 %.2f \xE2\x86\x92 %.2f mm",
                                   bMatch->value * 2.0, cAfter[i].value * 2.0);
-                } else if (cAfter[i].type == ConstraintType::Distance) {
+                } else if (cAfter[i].type == ConstraintType::Distance ||
+                           cAfter[i].type == ConstraintType::DistancePointLine ||
+                           cAfter[i].type == ConstraintType::CircleGap) {
                     std::snprintf(buf, sizeof(buf), "Edit Distance %.2f \xE2\x86\x92 %.2f mm",
                                   bMatch->value, cAfter[i].value);
                 } else {

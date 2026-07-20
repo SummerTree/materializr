@@ -3091,6 +3091,24 @@ void Application::renderViewport() {
                             m_dimEditingId = -1;
                             ImGui::CloseCurrentPopup();
                         }
+                        // Delete removes the dimension constraint entirely, as
+                        // one undoable step ("Remove …" in History).
+                        ImGui::Spacing();
+                        if (ImGui::Button("Delete") ||
+                            ImGui::IsKeyPressed(ImGuiKey_Delete, false) ||
+                            ImGui::IsKeyPressed(ImGuiKey_Backspace, false)) {
+                            int delId = m_dimEditingId;
+                            recordSketchMutation([&]{
+                                m_activeSketch->removeConstraint(delId);
+                                if (m_sketchSolver) m_sketchSolver->solve(*m_activeSketch);
+                            });
+                            markDirty();
+                            m_meshesDirty = true;
+                            m_dimEditingId = -1;
+                            ImGui::CloseCurrentPopup();
+                        }
+                        ImGui::SameLine();
+                        ImGui::TextDisabled("(Del)");
                         ImGui::EndPopup();
                     } else {
                         // Popup closed without committing — drop edit state.
