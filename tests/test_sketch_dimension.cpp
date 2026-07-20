@@ -101,6 +101,40 @@ TEST(EqualConstraint, StillEqualisesLineLengths) {
     EXPECT_NEAR(lenA, 7.0, 1e-2); // (4 + 10) / 2
 }
 
+TEST(RectangleRigidity, AddRectangleCarriesHVConstraints) {
+    Sketch sk;
+    sk.addRectangle({0.0f, 0.0f}, {10.0f, 6.0f});
+    int nH = 0, nV = 0;
+    for (const auto& c : sk.getConstraints()) {
+        if (c.type == ConstraintType::Horizontal) ++nH;
+        if (c.type == ConstraintType::Vertical) ++nV;
+    }
+    EXPECT_EQ(nH, 2);
+    EXPECT_EQ(nV, 2);
+}
+
+TEST(RectangleRigidity, StaysSquareWhenACornerIsPulled) {
+    // A rectangle whose corner is dragged (as a distance dim would) must stay
+    // rectangular — sides horizontal/vertical — not skew into a parallelogram.
+    Sketch sk;
+    sk.addRectangle({0.0f, 0.0f}, {10.0f, 6.0f});
+    // Pull the top-right corner off-axis, then solve: H/V constraints re-square.
+    const auto& pts = sk.getPoints();
+    ASSERT_GE(pts.size(), 4u);
+    // The 3rd point (corner2) — nudge it diagonally.
+    int cornerId = pts[2].id;
+    sk.movePoint(cornerId, pts[2].pos + glm::vec2(3.0f, 2.5f));
+    SketchSolver solver;
+    solver.solve(sk, 500, 1e-4);
+    // Every line must be axis-aligned (dx≈0 or dy≈0).
+    for (const auto& l : sk.getLines()) {
+        glm::vec2 d = sk.getPoint(l.endPointId)->pos - sk.getPoint(l.startPointId)->pos;
+        bool axis = std::abs(d.x) < 1e-2f || std::abs(d.y) < 1e-2f;
+        EXPECT_TRUE(axis) << "line " << l.id << " not axis-aligned: "
+                          << d.x << "," << d.y;
+    }
+}
+
 TEST(CircleGap, SolverDrivesRimGapToTarget) {
     // Two circles, centres 20 apart, radii 5 and 3 → gap 12. Constrain the
     // rim gap to 2: centres should close to 10 apart, radii untouched.

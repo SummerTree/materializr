@@ -746,10 +746,15 @@ void SketchSolver::applyCorrection(const Constraint& c, Sketch& sketch, double e
                 glm::vec2 n(-dir.y, dir.x); // unit normal
                 float s = glm::dot(p->pos - a->pos, n); // signed distance
                 if (s < 0.0f) { n = -n; s = -s; }       // n points line → point
-                float corr = (static_cast<float>(c.value) - s) * 0.5f;
+                // Move ONLY the measured point, not the reference line. The
+                // line is what we're dimensioning AGAINST (e.g. an already-
+                // placed box's edge); dragging its endpoints too would deform
+                // that box every time a neighbour is dimensioned to it. The
+                // point's own geometry (if part of a constrained rectangle)
+                // gets re-squared by that rectangle's H/V constraints in the
+                // following relaxation passes.
+                float corr = (static_cast<float>(c.value) - s);
                 sketch.movePoint(c.entityA, p->pos + n * corr);
-                sketch.movePoint(line.startPointId, a->pos - n * corr);
-                sketch.movePoint(line.endPointId,   b->pos - n * corr);
                 return;
             }
             break;
