@@ -337,6 +337,27 @@ TEST(DimensionResolve, AntiParallelLinesGiveDistance) {
     EXPECT_EQ(r.entityB, f.lnAB);
 }
 
+TEST(DimensionResolve, ParallelPickPrefersEndpointOverFirstSegment) {
+    // Second line drawn so its START's perpendicular foot lands past the
+    // first segment's end (t≈1.5) while its END's foot lands inside (t≈0.5).
+    // The dim must pin the END point, or the label hangs off to the side
+    // over unrelated geometry (the rectangle "third line" bug).
+    Sketch sk;
+    int a = sk.addPoint({0.0f, 0.0f});
+    int b = sk.addPoint({10.0f, 0.0f});
+    int lnA = sk.addLine(a, b);
+    int cS = sk.addPoint({15.0f, 5.0f});
+    int cE = sk.addPoint({5.0f, 5.0f});
+    int lnC = sk.addLine(cS, cE);
+    auto r = SketchTool::resolveDimension(sk, pick(DimEntityKind::Line, lnA),
+                                          pick(DimEntityKind::Line, lnC));
+    ASSERT_TRUE(r.valid);
+    EXPECT_EQ(r.type, ConstraintType::DistancePointLine);
+    EXPECT_EQ(r.entityA, cE); // endpoint whose foot is inside the first segment
+    EXPECT_EQ(r.entityB, lnA);
+    EXPECT_NEAR(r.measured, 5.0, 1e-6);
+}
+
 TEST(DimensionResolve, InvalidCombosAreInvalid) {
     Sketch sk;
     int c = sk.addPoint({0.0f, 0.0f});

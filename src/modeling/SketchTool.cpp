@@ -3320,22 +3320,50 @@ PendingDimension SketchTool::resolveDimension(const Sketch& sk, DimPick a, DimPi
         while (ang >  M_PI) ang -= 2.0 * M_PI;
         while (ang < -M_PI) ang += 2.0 * M_PI;
         // Parallel (or anti-parallel) within kDimParallelTolRad: distance
-        // dim. The point is the SECOND line's start, measured to the FIRST
-        // line, so the first pick stays the reference for both branches.
+        // dim, pinned to one of the SECOND line's endpoints measured to the
+        // FIRST line (the first pick stays the reference for both branches).
+        // Endpoint choice matters visually: in chained sketches (rectangles)
+        // an endpoint is a shared corner and its perpendicular foot can land
+        // outside the first segment, hanging the label off to the side over
+        // unrelated geometry. Prefer the endpoint whose foot falls INSIDE
+        // the first segment, and skip endpoints the first line owns
+        // (zero-distance pick in disguise).
         double folded = std::min(std::abs(ang), M_PI - std::abs(ang));
         if (folded <= kDimParallelTolRad) {
             const SketchLine* lb = lineById(b.id);
             const SketchLine* la = lineById(a.id);
-            // Same degenerate-pick hazard as the point+line branch above,
-            // reached a different way: chained near-collinear segments where
-            // the second line's start point IS one of the first line's own
-            // endpoints (a zero-distance pick in disguise).
-            if (lb && la &&
-                (lb->startPointId == la->startPointId || lb->startPointId == la->endPointId))
+            if (!lb || !la) return out;
+            // Chained segments (sharing a vertex) that read as parallel are
+            // near-collinear polyline continuations — a "distance between
+            // these lines" dim is ill-defined there. Reject the pair.
+            if (lb->startPointId == la->startPointId || lb->startPointId == la->endPointId ||
+                lb->endPointId == la->startPointId || lb->endPointId == la->endPointId)
                 return out;
-            double d = perpDist(bs, as, ae);
-            if (lb && d >= 0.0)
-                out = {ConstraintType::DistancePointLine, lb->startPointId, a.id, d, true};
+            glm::vec2 dA = ae - as;
+            float lenA2 = glm::dot(dA, dA); // >0: parallel branch already
+                                            // rejected degenerate lines
+            int bestPt = -1;
+            double bestScore = -1.0;
+            const int candIds[2] = {lb->startPointId, lb->endPointId};
+            const glm::vec2 candPos[2] = {bs, be};
+            for (int i = 0; i < 2; ++i) {
+                if (candIds[i] == la->startPointId || candIds[i] == la->endPointId)
+                    continue;
+                float t = glm::dot(candPos[i] - as, dA) / lenA2;
+                // Score: distance of the foot parameter from the segment
+                // interior — 0 while inside [0,1], grows outside. Lower wins.
+                double outside = (t < 0.0f) ? -t : (t > 1.0f ? t - 1.0f : 0.0);
+                if (bestPt < 0 || outside < bestScore) {
+                    bestPt = i;
+                    bestScore = outside;
+                }
+            }
+            if (bestPt < 0) return out; // both endpoints belong to line A
+            double d = perpDist(candPos[bestPt], as, ae);
+            // d≈0 means the lines are collinear (chained polyline segments):
+            // a zero-distance dim is meaningless and destabilises the solver.
+            if (d >= 1e-6)
+                out = {ConstraintType::DistancePointLine, candIds[bestPt], a.id, d, true};
         } else {
             out = {ConstraintType::Angle, a.id, b.id, ang, true};
         }

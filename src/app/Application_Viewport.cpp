@@ -240,7 +240,12 @@ glm::vec2 Application::dimensionAutoAnchor(const PendingDimension& pd) const {
                 glm::vec2 d = e - s;
                 float len2 = glm::dot(d, d);
                 if (len2 > 1e-12f) {
-                    float t = glm::dot(p->pos - s, d) / len2; // foot on infinite line
+                    // Foot clamped to the physical segment: the constraint
+                    // measures against the infinite carrier, but a label
+                    // anchored past the segment's end hangs over unrelated
+                    // geometry (rectangle corners made parallel-line dims
+                    // look attached to a third line).
+                    float t = glm::clamp(glm::dot(p->pos - s, d) / len2, 0.0f, 1.0f);
                     glm::vec2 foot = s + d * t;
                     return 0.5f * (p->pos + foot);
                 }
