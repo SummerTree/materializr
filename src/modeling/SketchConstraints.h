@@ -17,7 +17,8 @@ enum class ConstraintType {
     Equal,         // two lines have equal length
     Concentric,    // two circles/arcs share same center
     Angle,         // fixed angle (radians) between two lines
-    DistancePointLine // fixed perpendicular distance from a point to a line's infinite carrier
+    DistancePointLine, // fixed perpendicular distance from a point to a line's infinite carrier
+    CircleGap          // fixed rim-to-rim gap between two circles/arcs (centre dist - rA - rB)
 };
 
 struct Constraint {

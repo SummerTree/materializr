@@ -721,6 +721,7 @@ void PropertiesPanel::renderSketchConstraintsPanel(int sketchId, bool& modified)
                 case ConstraintType::Concentric:        tn = "Concentric";       break;
                 case ConstraintType::Angle:             tn = "Angle";            break;
                 case ConstraintType::DistancePointLine: tn = "Dist\xE2\x8A\xA5"; break;
+                case ConstraintType::CircleGap:         tn = "Gap";              break;
             }
             std::fprintf(stderr, " %s=%.2f", tn, c.value);
         }
@@ -760,6 +761,7 @@ void PropertiesPanel::renderSketchConstraintsPanel(int sketchId, bool& modified)
             case ConstraintType::Equal:         return "Equal length";
             case ConstraintType::Concentric:    return "Concentric";
             case ConstraintType::DistancePointLine: return "Dist\xE2\x8A\xA5";
+            case ConstraintType::CircleGap:     return "Gap";
             default:                            return "Constraint";
         }
     };
@@ -803,7 +805,8 @@ void PropertiesPanel::renderSketchConstraintsPanel(int sketchId, bool& modified)
         bool isDim = (c.type == ConstraintType::Distance ||
                       c.type == ConstraintType::Radius   ||
                       c.type == ConstraintType::Angle    ||
-                      c.type == ConstraintType::DistancePointLine);
+                      c.type == ConstraintType::DistancePointLine ||
+                      c.type == ConstraintType::CircleGap);
         if (isDim) {
             ++anyDim;
             auto& edit = m_constraintEdits[c.id];
@@ -823,6 +826,7 @@ void PropertiesPanel::renderSketchConstraintsPanel(int sketchId, bool& modified)
                 c.type == ConstraintType::Distance ? "Distance"
               : c.type == ConstraintType::Radius   ? "\xC3\x98 (diameter)"
               : c.type == ConstraintType::DistancePointLine ? "Dist \xE2\x8A\xA5"
+              : c.type == ConstraintType::CircleGap ? "Gap"
                                                    : "Angle";
             if (!edit.focused) {
                 std::snprintf(edit.buf, sizeof(edit.buf), "%.3f", shown);

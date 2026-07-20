@@ -69,6 +69,9 @@ bool SketchSolver::solve(Sketch& sketch, int maxIterations, double tolerance) {
             case ConstraintType::DistancePointLine:
                 numEquations += 1;
                 break;
+            case ConstraintType::CircleGap:
+                numEquations += 1;
+                break;
         }
     }
 
@@ -373,6 +376,26 @@ double SketchSolver::computeError(const Constraint& c, const Sketch& sketch) con
                 return dist - c.value;
             }
             return 0.0;
+        }
+
+        case ConstraintType::CircleGap: {
+            // entityA / entityB = circle (or arc) ids. Gap is the rim-to-rim
+            // clearance: |centreA - centreB| - rA - rB.
+            int caPt = -1, cbPt = -1;
+            double rA = 0.0, rB = 0.0;
+            for (const auto& ci : sketch.getCircles()) {
+                if (ci.id == c.entityA) { caPt = ci.centerPointId; rA = ci.radius; }
+                if (ci.id == c.entityB) { cbPt = ci.centerPointId; rB = ci.radius; }
+            }
+            for (const auto& ar : sketch.getArcs()) {
+                if (ar.id == c.entityA) { caPt = ar.centerPointId; rA = ar.radius; }
+                if (ar.id == c.entityB) { cbPt = ar.centerPointId; rB = ar.radius; }
+            }
+            const SketchPoint* pa = sketch.getPoint(caPt);
+            const SketchPoint* pb = sketch.getPoint(cbPt);
+            if (!pa || !pb) return 0.0;
+            double centreDist = glm::length(pa->pos - pb->pos);
+            return (centreDist - rA - rB) - c.value;
         }
     }
 
@@ -697,6 +720,34 @@ void SketchSolver::applyCorrection(const Constraint& c, Sketch& sketch, double e
                 sketch.movePoint(line.endPointId,   b->pos - n * corr);
                 return;
             }
+            break;
+        }
+
+        case ConstraintType::CircleGap: {
+            // Drive the centres apart/together so the rim gap reaches target;
+            // radii are left to their own Radius constraints. Target centre
+            // distance = value + rA + rB.
+            int caPt = -1, cbPt = -1;
+            double rA = 0.0, rB = 0.0;
+            for (const auto& ci : sketch.getCircles()) {
+                if (ci.id == c.entityA) { caPt = ci.centerPointId; rA = ci.radius; }
+                if (ci.id == c.entityB) { cbPt = ci.centerPointId; rB = ci.radius; }
+            }
+            for (const auto& ar : sketch.getArcs()) {
+                if (ar.id == c.entityA) { caPt = ar.centerPointId; rA = ar.radius; }
+                if (ar.id == c.entityB) { cbPt = ar.centerPointId; rB = ar.radius; }
+            }
+            const SketchPoint* pa = sketch.getPoint(caPt);
+            const SketchPoint* pb = sketch.getPoint(cbPt);
+            if (!pa || !pb) return;
+            glm::vec2 diff = pb->pos - pa->pos;
+            float centreDist = glm::length(diff);
+            if (centreDist < 1e-10f) { diff = glm::vec2(1.0f, 0.0f); centreDist = 1.0f; }
+            glm::vec2 dir = diff / centreDist;
+            float targetCentre = static_cast<float>(c.value + rA + rB);
+            float corr = (targetCentre - centreDist) * 0.5f;
+            sketch.movePoint(caPt, pa->pos - dir * corr);
+            sketch.movePoint(cbPt, pb->pos + dir * corr);
             break;
         }
     }

@@ -5050,13 +5050,17 @@ void Application::applyPendingDimension() {
                                  c.entityA == pd.entityB && c.entityB == pd.entityA);
             bool angleSwapped = (c.type == ConstraintType::Angle &&
                                   c.entityA == pd.entityB && c.entityB == pd.entityA);
+            // CircleGap is symmetric in its two circles — a reversed re-pick
+            // of the same pair is the same dimension.
+            bool gapSwapped = (c.type == ConstraintType::CircleGap &&
+                                c.entityA == pd.entityB && c.entityB == pd.entityA);
             bool mirroredDPL = !same && !distSwapped && !angleSwapped && isMirroredDPL(c);
-            if (same || distSwapped || angleSwapped || mirroredDPL) {
+            if (same || distSwapped || angleSwapped || gapSwapped || mirroredDPL) {
                 // Reversed-order matches (Angle swap, mirrored
                 // DistancePointLine) adopt the NEW pick's entity order/ids
                 // so the constraint stays consistent with how it was just
                 // re-picked.
-                if (distSwapped || angleSwapped || mirroredDPL) {
+                if (distSwapped || angleSwapped || gapSwapped || mirroredDPL) {
                     c.entityA = pd.entityA;
                     c.entityB = pd.entityB;
                 }

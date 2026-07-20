@@ -258,6 +258,35 @@ glm::vec2 Application::dimensionAutoAnchor(const PendingDimension& pd) const {
                 return 0.25f * (as + ae + bs + be);
             return glm::vec2(0.0f);
         }
+        case ConstraintType::CircleGap: {
+            glm::vec2 cA(0.0f), cB(0.0f);
+            double rA = -1.0, rB = -1.0;
+            auto grab = [&](int id, glm::vec2& ctr, double& r) {
+                for (const auto& c : sk.getCircles())
+                    if (c.id == id) {
+                        const SketchPoint* p = sk.getPoint(c.centerPointId);
+                        if (p) { ctr = p->pos; r = c.radius; }
+                        return;
+                    }
+                for (const auto& a : sk.getArcs())
+                    if (a.id == id) {
+                        const SketchPoint* p = sk.getPoint(a.centerPointId);
+                        if (p) { ctr = p->pos; r = a.radius; }
+                        return;
+                    }
+            };
+            grab(pd.entityA, cA, rA);
+            grab(pd.entityB, cB, rB);
+            if (rA < 0.0 || rB < 0.0) return 0.0f * cA;
+            glm::vec2 d = cB - cA;
+            float len = glm::length(d);
+            if (len < 1e-6f) return 0.5f * (cA + cB);
+            glm::vec2 u = d / len;
+            // Midpoint of the gap: from A's rim to B's rim along the centre line.
+            glm::vec2 rimA = cA + u * static_cast<float>(rA);
+            glm::vec2 rimB = cB - u * static_cast<float>(rB);
+            return 0.5f * (rimA + rimB);
+        }
         default: return glm::vec2(0.0f);
     }
 }
@@ -2782,6 +2811,41 @@ void Application::renderViewport() {
                         std::snprintf(lbl, sizeof(lbl), "%.2f mm", c.value);
                         glm::vec2 midDim = 0.5f * (baseA + baseB);
                         placeLabel(anchor, midDim - anchor, lbl, c, &midDim);
+                    } else if (c.type == ConstraintType::CircleGap) {
+                        // Draw the gap segment between the two facing rims,
+                        // label at its midpoint (the leader runs from there).
+                        auto grab = [&](int id, glm::vec2& ctr, double& r) -> bool {
+                            for (const auto& cc : m_activeSketch->getCircles())
+                                if (cc.id == id) {
+                                    const SketchPoint* p = m_activeSketch->getPoint(cc.centerPointId);
+                                    if (p) { ctr = p->pos; r = cc.radius; return true; }
+                                }
+                            for (const auto& aa : m_activeSketch->getArcs())
+                                if (aa.id == id) {
+                                    const SketchPoint* p = m_activeSketch->getPoint(aa.centerPointId);
+                                    if (p) { ctr = p->pos; r = aa.radius; return true; }
+                                }
+                            return false;
+                        };
+                        glm::vec2 cA, cB; double rA = 0, rB = 0;
+                        if (!grab(c.entityA, cA, rA) || !grab(c.entityB, cB, rB)) continue;
+                        glm::vec2 d = cB - cA;
+                        float len = glm::length(d);
+                        if (len < 1e-6f) continue;
+                        glm::vec2 u = d / len;
+                        glm::vec2 rimA = cA + u * static_cast<float>(rA);
+                        glm::vec2 rimB = cB - u * static_cast<float>(rB);
+                        ImVec2 pA, pB;
+                        if (toImg(dim2world(rimA), pA) && toImg(dim2world(rimB), pB)) {
+                            dl->AddLine(pA, pB, IM_COL32(20, 20, 28, 200), 3.0f);
+                            dl->AddLine(pA, pB, IM_COL32(255, 235, 120, 230), 1.5f);
+                        }
+                        PendingDimension pd;
+                        pd.type = c.type; pd.entityA = c.entityA;
+                        pd.entityB = c.entityB; pd.valid = true;
+                        glm::vec2 anchor = dimensionAutoAnchor(pd);
+                        std::snprintf(lbl, sizeof(lbl), "%.2f mm", c.value);
+                        placeLabel(anchor, glm::vec2(0.0f), lbl, c, &anchor);
                     }
                 }
 

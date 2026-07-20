@@ -54,6 +54,35 @@ TEST(DistancePointLine, ConvergesToTarget) {
     EXPECT_NEAR(pointLineDist(sk, p, ln), 7.0, 1e-3);
 }
 
+TEST(CircleGap, SolverDrivesRimGapToTarget) {
+    // Two circles, centres 20 apart, radii 5 and 3 → gap 12. Constrain the
+    // rim gap to 2: centres should close to 10 apart, radii untouched.
+    Sketch sk;
+    int cA = sk.addPoint({0.0f, 0.0f});
+    int ciA = sk.addCircle(cA, 5.0);
+    int cB = sk.addPoint({20.0f, 0.0f});
+    int ciB = sk.addCircle(cB, 3.0);
+    Constraint c{};
+    c.type = ConstraintType::CircleGap;
+    c.entityA = ciA;
+    c.entityB = ciB;
+    c.value = 2.0;
+    sk.addConstraint(c);
+
+    SketchSolver solver;
+    EXPECT_TRUE(solver.solve(sk, 500, 1e-4));
+    double centreDist = glm::length(sk.getPoint(cA)->pos - sk.getPoint(cB)->pos);
+    EXPECT_NEAR(centreDist, 10.0, 1e-2); // 2 + 5 + 3
+    // Radii are left to their own constraints — unchanged here.
+    double rA = 0, rB = 0;
+    for (const auto& ci : sk.getCircles()) {
+        if (ci.id == ciA) rA = ci.radius;
+        if (ci.id == ciB) rB = ci.radius;
+    }
+    EXPECT_NEAR(rA, 5.0, 1e-9);
+    EXPECT_NEAR(rB, 3.0, 1e-9);
+}
+
 TEST(DistancePointLine, DegenerateLineDoesNotNaN) {
     Sketch sk;
     int a = sk.addPoint({2.0f, 2.0f});
@@ -369,34 +398,19 @@ TEST(DimensionResolve, InvalidCombosAreInvalid) {
     EXPECT_FALSE(r3.valid);
 }
 
-TEST(DimensionResolve, TwoCirclesGiveCenterDistance) {
+TEST(DimensionResolve, TwoCirclesGiveRimGap) {
     Sketch sk;
     int cA = sk.addPoint({0.0f, 0.0f});
     int ciA = sk.addCircle(cA, 5.0);
-    int cB = sk.addPoint({8.0f, 6.0f});
+    int cB = sk.addPoint({8.0f, 6.0f}); // centre distance 10
     int ciB = sk.addCircle(cB, 3.0);
     auto r = SketchTool::resolveDimension(sk, pick(DimEntityKind::Circle, ciA),
                                           pick(DimEntityKind::Circle, ciB));
     ASSERT_TRUE(r.valid);
-    EXPECT_EQ(r.type, ConstraintType::Distance);
-    EXPECT_EQ(r.entityA, cA); // centre points, not the circles
-    EXPECT_EQ(r.entityB, cB);
-    EXPECT_NEAR(r.measured, 10.0, 1e-6); // sqrt(8^2 + 6^2)
-}
-
-TEST(DimensionResolve, CirclePlusPointGivesCenterToPointDistance) {
-    Sketch sk;
-    int c = sk.addPoint({0.0f, 0.0f});
-    int ci = sk.addCircle(c, 2.0);
-    int p = sk.addPoint({3.0f, 4.0f});
-    // Either pick order resolves to a centre-to-point Distance.
-    auto r = SketchTool::resolveDimension(sk, pick(DimEntityKind::Circle, ci),
-                                          pick(DimEntityKind::Point, p));
-    ASSERT_TRUE(r.valid);
-    EXPECT_EQ(r.type, ConstraintType::Distance);
-    EXPECT_EQ(r.entityA, p);
-    EXPECT_EQ(r.entityB, c);
-    EXPECT_NEAR(r.measured, 5.0, 1e-6);
+    EXPECT_EQ(r.type, ConstraintType::CircleGap);
+    EXPECT_EQ(r.entityA, ciA); // the circles, not their centre points
+    EXPECT_EQ(r.entityB, ciB);
+    EXPECT_NEAR(r.measured, 2.0, 1e-6); // 10 - 5 - 3
 }
 
 // Degenerate pick: a point that IS an endpoint of the target line measures a

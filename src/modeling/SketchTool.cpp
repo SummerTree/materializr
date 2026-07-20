@@ -3295,25 +3295,28 @@ PendingDimension SketchTool::resolveDimension(const Sketch& sk, DimPick a, DimPi
     auto isCurve = [](DimEntityKind k) {
         return k == DimEntityKind::Circle || k == DimEntityKind::Arc;
     };
-    // Two circles/arcs → centre-to-centre distance (Distance between their
-    // centre points). Same for a curve + a bare point.
+    auto radiusOf = [&sk](DimPick pk) -> double {
+        if (pk.kind == DimEntityKind::Circle)
+            for (const auto& c : sk.getCircles())
+                if (c.id == pk.id) return c.radius;
+        if (pk.kind == DimEntityKind::Arc)
+            for (const auto& a : sk.getArcs())
+                if (a.id == pk.id) return a.radius;
+        return -1.0;
+    };
+    // Two circles/arcs → rim-to-rim gap (centre distance minus both radii),
+    // the clearance a machinist reads between the two circle edges — NOT the
+    // centre distance. entityA/entityB stay the circle ids so the solver can
+    // recompute the gap as radii change.
     if (isCurve(a.kind) && isCurve(b.kind)) {
         int ca = centerPointId(a), cb = centerPointId(b);
         const SketchPoint* pa = sk.getPoint(ca);
         const SketchPoint* pb = sk.getPoint(cb);
-        if (pa && pb && ca != cb)
-            out = {ConstraintType::Distance, ca, cb,
-                   static_cast<double>(glm::distance(pa->pos, pb->pos)), true};
-        return out;
-    }
-    if (isCurve(a.kind) && b.kind == DimEntityKind::Point) std::swap(a, b);
-    if (a.kind == DimEntityKind::Point && isCurve(b.kind)) {
-        int cb = centerPointId(b);
-        const SketchPoint* pa = sk.getPoint(a.id);
-        const SketchPoint* pb = sk.getPoint(cb);
-        if (pa && pb && a.id != cb)
-            out = {ConstraintType::Distance, a.id, cb,
-                   static_cast<double>(glm::distance(pa->pos, pb->pos)), true};
+        double rA = radiusOf(a), rB = radiusOf(b);
+        if (pa && pb && ca != cb && rA >= 0.0 && rB >= 0.0)
+            out = {ConstraintType::CircleGap, a.id, b.id,
+                   static_cast<double>(glm::distance(pa->pos, pb->pos)) - rA - rB,
+                   true};
         return out;
     }
 
