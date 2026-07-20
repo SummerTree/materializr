@@ -4834,12 +4834,30 @@ void Application::applySketchConstraint(ConstraintType type) {
             break;
         }
         case ConstraintType::Parallel:
-        case ConstraintType::Perpendicular:
-        case ConstraintType::Equal: {
+        case ConstraintType::Perpendicular: {
             // Each subsequent line gets bound to the first.
             std::vector<int> v(selLns.begin(), selLns.end());
             for (size_t i = 1; i < v.size(); ++i) {
                 pushConstraint(type, v[0], v[i]);
+                ++added;
+            }
+            break;
+        }
+        case ConstraintType::Equal: {
+            // Equal binds LINES (equal length) or CIRCLES/ARCS (equal radius),
+            // whichever the selection holds — each subsequent entity bound to
+            // the first of its kind. A mixed selection constrains lines to
+            // lines and curves to curves independently.
+            std::vector<int> lns(selLns.begin(), selLns.end());
+            for (size_t i = 1; i < lns.size(); ++i) {
+                pushConstraint(ConstraintType::Equal, lns[0], lns[i]);
+                ++added;
+            }
+            std::vector<int> curves;
+            for (int id : m_sketchTool->getSelectedCircles()) curves.push_back(id);
+            for (int id : m_sketchTool->getSelectedArcs())    curves.push_back(id);
+            for (size_t i = 1; i < curves.size(); ++i) {
+                pushConstraint(ConstraintType::Equal, curves[0], curves[i]);
                 ++added;
             }
             break;

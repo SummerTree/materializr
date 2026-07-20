@@ -283,24 +283,31 @@ double SketchSolver::computeError(const Constraint& c, const Sketch& sketch) con
         }
 
         case ConstraintType::Equal: {
-            // entityA and entityB are line ids; their lengths should be equal
-            const auto& lines = sketch.getLines();
-            float lenA = 0.0f, lenB = 0.0f;
-
-            for (const auto& line : lines) {
-                if (line.id == c.entityA) {
-                    const SketchPoint* sp = sketch.getPoint(line.startPointId);
-                    const SketchPoint* ep = sketch.getPoint(line.endPointId);
-                    if (sp && ep) lenA = glm::length(ep->pos - sp->pos);
-                }
-                if (line.id == c.entityB) {
-                    const SketchPoint* sp = sketch.getPoint(line.startPointId);
-                    const SketchPoint* ep = sketch.getPoint(line.endPointId);
-                    if (sp && ep) lenB = glm::length(ep->pos - sp->pos);
-                }
-            }
-
-            return static_cast<double>(lenA - lenB);
+            // entityA/entityB are EITHER two line ids (equal length) OR two
+            // circle/arc ids (equal radius). Try lengths first, fall back to
+            // radii so one constraint type covers both.
+            auto lineLen = [&](int id, double& out) -> bool {
+                for (const auto& line : sketch.getLines())
+                    if (line.id == id) {
+                        const SketchPoint* sp = sketch.getPoint(line.startPointId);
+                        const SketchPoint* ep = sketch.getPoint(line.endPointId);
+                        if (!sp || !ep) return false;
+                        out = glm::length(ep->pos - sp->pos);
+                        return true;
+                    }
+                return false;
+            };
+            auto curveRad = [&](int id, double& out) -> bool {
+                for (const auto& ci : sketch.getCircles())
+                    if (ci.id == id) { out = ci.radius; return true; }
+                for (const auto& ar : sketch.getArcs())
+                    if (ar.id == id) { out = ar.radius; return true; }
+                return false;
+            };
+            double a = 0.0, b = 0.0;
+            if (lineLen(c.entityA, a) && lineLen(c.entityB, b)) return a - b;
+            if (curveRad(c.entityA, a) && curveRad(c.entityB, b)) return a - b;
+            return 0.0; // mixed / missing: inert
         }
 
         case ConstraintType::Concentric: {
@@ -593,6 +600,31 @@ void SketchSolver::applyCorrection(const Constraint& c, Sketch& sketch, double e
         }
 
         case ConstraintType::Equal: {
+            // Circle/arc pair → equalise radii to their average (radii live in
+            // the shape structs, written through the dedicated setters). Falls
+            // through to the line-length path below when the ids are lines.
+            {
+                auto curveRad = [&](int id, double& out) -> bool {
+                    for (const auto& ci : sketch.getCircles())
+                        if (ci.id == id) { out = ci.radius; return true; }
+                    for (const auto& ar : sketch.getArcs())
+                        if (ar.id == id) { out = ar.radius; return true; }
+                    return false;
+                };
+                auto setRad = [&](int id, double r) {
+                    for (const auto& ci : sketch.getCircles())
+                        if (ci.id == id) { sketch.setCircleRadius(id, r); return; }
+                    for (const auto& ar : sketch.getArcs())
+                        if (ar.id == id) { sketch.setArcRadius(id, r); return; }
+                };
+                double rA = 0.0, rB = 0.0;
+                if (curveRad(c.entityA, rA) && curveRad(c.entityB, rB)) {
+                    double avg = 0.5 * (rA + rB);
+                    setRad(c.entityA, avg);
+                    setRad(c.entityB, avg);
+                    return;
+                }
+            }
             // Make both lines the same length by adjusting their endpoints
             const auto& lines = sketch.getLines();
             const SketchLine* lineA = nullptr;

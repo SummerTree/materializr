@@ -54,6 +54,53 @@ TEST(DistancePointLine, ConvergesToTarget) {
     EXPECT_NEAR(pointLineDist(sk, p, ln), 7.0, 1e-3);
 }
 
+TEST(EqualConstraint, EqualisesCircleRadii) {
+    // Equal on two circle ids drives both radii to their average.
+    Sketch sk;
+    int ca = sk.addPoint({0.0f, 0.0f});
+    int ciA = sk.addCircle(ca, 4.0);
+    int cb = sk.addPoint({20.0f, 0.0f});
+    int ciB = sk.addCircle(cb, 10.0);
+    Constraint c{};
+    c.type = ConstraintType::Equal;
+    c.entityA = ciA;
+    c.entityB = ciB;
+    sk.addConstraint(c);
+
+    SketchSolver solver;
+    EXPECT_TRUE(solver.solve(sk, 500, 1e-4));
+    double rA = 0, rB = 0;
+    for (const auto& ci : sk.getCircles()) {
+        if (ci.id == ciA) rA = ci.radius;
+        if (ci.id == ciB) rB = ci.radius;
+    }
+    EXPECT_NEAR(rA, 7.0, 1e-3); // (4 + 10) / 2
+    EXPECT_NEAR(rB, 7.0, 1e-3);
+}
+
+TEST(EqualConstraint, StillEqualisesLineLengths) {
+    // Regression: Equal on two line ids keeps meaning equal length.
+    Sketch sk;
+    int a = sk.addPoint({0.0f, 0.0f});
+    int b = sk.addPoint({4.0f, 0.0f});
+    int lnA = sk.addLine(a, b);
+    int cc = sk.addPoint({0.0f, 5.0f});
+    int dd = sk.addPoint({0.0f, 15.0f}); // length 10
+    int lnB = sk.addLine(cc, dd);
+    Constraint c{};
+    c.type = ConstraintType::Equal;
+    c.entityA = lnA;
+    c.entityB = lnB;
+    sk.addConstraint(c);
+
+    SketchSolver solver;
+    EXPECT_TRUE(solver.solve(sk, 500, 1e-4));
+    double lenA = glm::length(sk.getPoint(a)->pos - sk.getPoint(b)->pos);
+    double lenB = glm::length(sk.getPoint(cc)->pos - sk.getPoint(dd)->pos);
+    EXPECT_NEAR(lenA, lenB, 1e-2);
+    EXPECT_NEAR(lenA, 7.0, 1e-2); // (4 + 10) / 2
+}
+
 TEST(CircleGap, SolverDrivesRimGapToTarget) {
     // Two circles, centres 20 apart, radii 5 and 3 → gap 12. Constrain the
     // rim gap to 2: centres should close to 10 apart, radii untouched.

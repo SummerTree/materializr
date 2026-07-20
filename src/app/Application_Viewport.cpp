@@ -7167,6 +7167,8 @@ void Application::renderViewport() {
             if (nCur >= 2) {
                 if (ImGui::MenuItem("Concentric"))
                     applySketchConstraint(ConstraintType::Concentric);
+                if (ImGui::MenuItem("Equal radius"))
+                    applySketchConstraint(ConstraintType::Equal);
             }
             // ImGui automatically greys out an empty submenu, but we want to
             // hint at the cause when nothing matches the selection.
