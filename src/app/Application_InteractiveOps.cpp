@@ -4152,6 +4152,9 @@ bool Application::launchThreadRecut(ThreadOp& op, int attempts) {
     const float recutAng = std::min(rang, 0.15f);
     p.fut = std::async(std::launch::async,
                        [worker, body, rdefl, recutAng]() {
+                           std::fprintf(stderr, "[Thread] recut worker "
+                                                "started\n");
+                           const auto t0 = std::chrono::steady_clock::now();
                            TopoDS_Shape r = worker->buildResult(body);
                            if (!r.IsNull()) {
                                try {
@@ -4161,6 +4164,13 @@ bool Application::launchThreadRecut(ThreadOp& op, int attempts) {
                                    mesh.Perform();
                                } catch (...) {}
                            }
+                           const double secs =
+                               std::chrono::duration<double>(
+                                   std::chrono::steady_clock::now() - t0)
+                                   .count();
+                           std::fprintf(stderr, "[Thread] recut worker done "
+                                                "in %.1fs (%s)\n", secs,
+                                        r.IsNull() ? "failed" : "ok");
                            return r;
                        });
     m_threadRecuts.push_back(std::move(p));
@@ -4235,6 +4245,8 @@ void Application::pollThreadRecuts() {
             showToast("Thread couldn't re-cut on the new geometry \xE2\x80\x94 "
                       "check the Thread step.");
         } else {
+            std::fprintf(stderr, "[Thread] recut landed — applying to body "
+                                 "%d\n", p.bodyId);
             m_document->updateBody(p.bodyId, result);
             m_meshesDirty = true;
         }

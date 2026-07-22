@@ -1340,6 +1340,75 @@ TopoDS_Shape ThreadOp::buildResult(const TopoDS_Shape& body) const {
         };
 
         TopoDS_Shape result;
+        // INTERNAL ROUNDED: the nut's VOID is itself a swept threaded rod —
+        // crest at (hole radius + depth), grooves dipping back to the hole
+        // surface — so sweep that rod and CUT it out of the body. A fat
+        // smooth solid tool booleans cleanly; the banded groove tools it
+        // replaces carved the flat-topped rope rings ("that exact same
+        // shape has re-emerged", internal edition). Clearance widens the
+        // void (crest out AND root out) so a printed nut fits its bolt.
+        if (m_isHole && m_starts <= 1 &&
+            m_profile == ThreadProfile::Rounded) {
+            const char* why = "void-rod sweep failed";
+            try {
+                gp_Ax3 segBase(gp_Pnt(loc.X() + zd.X() * vLo,
+                                      loc.Y() + zd.Y() * vLo,
+                                      loc.Z() + zd.Z() * vLo), zd, xd);
+                const double span = vHi - vLo;
+                TopoDS_Shape voidRod = sweptRodThread(
+                    segBase, m_radius + depth + m_clearance, span, m_pitch,
+                    depth, m_rightHanded, m_profile, 0.0);
+                if (!voidRod.IsNull()) {
+                    why = "void cut failed";
+                    const double voidVol = shapeVol(voidRod);
+                    const double minRemoval = std::max(1e-2, bodyVol * 1e-4);
+                    // The cut can remove at most the tool's own volume and
+                    // must remove something real — outside that band the
+                    // classification INVERTED (a swept solid used as a CUT
+                    // tool is the historically-inverting configuration), so
+                    // retry once with the reversed tool, same as tryCut.
+                    auto attempt = [&](const TopoDS_Shape& tool)
+                        -> TopoDS_Shape {
+                        TopoDS_Shape r = cutOn(
+                            BRepBuilderAPI_Copy(body).Shape(), tool, 1.0e-3);
+                        if (r.IsNull()) return {};
+                        const double rem = bodyVol - shapeVol(r);
+                        if (rem < minRemoval ||
+                            rem > voidVol * 1.001 + 1e-6) {
+                            std::fprintf(stderr, "[Thread] swept-void: "
+                                                 "removed %.3f of void %.3f "
+                                                 "(body %.3f)\n",
+                                         rem, voidVol, bodyVol);
+                            return {};
+                        }
+                        return r;
+                    };
+                    TopoDS_Shape res = attempt(voidRod);
+                    if (res.IsNull()) {
+                        TopoDS_Shape rev = voidRod;
+                        rev.Reverse();
+                        res = attempt(rev);
+                    }
+                    why = "removed volume out of band (both orientations)";
+                    if (!res.IsNull()) {
+                        why = "result invalid";
+                        if (!BRepCheck_Analyzer(res).IsValid()) {
+                            ShapeFix_Shape fixer(res);
+                            fixer.Perform();
+                            res = fixer.Shape();
+                        }
+                        if (BRepCheck_Analyzer(res).IsValid())
+                            result = res;
+                    }
+                }
+            } catch (...) { result.Nullify(); }
+            if (result.IsNull())
+                std::fprintf(stderr, "[Thread] internal swept-void cut "
+                                     "declined (%s) — falling back to "
+                                     "groove tools\n", why);
+            else if (materializr::isVerbose())
+                std::fprintf(stderr, "[Thread] internal swept-void cut OK\n");
+        }
         // ROUNDED on a body that couldn't take the direct sweep (a cross-
         // holed / slotted rod — the reflow re-cut case): intersect the body
         // with the SWEPT threaded rod instead of falling into the rope
@@ -1393,29 +1462,63 @@ TopoDS_Shape ThreadOp::buildResult(const TopoDS_Shape& body) const {
                         const double grooveMax =
                             M_PI * m_radius * m_radius * span -
                             shapeVol(swept);
-                        // Fuzzy booleans BUMP TOLERANCES on their input
+        // Fuzzy booleans BUMP TOLERANCES on their input
                         // TShapes — a failed attempt must not pollute `body`
                         // for the groove-tool fallbacks (it measurably
                         // changed their cut results). Operate on a deep copy.
                         TopoDS_Shape bodyCopy =
                             BRepBuilderAPI_Copy(body).Shape();
-                        BRepAlgoAPI_Common common;
-                        TopTools_ListOfShape cArgs, cTools;
-                        cArgs.Append(bodyCopy);
-                        cTools.Append(swept);
-                        common.SetArguments(cArgs);
-                        common.SetTools(cTools);
-                        common.SetFuzzyValue(1.0e-3);
-                        common.SetRunParallel(Standard_True);
-                        if (m_cancelTok) {
-                            Handle(ThreadCancelBreak) brk =
-                                new ThreadCancelBreak(m_cancelTok);
-                            common.Build(brk->Start());
-                        } else {
-                            common.Build();
+                        // COMPLEMENT formulation: body ∩ sweptRod, computed
+                        // as sweptRod − (srcCyl − body). The direct Common
+                        // works for a transverse hole but INVERTS on a
+                        // coaxial bore (it filled the bore — the recurring
+                        // helical-classification curse — so the volume gate
+                        // declined and Steve's tube got the rope grooves).
+                        // Phrased as subtraction, every boolean is "smooth
+                        // solid vs SIMPLE solid": the complement is exactly
+                        // the material missing from a plain rod (the bore,
+                        // the slot), never anything helical.
+                        why = "complement boolean failed";
+                        TopoDS_Shape res;
+                        {
+                            BRepAlgoAPI_Cut compCut(
+                                BRepPrimAPI_MakeCylinder(
+                                    gp_Ax2(segBase.Location(),
+                                           segBase.Direction(),
+                                           segBase.XDirection()),
+                                    m_radius, span).Shape(),
+                                bodyCopy);
+                            compCut.SetFuzzyValue(1.0e-3);
+                            compCut.Build();
+                            if (compCut.IsDone() &&
+                                !compCut.Shape().IsNull()) {
+                                TopoDS_Shape missing = compCut.Shape();
+                                if (shapeVol(missing) < 1e-6) {
+                                    // Body IS the plain rod (nothing
+                                    // missing): the swept rod is the result
+                                    // outright.
+                                    res = swept;
+                                } else {
+                                    BRepAlgoAPI_Cut fin;
+                                    TopTools_ListOfShape fa, ft;
+                                    fa.Append(swept);
+                                    ft.Append(missing);
+                                    fin.SetArguments(fa);
+                                    fin.SetTools(ft);
+                                    fin.SetFuzzyValue(1.0e-3);
+                                    fin.SetRunParallel(Standard_True);
+                                    if (m_cancelTok) {
+                                        Handle(ThreadCancelBreak) brk =
+                                            new ThreadCancelBreak(
+                                                m_cancelTok);
+                                        fin.Build(brk->Start());
+                                    } else {
+                                        fin.Build();
+                                    }
+                                    if (fin.IsDone()) res = fin.Shape();
+                                }
+                            }
                         }
-                        TopoDS_Shape res = common.IsDone() ? common.Shape()
-                                                           : TopoDS_Shape();
                         if (!res.IsNull()) {
                             const double removed = bodyVol - shapeVol(res);
                             const double minRemoval =

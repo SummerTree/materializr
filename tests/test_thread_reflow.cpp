@@ -165,6 +165,52 @@ TEST(ThreadReflow, RoundedRecutOnHoledRodKeepsSweptGeometry) {
     EXPECT_NEAR(vol(res), vExpected, 0.01 * vExpected);
 }
 
+TEST(ThreadReflow, RoundedRecutOnCoaxialBoreKeepsSweptGeometry) {
+    // Steve's tube: rod, Rounded thread, then a coaxial bore through it.
+    // The Common formulation INVERTED on this (OCCT filled the bore), the
+    // volume gate declined, and the re-cut fell to the rope grooves for a
+    // minute. The complement formulation (swept − (rod − body)) must yield
+    // the swept sine on the tube.
+    Document doc;
+    History hist;
+    TopoDS_Shape rod = BRepPrimAPI_MakeCylinder(R, L).Shape();
+    int rodId = doc.addBody(rod, "rod");
+
+    auto th = makeThread(rodId);
+    th->setProfile(ThreadProfile::Rounded);
+    TopoDS_Shape bore =
+        BRepPrimAPI_MakeCylinder(
+            gp_Ax2(gp_Pnt(0, 0, -5.0), gp_Dir(0, 0, 1), gp_Dir(1, 0, 0)),
+            3.0, L + 10.0)
+            .Shape();
+    ThreadOp ref;
+    ref.setAxis(gp_Ax2(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1), gp_Dir(1, 0, 0)));
+    ref.setRadius(R); ref.setLength(L); ref.setPitch(3.0); ref.setDepth(1.2);
+    ref.setIsHole(false); ref.setProfile(ThreadProfile::Rounded);
+    TopoDS_Shape sweptClean = ref.buildResult(rod);
+    ASSERT_FALSE(sweptClean.IsNull());
+    const double vExpected = vol(BRepAlgoAPI_Cut(sweptClean, bore).Shape());
+
+    ASSERT_TRUE(hist.pushOperation(std::move(th), doc));
+    int boreId = doc.addBody(bore, "bore");
+    auto cut = std::make_unique<BooleanOp>();
+    cut->setTargetBodyId(rodId);
+    cut->setToolBodyId(boreId);
+    cut->setMode(BooleanMode::Subtract);
+    ASSERT_TRUE(hist.pushOperation(std::move(cut), doc));
+
+    TopoDS_Shape res = doc.getBody(rodId);
+    ASSERT_FALSE(res.IsNull());
+    EXPECT_TRUE(BRepCheck_Analyzer(res).IsValid());
+    // The bore must survive (the Common inversion FILLED it)...
+    {
+        BRepClass3d_SolidClassifier cls(res, gp_Pnt(0, 0, L * 0.5), 1e-7);
+        EXPECT_NE(cls.State(), TopAbs_IN) << "bore filled in";
+    }
+    // ...and the grooves must be the gentle sine, not rope scoops.
+    EXPECT_NEAR(vol(res), vExpected, 0.01 * vExpected);
+}
+
 TEST(ThreadReflow, UndoRedoAcrossReflowedTimeline) {
     Document doc;
     History hist;

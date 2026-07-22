@@ -2647,6 +2647,11 @@ void Application::rebuildMeshes() {
     float deflection, angularDeflection;
     meshQualityParams(deflection, angularDeflection);
 
+    // Diagnostic: a full rebuild that takes seconds on the MAIN thread is a
+    // freeze — say so, with the trigger state.
+    const uint32_t rmStart = m_meshesDirty ? SDL_GetTicks() : 0;
+    const bool rmWasFull = m_meshesDirty;
+
     if (m_meshesDirty) {
         // Full rebuild — clear everything and re-tessellate every visible
         // body. Used on project load, mesh-quality change, theme switch.
@@ -2683,6 +2688,12 @@ void Application::rebuildMeshes() {
                 m_edgeRenderer->setBodyEdges(id, shape, deflection);
         }
         m_dirtyBodyIds.clear();
+        if (rmWasFull) {
+            const uint32_t took = SDL_GetTicks() - rmStart;
+            if (took > 500)
+                std::fprintf(stderr, "[Perf] full mesh rebuild took %.2fs "
+                                     "on the main thread\n", took / 1000.0);
+        }
         return;
     }
 
@@ -5699,6 +5710,17 @@ void Application::run() {
     const uint32_t runStartMs = SDL_GetTicks();
 
     while (true) {
+        // Main-loop stall watchdog: a gap of seconds between iterations IS
+        // the "not responding" freeze — print it so the journal names the
+        // stall instead of us guessing which subsystem blocked.
+        {
+            static uint32_t lastIterMs = 0;
+            const uint32_t nowMs = SDL_GetTicks();
+            if (lastIterMs != 0 && nowMs - lastIterMs > 1000)
+                std::fprintf(stderr, "[Perf] main loop stalled %.2fs\n",
+                             (nowMs - lastIterMs) / 1000.0);
+            lastIterMs = nowMs;
+        }
         // Apply/discard any landed async thread re-cuts before this frame.
         pollThreadRecuts();
 

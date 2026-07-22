@@ -2,6 +2,7 @@
 #include "ui_scale.h"
 #include "touch_mode.h"
 #include "gl_common.h"
+#include <chrono>
 
 #include <cstdlib>
 #include <filesystem>
@@ -84,6 +85,7 @@ namespace materializr { namespace force_link { void linkAll(); } }
 #include <imgui_impl_sdl2.h>
 #include <imgui_impl_opengl3.h>
 #include <BRepPrimAPI_MakeBox.hxx>
+#include <BRepBuilderAPI_Copy.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <gp_Ax3.hxx>
 #include <BRep_Tool.hxx>
@@ -468,12 +470,69 @@ void Application::renderViewport() {
                                              glm::vec3(n.X(), n.Y(), n.Z()));
             m_edgeRenderer->setSectionPlane(true, p,
                                             glm::vec3(n.X(), n.Y(), n.Z()));
+            // DEBOUNCED overlay recompute. The GPU clip planes above track
+            // the slider instantly; SectionView::update() runs a full OCCT
+            // plane-section + cap triangulation on the MAIN thread — on a
+            // swept-thread body (helicoid BSplines) that's seconds PER
+            // recompute, and firing it on every drag tick froze the app
+            // solid. Recompute only once the plane has RESTED for 250 ms
+            // (the overlay/cap pops in when the drag pauses).
+            // ASYNC overlay recompute. One recompute on a swept-thread body
+            // measured 100.78s — on the main thread that froze the whole
+            // app (Steve's section-view hang). The GPU clip planes above
+            // track the slider instantly; the overlay (curves + caps)
+            // computes on a WORKER from deep-copied shapes, debounced until
+            // the plane rests, newest-plane-wins (a superseded compute is
+            // user-break-cancelled mid-boolean).
+            const uint32_t nowMs = static_cast<uint32_t>(
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now().time_since_epoch())
+                    .count());
             if (m_sectionDirty || geomChanged) {
-                m_sectionView->setEnabled(true);
-                m_sectionView->setPlane(pl);
-                m_sectionView->setOffset(m_sectionOffset);
-                m_sectionView->update();
+                m_sectionRestMs = nowMs;
+                m_sectionPending = true;
                 m_sectionDirty = false;
+                // Supersede an in-flight compute — its plane is stale.
+                if (m_sectionFut.valid() && m_sectionCancel)
+                    m_sectionCancel->store(true);
+            }
+            m_sectionView->setEnabled(true);
+            if (m_sectionPending && !m_sectionFut.valid() &&
+                nowMs - m_sectionRestMs >= 250) {
+                gp_Pln cutting = pl;
+                {
+                    gp_Pnt o2 = cutting.Location();
+                    o2.Translate(gp_Vec(n) *
+                                 static_cast<double>(m_sectionOffset));
+                    cutting.SetLocation(o2);
+                }
+                std::vector<std::pair<TopoDS_Shape, glm::vec3>> bodies;
+                for (int id : m_document->getAllBodyIds()) {
+                    if (!m_document->isBodyVisible(id)) continue;
+                    try {
+                        const TopoDS_Shape& s = m_document->getBody(id);
+                        if (s.IsNull()) continue;
+                        bodies.emplace_back(BRepBuilderAPI_Copy(s).Shape(),
+                                            m_document->getBodyColor(id));
+                    } catch (...) { continue; }
+                }
+                m_sectionCancel = std::make_shared<std::atomic<bool>>(false);
+                auto cancel = m_sectionCancel;
+                m_sectionFut = std::async(
+                    std::launch::async,
+                    [bodies = std::move(bodies), cutting, cancel]() {
+                        const auto t0 = std::chrono::steady_clock::now();
+                        auto r = materializr::SectionView::compute(
+                            bodies, cutting, cancel.get());
+                        const double secs = std::chrono::duration<double>(
+                            std::chrono::steady_clock::now() - t0).count();
+                        if (secs > 0.5)
+                            std::fprintf(stderr, "[Perf] section overlay "
+                                                 "computed in %.2fs on the "
+                                                 "worker\n", secs);
+                        return r;
+                    });
+                m_sectionPending = false;
             }
         } else {
             m_shapeRenderer->setSectionPlane(false, glm::vec3(0.0f),
@@ -481,6 +540,18 @@ void Application::renderViewport() {
             m_edgeRenderer->setSectionPlane(false, glm::vec3(0.0f),
                                             glm::vec3(0.0f, 1.0f, 0.0f));
             if (m_sectionView) m_sectionView->setEnabled(false);
+            // Kill an in-flight compute — its result is unwanted.
+            if (m_sectionFut.valid() && m_sectionCancel)
+                m_sectionCancel->store(true);
+        }
+        // Land a finished section compute (also reaps a cancelled one).
+        if (m_sectionFut.valid() &&
+            m_sectionFut.wait_for(std::chrono::milliseconds(0)) ==
+                std::future_status::ready) {
+            auto r = m_sectionFut.get();
+            const bool cancelled = m_sectionCancel && m_sectionCancel->load();
+            if (!cancelled && m_sectionEnabled && m_sectionView)
+                m_sectionView->apply(std::move(r));
         }
         m_shapeRenderer->render(view, proj, cam.getPosition());
         m_edgeRenderer->render(view, proj);

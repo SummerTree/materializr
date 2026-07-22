@@ -26,6 +26,7 @@
 #include "modeling/SketchConstraints.h" // for ConstraintType (applySketchConstraint)
 #include "modeling/Unfold.h" // for FlatPattern (m_unfoldPattern)
 #include "modeling/TopoName.h" // for topo::Ref (m_threadFaceRef)
+#include "viewport/SectionView.h" // SectionView::Result (async section compute)
 #include "core/SheetSpec.h" // for SheetMaterial (m_unfoldMaterial)
 #include "io/Settings.h" // for AppSettings::RecentProject (m_recentProjects)
 
@@ -1265,6 +1266,11 @@ private:
     float  m_sectionOffset     = 0.0f;
     bool   m_sectionFlip       = false;
     bool   m_sectionDirty      = true; // recompute overlay curves next frame
+    bool   m_sectionPending    = false;   // overlay recompute waiting for rest
+    uint32_t m_sectionRestMs   = 0;       // last plane change (debounce clock)
+    // Async overlay compute (one recompute on a threaded body took 100s).
+    std::future<SectionView::Result> m_sectionFut;
+    std::shared_ptr<std::atomic<bool>> m_sectionCancel;
     gp_Pln sectionBasePlane() const;  // flip applied, offset NOT applied
     void   renderSectionPanel();      // floating controls while enabled
 
