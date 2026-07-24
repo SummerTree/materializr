@@ -4588,9 +4588,23 @@ void Application::renderViewport() {
                         !m_patternActive && !m_resizeCylActive &&
                         !m_threadActive &&
                         !m_moveModeToggle;   // Move (nav lock): taps don't select
+                    // Touch: commit selection on a GENUINE tap-LIFT (Window::
+                    // consumeSingleTap), not the press frame — else the first
+                    // finger-down of a following nav gesture (one-finger orbit /
+                    // two-finger pan-zoom) re-picks or clears the selection before
+                    // the drag is even recognized (#68). The pick `result` on the
+                    // lift frame is at the tap position (no motion parked it), so
+                    // the same downstream branches select the right thing. Desktop
+                    // keeps click-to-select on press.
+                    float _tapSelX = 0.0f, _tapSelY = 0.0f;
+                    const bool selectClicked =
+                        materializr::touchMode()
+                            ? (m_window && m_window->consumeSingleTap(_tapSelX, _tapSelY))
+                            : ImGui::IsMouseClicked(ImGuiMouseButton_Left);
+                    (void)_tapSelX; (void)_tapSelY;
                     bool regionConsumedClick = false;
                     if (clickSelectionAllowed && regionHit.regionIndex >= 0 &&
-                        ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+                        selectClicked) {
                         SelectionEntry entry;
                         entry.type = SelectionType::SketchRegion;
                         entry.sketchId = regionHit.sketchId;
@@ -4621,7 +4635,7 @@ void Application::renderViewport() {
                     // sits in front of the edge.
                     else if (clickSelectionAllowed &&
                              regionHit.regionIndex < 0 && regionHit.sketchId >= 0 &&
-                             ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+                             selectClicked) {
                         // Same generous occlusion tolerance + source-face
                         // exemption as the region branch above — sketches on
                         // body faces are coplanar by intent.
@@ -4807,7 +4821,7 @@ void Application::renderViewport() {
                         // click never selected it, but it looked clickable).
                         m_pickCycleLast = -1;
                     } else if (clickSelectionAllowed && !regionConsumedClick &&
-                               ImGui::IsMouseClicked(ImGuiMouseButton_Left) &&
+                               selectClicked &&
                                !(materializr::touchMode() &&
                                  ImGui::GetTime() < m_suppressFaceClickUntil)) {
                         int ownerStep = -1; // fillet/chamfer step to open in the editor

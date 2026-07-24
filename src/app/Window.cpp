@@ -546,6 +546,10 @@ void Window::handleFingerEvent(unsigned type, std::int64_t id, float nx, float n
         const bool quickTap = !m_holdSelect && !m_movedBeyondHold && !m_suppressLeft &&
                               (nowT - m_downTicks) < 300u;
         if (quickTap) {
+            // A genuine tap — drive the viewport SELECTION off this lift (not the
+            // press frame) so a following nav gesture can't corrupt it (#68).
+            m_singleTapPending = true;
+            m_singleTapX = m_downX; m_singleTapY = m_downY;
             const std::uint32_t dblMs =
                 static_cast<std::uint32_t>(io.MouseDoubleClickTime * 1000.0f);
             const float ddx = m_downX - m_lastTapX, ddy = m_downY - m_lastTapY;
@@ -635,6 +639,13 @@ bool Window::consumeTouchZoom(float& dz) {
 bool Window::consumeDoubleTap() {
     if (!m_doubleTapPending) return false;
     m_doubleTapPending = false;
+    return true;
+}
+
+bool Window::consumeSingleTap(float& x, float& y) {
+    if (!m_singleTapPending) return false;
+    m_singleTapPending = false;
+    x = m_singleTapX; y = m_singleTapY;
     return true;
 }
 
