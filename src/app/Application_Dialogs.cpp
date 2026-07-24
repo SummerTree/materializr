@@ -1763,7 +1763,7 @@ void Application::renderThreadPanel() {
             if (m_threadClearance < 0.0f) m_threadClearance = 0.0f;
             ImGui::SameLine(); ImGui::Text("mm");
             ImGui::SetItemTooltip("Radial gap so a PRINTED thread fits its mate "
-                                  "(0.2\xE2\x80\x930.4mm typical). 0 = exact.");
+                                  "(0.2\xE2\x80\x93" "0.4mm typical). 0 = exact.");
         }
     }
 

@@ -2064,7 +2064,7 @@ void ThreadOp::renderProperties() {
         ImGui::InputDouble("Fit clearance (mm)", &m_clearance, 0.05, 0.1, "%.2f");
         if (m_clearance < 0.0) m_clearance = 0.0;
         ImGui::SetItemTooltip("Radial gap so a PRINTED thread fits its mate "
-                              "(0.2\xE2\x80\x930.4mm typical). 0 = geometrically exact.");
+                              "(0.2\xE2\x80\x93" "0.4mm typical). 0 = geometrically exact.");
         ImGui::TextDisabled("Non-Standard profiles cut per-turn \xE2\x80\x94 a long "
                             "thread can take a while.");
     }
