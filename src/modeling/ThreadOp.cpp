@@ -213,6 +213,14 @@ static TopoDS_Shape sweptRodThread(const gp_Ax3& ax3, double Rin, double len,
         if (R <= depth) return {};
         const double rr = R - depth;
         const double uSign = rightHanded ? 1.0 : -1.0;
+        // Flank clearance: besides pulling the crest in RADIALLY (R, above),
+        // thin the tooth AXIALLY by `clearance` on each flank so a printed
+        // thread clears its mate on the SIDES too, not just the crest/root.
+        // One pitch spans 360°, so `clearance` mm ↦ clearance/pitch·360°; the
+        // crest is narrowed by that on each side (the groove widens to match).
+        // Clamped to keep a real crest land at fine pitches (where a full
+        // clearance would otherwise eat the whole tooth).
+        const double flankDeg = std::max(0.0, clearance) / pitch * 360.0;
         const bool general = (profile != ThreadProfile::Standard);
         const NotchSpec spec = notchSpec(profile);
         auto polar = [&](double r, double phiDeg) {
@@ -230,8 +238,11 @@ static TopoDS_Shape sweptRodThread(const gp_Ax3& ax3, double Rin, double len,
                 // Standard: the exact shipped 4-arc notch (25/25/25/25).
                 gp_Pnt rootA = polar(rr, th0 - 45), rootM = polar(rr, th0),
                        rootB = polar(rr, th0 + 45);
-                gp_Pnt crA = polar(R, th0 + 135), crM = polar(R, th0 + 180),
-                       crB = polar(R, th0 + 225);
+                // Crest nominally spans [135,225] (90°); narrow it by the flank
+                // clearance on each side (keep >=18° of crest land).
+                const double cd = std::min(flankDeg, 36.0);
+                gp_Pnt crA = polar(R, th0 + 135 + cd), crM = polar(R, th0 + 180),
+                       crB = polar(R, th0 + 225 - cd);
                 mkProfile.Add(BRepBuilderAPI_MakeEdge(
                     GC_MakeArcOfCircle(rootA, rootM, rootB).Value()).Edge());
                 mkProfile.Add(BRepBuilderAPI_MakeEdge(
@@ -249,8 +260,11 @@ static TopoDS_Shape sweptRodThread(const gp_Ax3& ax3, double Rin, double len,
                 const double aR = spec.fRoot * 180.0;          // root half-width
                 const double aU = spec.fUp * 360.0;            // up flank
                 const double aC = spec.fCrest * 360.0;         // crest
-                const double b0 = th0 + aR, b1 = b0 + aU;
-                const double c1 = b1 + aC;
+                // Narrow the crest by the flank clearance on each side (keep
+                // >=20% of the crest as land); the groove widens to match.
+                const double cd = std::min(flankDeg, 0.4 * aC);
+                const double b0 = th0 + aR, b1 = b0 + aU + cd;
+                const double c1 = b1 + aC - 2.0 * cd;
                 gp_Pnt rootA = polar(rr, th0 - aR), rootM = polar(rr, th0),
                        rootB = polar(rr, th0 + aR);
                 gp_Pnt crA = polar(R, b1), crM = polar(R, 0.5 * (b1 + c1)),
@@ -444,6 +458,12 @@ TopoDS_Shape ThreadOp::buildResult(const TopoDS_Shape& body) const {
     // shipped trapezoid). Used by buildCutterEx, the width-probe gate, and the
     // analytic-volume gate below.
     const GrooveSpec gSpec = grooveSpec(m_profile);
+    // Flank clearance (mm per side): widen the groove — and thus every gate
+    // that measures it — so it stays consistent between the cutter and the
+    // volume/width checks. Clamped to keep a crest land (mouth < 0.9·pitch).
+    const double baseMouthHalf = 0.5 * gSpec.openFrac * m_pitch;
+    const double flankClear = std::min(std::max(0.0, m_clearance),
+                                       std::max(0.0, 0.45 * m_pitch - baseMouthHalf));
 
     if (materializr::isVerbose())
         std::fprintf(stderr, "[Thread] buildResult: pitch=%.3f depth=%.3f r=%.3f "
@@ -803,6 +823,15 @@ TopoDS_Shape ThreadOp::buildResult(const TopoDS_Shape& body) const {
                 // Mouth half-width from the profile's opening fraction (Standard
                 // = 0.4375·pitch, the shipped 7/8-pitch opening).
                 double mouthHalf = 0.5 * gSpec.openFrac * m_pitch * wFac;
+                // Flank clearance: widen the groove by `clearance` on EACH
+                // flank (thins the ridge) so a printed thread clears its mate
+                // on the sides, not just radially (m_clearance already deepens
+                // the groove above). Same widening for external AND internal —
+                // a thinner ridge clears a nominal mate either way; the radial
+                // inversion for a hole is handled by rIn/rOut. `flankClear` is
+                // clamped at buildResult scope so the cutter and the volume /
+                // width gates all measure the SAME widened groove.
+                const double fc = flankClear;
 
                 // Build the groove as a stack of 2-band loft SLABS between
                 // consecutive bands, fused. A single multi-section ThruSections
@@ -820,10 +849,12 @@ TopoDS_Shape ThreadOp::buildResult(const TopoDS_Shape& body) const {
                         new Geom_CylindricalSurface(ax3, rb);
                     BRepOffsetAPI_ThruSections ts(Standard_True);
                     ts.AddWire(bandWire(sa, uSign, vRef, lo, hi,
-                                        mouthHalf * a.offLo, mouthHalf * a.offUp,
+                                        mouthHalf * a.offLo + fc,
+                                        mouthHalf * a.offUp + fc,
                                         nSeg, tlLo, tlHi));
                     ts.AddWire(bandWire(sb, uSign, vRef, lo, hi,
-                                        mouthHalf * b.offLo, mouthHalf * b.offUp,
+                                        mouthHalf * b.offLo + fc,
+                                        mouthHalf * b.offUp + fc,
                                         nSeg, tlLo, tlHi));
                     ts.CheckCompatibility(Standard_False);
                     ts.Build();
@@ -1121,7 +1152,8 @@ TopoDS_Shape ThreadOp::buildResult(const TopoDS_Shape& body) const {
             // Analytic groove volume of one turn: the PROFILE's cross-section
             // area (integrated from its band table) swept at mid-groove radius.
             double area = grooveArea(gSpec, 0.5 * gSpec.openFrac * m_pitch,
-                                     depth);
+                                     depth)
+                        + 2.0 * flankClear * depth;   // flank clearance widens it
             double rMid = m_isHole ? (m_radius + 0.5 * depth)
                                    : (m_radius - 0.5 * depth);
             double analytic = area * 2.0 * M_PI * rMid;
@@ -1768,29 +1800,56 @@ TopoDS_Shape ThreadOp::buildResult(const TopoDS_Shape& body) const {
                 const bool botFree = vLo < -1e-9;
                 const bool topFree = vHi > m_length + 1e-9;
                 const double collar = std::max(1.0 * m_pitch, 1.0);
-                const double srcLo = botFree ? 0.0 : -collar;
-                const double srcHi = topFree ? m_length : m_length + collar;
                 auto axPt = [&](double v) {
                     return gp_Pnt(loc.X() + zd.X() * v, loc.Y() + zd.Y() * v,
                                   loc.Z() + zd.Z() * v);
                 };
-                // Clean source cylinder [srcLo, srcHi] with the rooting collar.
-                TopoDS_Shape srcCyl = BRepPrimAPI_MakeCylinder(
-                    gp_Ax2(axPt(srcLo), zd, xd), m_radius,
-                    srcHi - srcLo).Shape();
-                // Thread just the segment [0, m_length] on the clean source —
-                // direct cut (no graft recursion). Collars root the non-free
-                // ends to flat caps; the free end keeps runout.
+                auto plainCyl = [&](double lo, double hi) {
+                    return BRepPrimAPI_MakeCylinder(
+                        gp_Ax2(axPt(lo), zd, xd), m_radius, hi - lo).Shape();
+                };
+                // Axial span to thread+replace, extended over a FREE-end
+                // chamfer (vLo/vHi already carry the chamfer run-through), so
+                // the taper is threaded THROUGH, not flattened. Rooted ends
+                // get a collar so the thread roots to a flat mating cap.
+                const double tLo = botFree ? std::min(0.0, vLo) : 0.0;
+                const double tHi = topFree ? std::max(m_length, vHi) : m_length;
+                const double eLo = botFree ? tLo : -collar;
+                const double eHi = topFree ? tHi : m_length + collar;
+                // EXTRACT the real segment (cylinder + any end chamfer +
+                // shoulder collar) from the body — a Common with a plain
+                // cylinder, so its ACTUAL shape (incl. the taper) gets
+                // threaded, not a flat-ended stand-in.
+                TopoDS_Shape srcSeg;
+                {
+                    BRepAlgoAPI_Common com;
+                    TopTools_ListOfShape ca, ct;
+                    ca.Append(BRepBuilderAPI_Copy(body).Shape());
+                    ct.Append(plainCyl(eLo, eHi));
+                    com.SetArguments(ca);
+                    com.SetTools(ct);
+                    com.SetFuzzyValue(1.0e-3);
+                    com.SetRunParallel(Standard_True);
+                    com.Build();
+                    if (com.IsDone()) srcSeg = com.Shape();
+                }
+                // Fall back to a plain cylinder if the extract failed.
+                if (srcSeg.IsNull() || shapeVol(srcSeg) < 1e-6)
+                    srcSeg = plainCyl(eLo, eHi);
+                // Thread the segment [0, m_length] on the extracted source —
+                // direct cut (no graft recursion); the nested op runs the
+                // thread through the chamfer via its own run-through.
                 ThreadOp seg(*this);
                 seg.setAllowGraft(false);
                 seg.setForceGraft(false);   // nested op cuts directly
                 seg.setTargetFaceRef(materializr::topo::Ref{});
                 seg.setAxis(gp_Ax2(loc, zd, xd));
                 seg.setLength(m_length);
-                TopoDS_Shape T = seg.buildResult(srcCyl);
+                TopoDS_Shape T = seg.buildResult(srcSeg);
                 if (!T.IsNull()) {
-                    TopoDS_Shape C = BRepPrimAPI_MakeCylinder(
-                        gp_Ax2(loc, zd, xd), m_radius, m_length).Shape();
+                    // Remove the segment core (cylinder + chamfer, NOT the
+                    // shoulder collar) so the fuse re-adds the THREADED taper.
+                    TopoDS_Shape C = plainCyl(tLo, tHi);
                     TopoDS_Shape bodyMinus =
                         cutOn(BRepBuilderAPI_Copy(body).Shape(), C, 1.0e-3);
                     if (!bodyMinus.IsNull() && shapeVol(bodyMinus) > 1e-6) {
