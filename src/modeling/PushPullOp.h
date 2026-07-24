@@ -2,12 +2,20 @@
 #include "../core/Operation.h"
 #include "../core/Document.h"
 #include "TopoName.h"
+#include "FaceLineage.h"
+#include "GenerationLedger.h"
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Shape.hxx>
 #include <gp_Vec.hxx>
 #include <gp_Pnt.hxx>
+#include <Standard_Handle.hxx>
 #include <vector>
 #include <string>
+#include <map>
+#include <unordered_map>
+
+class BRepBuilderAPI_MakeShape;
+class BRepTools_History;
 
 // Flip `normal` to point OUT of `solid`, but ONLY when the solid classifier
 // gives an UNAMBIGUOUS antipodal verdict on a planar face: a point ε along
@@ -115,4 +123,34 @@ private:
     std::vector<materializr::topo::Ref> m_targetRefs;
     // Capture/refresh face-driven target profiles against the current bodies.
     void refreshFaceTargets(Document& doc);
+
+    // --- Face-lineage propagation (topological naming) --------------------
+    // PushPull rebuilds bodies via BRepAlgoAPI booleans against a transient
+    // prism, then doc.updateBody — which CLEARS the body's FaceIdMap. Without
+    // re-publishing it, every downstream fillet/chamfer loses its edge lineage
+    // and drifts onto the wrong edges on replay (Steve's body-412 gift-box
+    // bug). Mirror BooleanOp: capture the boolean's face GenerationLedger,
+    // propagate ancestry into the result, and mint STABLE ids (reused across
+    // re-executes) for the prism's new faces. Keyed per body id because one
+    // push/pull can rebuild several bodies (a free-space cut runs through all
+    // it intersects). std::map (node-based) so an element's address is stable
+    // across later inserts — Document::setBodyLedger stores a bare pointer to
+    // one that must outlive the op (unordered_map would rehash and dangle it).
+    std::map<int, materializr::topo::GenerationLedger> m_ledgers;
+    std::unordered_map<int, materializr::topo::FaceIdMap> m_prevFaceIds; // undo + propagate input
+    std::unordered_map<int, std::vector<int>> m_mintedIds;              // stable prism-face ids
+    // Snapshot a body's lineage BEFORE it is rebuilt (feeds propagate + undo).
+    void snapshotLineage(Document& doc, int bodyId);
+    // Capture the boolean op's face ledger while the op is still alive (the
+    // Fuse/Cut object is destroyed before updateBody runs).
+    void captureLedger(int bodyId, const TopoDS_Shape& before,
+                       BRepBuilderAPI_MakeShape& op);
+    // Propagate ancestry through the boolean onto `rawResult` (pre-unify), then
+    // carry it through `unifyHist` onto the final `result`, and publish the
+    // map+ledger on the doc. Call AFTER updateBody (which clears the doc's map).
+    // No-op if no ledger was captured for this body.
+    void publishLineage(Document& doc, int bodyId, const TopoDS_Shape& before,
+                        const TopoDS_Shape& rawResult,
+                        const Handle(BRepTools_History)& unifyHist,
+                        const TopoDS_Shape& result);
 };

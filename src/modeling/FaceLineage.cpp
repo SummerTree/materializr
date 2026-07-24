@@ -1,8 +1,11 @@
 #include "FaceLineage.h"
 #include "GenerationLedger.h"
 
+#include <BRepTools_History.hxx>
 #include <TopExp.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
+#include <TopTools_ListOfShape.hxx>
+#include <TopTools_ListIteratorOfListOfShape.hxx>
 #include <TopoDS.hxx>
 
 #include <TopExp_Explorer.hxx>
@@ -63,6 +66,30 @@ FaceIdMap propagate(
                 for (int id : e.ids) addId(out, e.face, id);
             }
             // Deleted faces: ancestry ends here, correctly.
+        }
+    }
+    return out;
+}
+
+FaceIdMap carryThrough(const FaceIdMap& in,
+                       const Handle(BRepTools_History)& hist,
+                       const TopoDS_Shape& result) {
+    if (hist.IsNull() || result.IsNull()) return in;
+    TopTools_IndexedMapOfShape resultFaces;
+    TopExp::MapShapes(result, TopAbs_FACE, resultFaces);
+    FaceIdMap out;
+    for (const auto& e : in) {
+        if (e.face.IsNull() || e.ids.empty()) continue;
+        if (hist->IsRemoved(e.face)) continue;            // deleted by the rewrite
+        const TopTools_ListOfShape& mod = hist->Modified(e.face);
+        if (mod.IsEmpty()) {
+            if (resultFaces.Contains(e.face))             // unchanged — survives
+                for (int id : e.ids) addId(out, e.face, id);
+        } else {
+            for (TopTools_ListIteratorOfListOfShape it(mod); it.More(); it.Next())
+                if (it.Value().ShapeType() == TopAbs_FACE &&
+                    resultFaces.Contains(it.Value()))     // → successor(s)
+                    for (int id : e.ids) addId(out, it.Value(), id);
         }
     }
     return out;

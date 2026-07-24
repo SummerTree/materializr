@@ -19,9 +19,11 @@
 #include <TopoDS_Shape.hxx>
 #include <TopAbs_ShapeEnum.hxx>
 #include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
+#include <Standard_Handle.hxx>
 #include <vector>
 
 class BRepBuilderAPI_MakeShape;
+class BRepTools_History;
 
 namespace materializr {
 namespace topo {

@@ -17,9 +17,12 @@
 // → behaviour identical to before this file existed.
 
 #include <TopoDS_Shape.hxx>
+#include <Standard_Handle.hxx>
 #include <functional>
 #include <utility>
 #include <vector>
+
+class BRepTools_History;
 
 namespace materializr {
 namespace topo {
@@ -52,6 +55,18 @@ void complete(FaceIdMap& m, const TopoDS_Shape& shape,
 FaceIdMap propagate(
     const std::vector<std::pair<const FaceIdMap*, TopoDS_Shape>>& inputs,
     const GenerationLedger& led, const TopoDS_Shape& result);
+
+// Carry a completed FaceIdMap through a post-build rewrite described by a
+// BRepTools_History (e.g. ShapeUpgrade_UnifySameDomain merging coplanar faces)
+// onto `result`: each face passes its ids to its successor(s) — a merge unions
+// both parents' ids, a removed face drops out, an unchanged face carries
+// through. Handles the faces the PRODUCING op left untouched (absent from its
+// ledger) that the rewrite nonetheless rebuilt — the case propagate()'s
+// membership guard silently drops, re-minting fresh ids (the union / push-pull
+// face-id drift). Returns `in` unchanged when `hist` is null.
+FaceIdMap carryThrough(const FaceIdMap& in,
+                       const Handle(BRepTools_History)& hist,
+                       const TopoDS_Shape& result);
 
 } // namespace topo
 } // namespace materializr

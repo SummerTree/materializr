@@ -1,9 +1,11 @@
 #include "GenerationLedger.h"
 
 #include <BRepBuilderAPI_MakeShape.hxx>
+#include <BRepTools_History.hxx>
 #include <TopExp.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
 #include <TopTools_ListOfShape.hxx>
+#include <TopTools_ListIteratorOfListOfShape.hxx>
 
 namespace materializr {
 namespace topo {

@@ -361,6 +361,12 @@ add_executable(test_topo_pushpull test_topo_pushpull.cpp)
 target_link_libraries(test_topo_pushpull PRIVATE materializr_core gtest gtest_main)
 add_test(NAME test_topo_pushpull COMMAND test_topo_pushpull)
 
+# test_topo_pushpull_lineage — PushPull must PROPAGATE face lineage (updateBody
+# clears it); without it every downstream fillet drifts on replay (body-412 bug)
+add_executable(test_topo_pushpull_lineage test_topo_pushpull_lineage.cpp)
+target_link_libraries(test_topo_pushpull_lineage PRIVATE materializr_core gtest gtest_main)
+add_test(NAME test_topo_pushpull_lineage COMMAND test_topo_pushpull_lineage)
+
 # test_topo_shell — ShellOp opened faces via topo::Ref through a REAL history
 # replay (stale-sketch rollback + cascade override) on an L-body where the
 # geometric fallback mis-picks
@@ -451,4 +457,3 @@ add_test(NAME test_audit_hardening COMMAND test_audit_hardening)
 add_executable(test_brepio_dos test_brepio_dos.cpp)
 target_link_libraries(test_brepio_dos PRIVATE materializr_core gtest gtest_main)
 add_test(NAME test_brepio_dos COMMAND test_brepio_dos)
-

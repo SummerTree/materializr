@@ -26,7 +26,14 @@
 #include <Geom_ToroidalSurface.hxx>
 #include <Geom_SurfaceOfRevolution.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
+#include <BRepTools_History.hxx>
 #include <TopoDS.hxx>
+#include <TopExp.hxx>
+#include <TopExp_Explorer.hxx>
+#include <TopTools_IndexedMapOfShape.hxx>
+#include <TopTools_ListOfShape.hxx>
+#include <TopTools_ListIteratorOfListOfShape.hxx>
+#include <TopAbs.hxx>
 #include <gp_Pnt.hxx>
 #include <gp_Vec.hxx>
 #include <imgui.h>
@@ -213,6 +220,68 @@ static bool keepsASolid(const TopoDS_Shape& s) {
     } catch (...) { return false; }
 }
 
+// ---- Face-lineage propagation (see PushPullOp.h) -------------------------
+
+void PushPullOp::snapshotLineage(Document& doc, int bodyId) {
+    materializr::topo::FaceIdMap m;
+    if (const auto* im = doc.bodyFaceIds(bodyId)) m = *im;
+    m_prevFaceIds[bodyId] = std::move(m);
+}
+
+void PushPullOp::captureLedger(int bodyId, const TopoDS_Shape& before,
+                               BRepBuilderAPI_MakeShape& op) {
+    materializr::topo::GenerationLedger& led = m_ledgers[bodyId];
+    led = materializr::topo::GenerationLedger{};
+    try { led.capture(op, before, TopAbs_FACE); } catch (...) {}
+}
+
+void PushPullOp::publishLineage(Document& doc, int bodyId,
+                                const TopoDS_Shape& before,
+                                const TopoDS_Shape& rawResult,
+                                const Handle(BRepTools_History)& unifyHist,
+                                const TopoDS_Shape& result) {
+    auto lit = m_ledgers.find(bodyId);
+    if (lit == m_ledgers.end() || result.IsNull()) return;
+
+    // The body's ancestry before this rebuild (snapshotLineage stored it while
+    // the doc's map was still populated — updateBody has since cleared it).
+    materializr::topo::FaceIdMap inMap;
+    if (auto pit = m_prevFaceIds.find(bodyId); pit != m_prevFaceIds.end())
+        inMap = pit->second;
+
+    // Stage 1 — propagate ancestry through the BOOLEAN onto its PRE-unify
+    // result (the ledger names those faces), then give every pre-unify face an
+    // id: inherited where possible, else a STABLE minted one (reused while the
+    // uncovered count is unchanged, so a downstream fillet's captured pairs
+    // survive the next re-execute — see BooleanOp).
+    materializr::topo::FaceIdMap mid = materializr::topo::propagate(
+        {{&inMap, before}}, lit->second, rawResult);
+    std::vector<TopoDS_Shape> uncovered;
+    for (TopExp_Explorer ex(rawResult, TopAbs_FACE); ex.More(); ex.Next())
+        if (!materializr::topo::idsFor(mid, ex.Current()))
+            uncovered.push_back(ex.Current());
+    auto& minted = m_mintedIds[bodyId];
+    if (minted.size() != uncovered.size()) {
+        minted.clear();
+        for (size_t i = 0; i < uncovered.size(); ++i)
+            minted.push_back(doc.mintFaceId());
+    }
+    for (size_t i = 0; i < uncovered.size(); ++i)
+        materializr::topo::addId(mid, uncovered[i], minted[i]);
+
+    // Stage 2 — carry that complete map through the UnifySameDomain merge onto
+    // the final faces (a no-op when nothing was unified).
+    materializr::topo::FaceIdMap next =
+        result.IsEqual(rawResult)
+            ? std::move(mid)
+            : materializr::topo::carryThrough(mid, unifyHist, result);
+    materializr::topo::complete(next, result,
+                                [&doc]() { return doc.mintFaceId(); });
+
+    doc.setBodyLedger(bodyId, &lit->second);
+    doc.setBodyFaceIds(bodyId, std::move(next));
+}
+
 bool PushPullOp::execute(Document& doc) {
     // Direct re-execute support (e.g. cascade after a sketch constraint
     // edit): fold the previously-created body ids back into the reuse pool
@@ -224,6 +293,12 @@ bool PushPullOp::execute(Document& doc) {
     }
     m_previousBodies.clear();
     m_createdBodyIds.clear();
+    // Fresh undo snapshot each execute (m_mintedIds is KEPT — reusing it gives
+    // the prism's new faces stable ids across re-executes). m_ledgers is NOT
+    // cleared: Document::setBodyLedger holds pointers into it for bodies this
+    // op touched, and clearing would free those nodes (dangling for any body a
+    // later re-execute no longer touches). captureLedger overwrites per body.
+    m_prevFaceIds.clear();
     m_reuseIdx = 0; // walks m_reuseBodyIds as each free-floating output is emitted
     if (m_targets.empty() || std::abs(m_distance) < 1e-6) return false;
 
@@ -277,16 +352,24 @@ bool PushPullOp::execute(Document& doc) {
                 GProp_GProps gb; BRepGProp::VolumeProperties(body, gb);
                 GProp_GProps gr; BRepGProp::VolumeProperties(result, gr);
                 if (gb.Mass() - gr.Mass() < minRemoved) continue; // graze / coincident no-op
+                // Face lineage: capture the cut's face derivation while the op
+                // is alive; propagate on the PRE-unify result then carry the
+                // map through the merge (below).
+                captureLedger(bid, body, cut);
+                TopoDS_Shape rawResult = result;
+                Handle(BRepTools_History) unifyHist;
                 try {
                     ShapeUpgrade_UnifySameDomain u(result, true, true, true);
                     u.Build();
-                    if (!u.Shape().IsNull()) result = u.Shape();
+                    if (!u.Shape().IsNull()) { result = u.Shape(); unifyHist = u.History(); }
                 } catch (...) {}
                 if (!savedBodies.count(bid)) {
                     m_previousBodies.emplace_back(bid, body);
                     savedBodies.insert(bid);
                 }
+                snapshotLineage(doc, bid);
                 doc.updateBody(bid, result);
+                publishLineage(doc, bid, body, rawResult, unifyHist, result);
                 ++n;
             } catch (...) { continue; }
         }
@@ -406,11 +489,13 @@ bool PushPullOp::execute(Document& doc) {
                     fuse.Build();
                     if (!fuse.IsDone()) continue;
                     result = fuse.Shape();
+                    captureLedger(tgt.sourceBodyId, current, fuse);
                 } else {
                     BRepAlgoAPI_Cut cut(current, prism);
                     cut.Build();
                     if (!cut.IsDone()) continue;
                     result = cut.Shape();
+                    captureLedger(tgt.sourceBodyId, current, cut);
                     // CUT vs ADD: when the inward sweep passes through space
                     // the body doesn't own (an existing hole), the cut removes
                     // ~nothing — the gesture is a FILL, not a cut. The margin
@@ -441,6 +526,7 @@ bool PushPullOp::execute(Document& doc) {
                         if (nSolids != 1 ||
                             !BRepCheck_Analyzer(fused).IsValid()) continue;
                         result = fused;
+                        captureLedger(tgt.sourceBodyId, current, fill);
                     }
                 }
                 if (m_distance < 0 && !keepsASolid(result)) {
@@ -449,13 +535,18 @@ bool PushPullOp::execute(Document& doc) {
                                  tgt.sourceBodyId);
                     continue;
                 }
+                TopoDS_Shape rawResult = result;
+                Handle(BRepTools_History) unifyHist;
                 try {
                     ShapeUpgrade_UnifySameDomain unifier(result, true, true, true);
                     unifier.Build();
                     TopoDS_Shape unified = unifier.Shape();
-                    if (!unified.IsNull()) result = unified;
+                    if (!unified.IsNull()) { result = unified; unifyHist = unifier.History(); }
                 } catch (...) {}
+                snapshotLineage(doc, tgt.sourceBodyId);
                 doc.updateBody(tgt.sourceBodyId, result);
+                publishLineage(doc, tgt.sourceBodyId, current, rawResult,
+                               unifyHist, result);
                 anyChange = true;
             } catch (...) { continue; }
         } else {
@@ -517,9 +608,14 @@ bool PushPullOp::undo(Document& doc) {
         m_reuseBodyIds = std::move(m_createdBodyIds);
         m_createdBodyIds.clear();
         m_reuseIdx = 0;
-        // Restore mutated bodies
+        // Restore mutated bodies — and their pre-op face lineage, so a partial
+        // replay that rolls back to here still has ancestry for the ops it
+        // re-runs (updateBody clears the map; the minters never re-run).
         for (const auto& [id, shape] : m_previousBodies) {
             doc.updateBody(id, shape);
+            if (auto it = m_prevFaceIds.find(id);
+                it != m_prevFaceIds.end() && !it->second.empty())
+                doc.setBodyFaceIds(id, it->second);
         }
         m_previousBodies.clear();
         return true;
