@@ -31,6 +31,7 @@ add_library(materializr_core STATIC
     ${CMAKE_SOURCE_DIR}/src/modeling/BooleanOp.cpp
     ${CMAKE_SOURCE_DIR}/src/modeling/DeleteOp.cpp
     ${CMAKE_SOURCE_DIR}/src/modeling/TransformOp.cpp
+    ${CMAKE_SOURCE_DIR}/src/modeling/BatchTransformOp.cpp
     ${CMAKE_SOURCE_DIR}/src/modeling/PushPullOp.cpp
     ${CMAKE_SOURCE_DIR}/src/modeling/Sketch.cpp
     ${CMAKE_SOURCE_DIR}/src/modeling/SketchEditOp.cpp
@@ -366,6 +367,12 @@ add_test(NAME test_topo_pushpull COMMAND test_topo_pushpull)
 add_executable(test_topo_pushpull_lineage test_topo_pushpull_lineage.cpp)
 target_link_libraries(test_topo_pushpull_lineage PRIVATE materializr_core gtest gtest_main)
 add_test(NAME test_topo_pushpull_lineage COMMAND test_topo_pushpull_lineage)
+
+# test_batch_transform_reload — multi-body gizmo transform must reload as a REAL
+# op that re-applies to live geometry, not a baked snapshot (batchtransform bakes)
+add_executable(test_batch_transform_reload test_batch_transform_reload.cpp)
+target_link_libraries(test_batch_transform_reload PRIVATE materializr_core gtest gtest_main)
+add_test(NAME test_batch_transform_reload COMMAND test_batch_transform_reload)
 
 # test_topo_shell — ShellOp opened faces via topo::Ref through a REAL history
 # replay (stale-sketch rollback + cascade override) on an L-body where the

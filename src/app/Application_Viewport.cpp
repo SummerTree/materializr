@@ -60,6 +60,7 @@
 #include "modeling/SketchTransformOp.h"
 #include "modeling/PushPullOp.h"
 #include "modeling/TransformOp.h"
+#include "modeling/BatchTransformOp.h"
 #include "modeling/PlaneTransformOp.h"
 #include "modeling/AxisTransformOp.h"
 #include "modeling/MirrorOp.h"
@@ -4215,35 +4216,31 @@ void Application::renderViewport() {
                                     }
                                 }
                             } else if (isMulti) {
-                                // Batched commit: one ReplayOp covering all bodies
-                                // EXCEPT any that follow their sketch by re-derivation
-                                // (those rebuild via the cascade below).
-                                ReplayOp::BodyState beforeState;
-                                for (auto& [id, orig] : m_gizmoDragOriginals) {
-                                    if (rederiveBodies.count(id)) continue;
-                                    beforeState.push_back({id, orig});
-                                }
-                                // "After" = the final transform applied to each
-                                // original — the same shapes the per-frame doc
-                                // preview used to leave behind before the drag
-                                // went GPU-only (copy=false for the rigid modes,
-                                // GTransform copy for scale).
-                                ReplayOp::BodyState afterState;
+                                // Batched commit: one BatchTransformOp covering all
+                                // bodies EXCEPT any that follow their sketch by
+                                // re-derivation (those rebuild via the cascade
+                                // below). A real op (not a baked ReplayOp) so it
+                                // reloads editable and re-applies to the LIVE bodies
+                                // on replay — see BatchTransformOp / the
+                                // "batchtransform bakes" bug.
+                                std::vector<int> batchIds;
+                                for (auto& [id, orig] : m_gizmoDragOriginals)
+                                    if (!rederiveBodies.count(id)) batchIds.push_back(id);
+                                // The drag transform as a gp_GTrsf (covers rigid
+                                // Move/Rotate and non-uniform Scale uniformly). The
+                                // doc bodies are still at their originals (the drag
+                                // preview is GPU-only), so op->execute re-applies
+                                // this to them — exactly as the single-body path does.
+                                gp_GTrsf batchG;
                                 if (gm == GizmoMode::Scale) {
-                                    gp_GTrsf gt;
-                                    gt.SetVectorialPart(gp_Mat(m_gizmoTotalScale.x,0,0,
-                                                               0,m_gizmoTotalScale.y,0,
-                                                               0,0,m_gizmoTotalScale.z));
-                                    gt.SetTranslationPart(gp_XYZ(
+                                    batchG.SetVectorialPart(gp_Mat(
+                                        m_gizmoTotalScale.x,0,0,
+                                        0,m_gizmoTotalScale.y,0,
+                                        0,0,m_gizmoTotalScale.z));
+                                    batchG.SetTranslationPart(gp_XYZ(
                                         pivot.x - m_gizmoTotalScale.x * pivot.x,
                                         pivot.y - m_gizmoTotalScale.y * pivot.y,
                                         pivot.z - m_gizmoTotalScale.z * pivot.z));
-                                    for (auto& [id, orig] : m_gizmoDragOriginals) {
-                                        if (rederiveBodies.count(id)) continue;
-                                        BRepBuilderAPI_GTransform xf(orig, gt, true);
-                                        if (xf.IsDone())
-                                            afterState.push_back({id, xf.Shape()});
-                                    }
                                 } else {
                                     gp_Trsf trsf;
                                     if (gm == GizmoMode::Translate) {
@@ -4256,13 +4253,7 @@ void Application::renderViewport() {
                                                           m_gizmoRotAxis.z)),
                                             ang * M_PI / 180.0);
                                     }
-                                    for (auto& [id, orig] : m_gizmoDragOriginals) {
-                                        if (rederiveBodies.count(id)) continue;
-                                        BRepBuilderAPI_Transform xf(orig, trsf,
-                                                                    /*copy=*/false);
-                                        if (xf.IsDone())
-                                            afterState.push_back({id, xf.Shape()});
-                                    }
+                                    batchG = gp_GTrsf(trsf);
                                 }
                                 std::string label;
                                 std::string desc;
@@ -4289,15 +4280,12 @@ void Application::renderViewport() {
                                                   m_gizmoTotalScale.z * 100.0f);
                                     desc = buf;
                                 }
-                                auto op = std::make_unique<ReplayOp>(
-                                    "batchtransform", label, desc,
-                                    std::move(beforeState), std::move(afterState),
-                                    /*fromReload=*/false);
-                                // Apply the after-state to the doc and stamp it as
-                                // executed — the live drag already left the bodies
-                                // in that state visually.
-                                op->execute(*m_document);
-                                m_history->pushExecuted(std::move(op));
+                                auto op = std::make_unique<BatchTransformOp>();
+                                op->setBodies(std::move(batchIds));
+                                op->setTransform(batchG);
+                                op->setLabel(label);
+                                op->setDescription(desc);
+                                m_history->pushOperation(std::move(op), *m_document);
                             } else if (m_gizmoDragBodyId >= 0 &&
                                        !rederiveBodies.count(m_gizmoDragBodyId)) {
                                 // Single body: keep the TransformOp path so the

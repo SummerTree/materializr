@@ -36,6 +36,7 @@
 #include "BooleanOp.h"
 #include "DeleteOp.h"
 #include "TransformOp.h"
+#include "BatchTransformOp.h"
 
 namespace OperationFactory {
 
@@ -90,6 +91,7 @@ std::unique_ptr<Operation> create(const std::string& typeId) {
     if (typeId == "project_sketch") return std::make_unique<ProjectSketchOp>();
     if (typeId == "resize_cylindrical") return std::make_unique<ResizeCylindricalOp>();
     if (typeId == "thread")  return std::make_unique<ThreadOp>(); // pure derived geometry
+    if (typeId == "batchtransform") return std::make_unique<BatchTransformOp>();
     //   - body-id-referencing ops: target/tool/body ids (+ mode) live in the
     //     blob; rehydrate restores the pre-step shapes from the step diff so an
     //     editStep replays them as REAL ops. Without this they reload as baked

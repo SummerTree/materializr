@@ -247,6 +247,7 @@ add_executable(materializr
     src/modeling/ResizeCylindricalOp.cpp
     src/modeling/BooleanOp.cpp
     src/modeling/TransformOp.cpp
+    src/modeling/BatchTransformOp.cpp
     src/modeling/ShellOp.cpp
     src/modeling/TaperOp.cpp
     src/modeling/ScaleFaceOp.cpp
