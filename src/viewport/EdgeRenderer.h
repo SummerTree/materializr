@@ -61,7 +61,9 @@ private:
     std::vector<EdgeMesh> m_meshes;
     std::map<int, int> m_bodyToSlot;
     unsigned int m_program = 0;
-    int m_locMVP = -1;
+    int m_locModel = -1;
+    int m_locView = -1;
+    int m_locProjection = -1;
     int m_locColor = -1;
     int m_locSectionEnabled = -1;
     int m_locSectionPoint = -1;

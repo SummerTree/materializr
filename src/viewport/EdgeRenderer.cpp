@@ -19,11 +19,29 @@ namespace materializr {
 static const char* s_edgeVertSource = R"(
 #version 330 core
 layout(location = 0) in vec3 a_position;
-uniform mat4 u_mvp;
+// Same three matrices as the SURFACE shader, multiplied in the SAME order, and
+// gl_Position declared invariant in both — so an edge vertex produces the
+// bit-identical depth value its face produced. The old path premultiplied one
+// MVP on the CPU while faces multiplied P*V*M on the GPU; float32 rounds the
+// two differently, and the divergence is view-dependent. With no working line
+// bias (POLYGON_OFFSET_LINE never applies to GL_LINES), edges landed a hair in
+// front of or behind their own surface depending on camera angle — "sinking"
+// into bodies, and popping through thin walls when the error exceeded the
+// wall's depth footprint (the corvus see-through bug). Invariance kills the
+// mismatch at the root; the edge pass then draws with GL_LEQUAL so equal
+// depth = edge wins on its own face, greater = hidden behind a wall stays hidden.
+invariant gl_Position;
+uniform mat4 u_model;
+uniform mat4 u_view;
+uniform mat4 u_projection;
 out vec3 v_worldPos;
 void main() {
-    v_worldPos = a_position; // edge buffers are world-space
-    gl_Position = u_mvp * vec4(a_position, 1.0);
+    // Edge buffers are world-space; u_model is identity except during live
+    // previews. Applying it here also fixes the section clip ignoring the
+    // preview transform (v_worldPos used to be the untransformed position).
+    vec4 worldPos = u_model * vec4(a_position, 1.0);
+    v_worldPos = worldPos.xyz;
+    gl_Position = u_projection * u_view * worldPos;
 }
 )";
 
@@ -73,7 +91,9 @@ bool EdgeRenderer::initialize() {
         return false;
     }
 
-    m_locMVP = glGetUniformLocation(m_program, "u_mvp");
+    m_locModel = glGetUniformLocation(m_program, "u_model");
+    m_locView = glGetUniformLocation(m_program, "u_view");
+    m_locProjection = glGetUniformLocation(m_program, "u_projection");
     m_locColor = glGetUniformLocation(m_program, "u_color");
     m_locSectionEnabled = glGetUniformLocation(m_program, "u_sectionEnabled");
     m_locSectionPoint = glGetUniformLocation(m_program, "u_sectionPoint");
@@ -182,9 +202,9 @@ void EdgeRenderer::removeBody(int bodyId) {
 void EdgeRenderer::render(const glm::mat4& view, const glm::mat4& projection) {
     if (m_meshes.empty() || !m_program) return;
 
-    glm::mat4 vp = projection * view;
-
     glUseProgram(m_program);
+    glUniformMatrix4fv(m_locView, 1, GL_FALSE, glm::value_ptr(view));
+    glUniformMatrix4fv(m_locProjection, 1, GL_FALSE, glm::value_ptr(projection));
 
     // Dark gray edge color
     glm::vec3 edgeColor(0.15f, 0.15f, 0.18f);
@@ -193,14 +213,14 @@ void EdgeRenderer::render(const glm::mat4& view, const glm::mat4& projection) {
     glUniform3fv(m_locSectionPoint, 1, glm::value_ptr(m_sectionPoint));
     glUniform3fv(m_locSectionNormal, 1, glm::value_ptr(m_sectionNormal));
 
-    // Enable depth test but apply a slight bias so edges render on top of faces
+    // Depth: edges compute the exact same depth as their faces (invariant
+    // shader above), so LEQUAL lets an edge win the tie against its own
+    // surface while anything genuinely behind a wall still loses. No bias:
+    // the old glPolygonOffset(GL_POLYGON_OFFSET_LINE) was a no-op here —
+    // polygon offset applies to polygons rasterized in line MODE, never to
+    // GL_LINES primitives.
     glEnable(GL_DEPTH_TEST);
-#if !defined(MZ_GLES)
-    // GL ES has no GL_POLYGON_OFFSET_LINE (only _FILL, which doesn't affect the
-    // GL_LINES draws below anyway). Edges rely on the depth test on Android.
-    glEnable(GL_POLYGON_OFFSET_LINE);
-    glPolygonOffset(-1.0f, -1.0f);
-#endif
+    glDepthFunc(GL_LEQUAL);
 
     glLineWidth(1.0f);
 
@@ -210,16 +230,14 @@ void EdgeRenderer::render(const glm::mat4& view, const glm::mat4& projection) {
         // for nearly all bodies; non-identity only during a live preview
         // (revolve, future move-preview, etc.) where the geometry stays
         // put but the rendering shifts via the GPU.
-        glm::mat4 mvp = vp * mesh.modelMatrix;
-        glUniformMatrix4fv(m_locMVP, 1, GL_FALSE, glm::value_ptr(mvp));
+        glUniformMatrix4fv(m_locModel, 1, GL_FALSE,
+                           glm::value_ptr(mesh.modelMatrix));
 
         glBindVertexArray(mesh.vao);
         glDrawArrays(GL_LINES, 0, mesh.vertexCount);
     }
 
-#if !defined(MZ_GLES)
-    glDisable(GL_POLYGON_OFFSET_LINE);
-#endif
+    glDepthFunc(GL_LESS);   // restore the default for every later pass
     glBindVertexArray(0);
     glUseProgram(0);
 }

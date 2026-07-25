@@ -28,6 +28,11 @@ uniform mat4 u_model;
 uniform mat4 u_view;
 uniform mat4 u_projection;
 
+// Paired with the identical declaration in EdgeRenderer's vertex shader: both
+// programs must produce bit-identical gl_Position for the same vertex, or
+// edges z-fight their own faces (see the comment there).
+invariant gl_Position;
+
 out vec3 v_worldPos;
 out vec3 v_worldNormal;
 
@@ -468,24 +473,34 @@ void ShapeRenderer::render(const glm::mat4& view, const glm::mat4& projection,
     glUniform1i(m_meshLoc_headlight, m_lighting.headlight ? 1 : 0);
     glUniform1f(m_meshLoc_fillStrength, m_lighting.fill ? m_lighting.fillStrength : 0.0f);
 
-    // Coincident-face tie-break: overlapping bodies can share exactly coplanar
-    // faces (Extrude From leaves the new body's base on the source face), and
-    // equal depth values z-fight as a shimmering checkerboard. Push each body
-    // DEEPER the older it is, so the newest body wins such ties
-    // deterministically. Deeper, not nearer: edges are GL_LINES, which polygon
-    // offset cannot bias, so pulling a body's faces nearer would occlude its
-    // own edges. Both offset terms scale with the body's age rank: the
-    // constant term breaks ties head-on, and the slope term is required at
-    // grazing angles / deep zoom, where the two meshes tessellate the shared
-    // plane differently and their depth interpolation errors grow with the
-    // depth gradient - a constant-only offset re-fights there.
-    glEnable(GL_POLYGON_OFFSET_FILL);
+    // Coincident-face tie-break, third generation. Overlapping bodies can
+    // share exactly coplanar faces (Extrude From leaves the new body's base on
+    // the source face) and shimmer as they z-fight. 878b7ca resolved that with
+    // a per-body glPolygonOffset(rank, 2*rank) — but rank grew with BODY COUNT,
+    // and the slope term multiplies each face's per-pixel depth gradient, so on
+    // a 68-body assembly old bodies drew centimetres behind their true position
+    // (worse zoomed out, where the per-pixel gradient grows). Their GL_LINES
+    // edges — which polygon offset cannot move — stayed put, so whole bodies
+    // degenerated into edges floating over displaced or invisible faces (the
+    // corvus ghost bug). Clamping the rank only shrank the wedge: faces still
+    // visibly recessed close up, and interior edges still popped through thin
+    // skins far out. Any face-only offset drives that wedge; the offset had to
+    // go entirely.
+    //
+    // Instead: bodies draw in slot order (creation order, oldest first) with
+    // GL_LEQUAL, so wherever two faces produce EQUAL depth the newest body
+    // deterministically wins by drawing last — the exact semantics the offset
+    // was built for, with zero geometric displacement. The invariant vertex
+    // shaders (shared with EdgeRenderer) make coplanar faces genuinely hit
+    // equal depths. Residual risk: differently-tessellated coplanar faces can
+    // still disagree by a few depth quanta at extreme grazing angles and
+    // sparkle there — minor and localized, where the offset's failure mode was
+    // structural and scene-wide.
+    glDepthFunc(GL_LEQUAL);
     const int slotCount = static_cast<int>(m_meshes.size());
     for (int slot = 0; slot < slotCount; ++slot) {
         const auto& mesh = m_meshes[slot];
         if (mesh.vertexCount == 0) continue; // vacant slot
-        const float rank = static_cast<float>(slotCount - 1 - slot);
-        glPolygonOffset(rank, 2.0f * rank);
         glUniformMatrix4fv(m_meshLoc_model, 1, GL_FALSE, glm::value_ptr(mesh.modelMatrix));
         glUniform3fv(m_meshLoc_objectColor, 1, glm::value_ptr(mesh.color));
         glUniform1i(m_meshLoc_selected, mesh.selected ? 1 : 0);
@@ -494,8 +509,7 @@ void ShapeRenderer::render(const glm::mat4& view, const glm::mat4& projection,
         glBindVertexArray(mesh.vao);
         glDrawArrays(GL_TRIANGLES, 0, mesh.vertexCount);
     }
-    glPolygonOffset(0.0f, 0.0f);
-    glDisable(GL_POLYGON_OFFSET_FILL);
+    glDepthFunc(GL_LESS);   // restore the default for every later pass
 
     glBindVertexArray(0);
     glUseProgram(0);
