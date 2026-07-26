@@ -103,8 +103,13 @@ std::string SketchEditOp::description() const {
             const Constraint* bMatch = nullptr;
             for (const auto& b : cBefore) if (b.id == cAfter[i].id) { bMatch = &b; break; }
             if (!bMatch) continue;
+            // isDriving too: promoting a reference dimension to driving (or
+            // back) changes nothing numeric, so a value-only comparison would
+            // classify it as "no edit" and the toggle would get no history
+            // step to undo.
             if (std::abs(bMatch->value - cAfter[i].value) > 1e-9 ||
-                std::abs(bMatch->valueY - cAfter[i].valueY) > 1e-9) {
+                std::abs(bMatch->valueY - cAfter[i].valueY) > 1e-9 ||
+                bMatch->isDriving != cAfter[i].isDriving) {
                 char buf[100];
                 if (cAfter[i].type == ConstraintType::Angle) {
                     std::snprintf(buf, sizeof(buf), "Edit Angle %.1f\xC2\xB0 \xE2\x86\x92 %.1f\xC2\xB0",
@@ -286,7 +291,8 @@ static void writeSketchBody(std::ostream& os, const Sketch& sk, int sketchId,
         os << "CONSTRAINT " << c.id << " " << static_cast<int>(c.type)
            << " " << c.entityA << " " << c.entityB
            << " " << c.value << " " << c.valueY
-           << " " << c.labelOffX << " " << c.labelOffY << "\n";
+           << " " << c.labelOffX << " " << c.labelOffY
+           << " " << (c.isDriving ? 1 : 0) << "\n";
     }
 
     os << "SKETCH_END\n";
@@ -375,7 +381,8 @@ void SketchEditOp::renderProperties() {
             for (const auto& b : m_before->getConstraints())
                 if (b.id == c.id) { prev = &b; break; }
             if (prev && std::abs(prev->value - c.value) < 1e-9 &&
-                        std::abs(prev->valueY - c.valueY) < 1e-9)
+                        std::abs(prev->valueY - c.valueY) < 1e-9 &&
+                        prev->isDriving == c.isDriving)
                 continue;
         }
         ImGui::PushID(static_cast<int>(i));

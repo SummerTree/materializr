@@ -5112,6 +5112,17 @@ void Application::applyPendingDimension() {
             c.value = pd.measured;
             c.labelOffX = off.x;
             c.labelOffY = off.y;
+            // Dimensions are REFERENCE by default: placing one measures the
+            // geometry without moving it. The solver skips it and it costs no
+            // degree of freedom, so annotating a sketch can never drag it out
+            // of shape or flip it to Over-constrained. The label's edit popup
+            // has a "Driving" checkbox to promote it when the user actually
+            // wants the number to control the geometry.
+            //
+            // Only here — Constraint::isDriving defaults to true, so the
+            // right-click Add Constraint menu and every geometric constraint
+            // are unaffected.
+            c.isDriving = false;
             editId = m_activeSketch->addConstraint(c);
         }
         if (m_sketchSolver) {
@@ -5203,6 +5214,10 @@ void Application::recordSketchMutation(const std::function<void()>& mutator) {
             mix(vb);
             std::memcpy(&vb, &c.labelOffY, sizeof(vb));
             mix(vb);
+            // Driving/reference too — promoting a dimension changes no
+            // number, so without this the toggle hashes identically and
+            // recordSketchMutation skips the history push entirely.
+            mix(static_cast<size_t>(c.isDriving ? 1 : 0));
         }
         return h;
     };

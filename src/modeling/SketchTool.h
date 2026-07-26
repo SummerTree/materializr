@@ -335,6 +335,15 @@ public:
     glm::vec2 getDimLabelPos() const { return m_dimLabelPos; } // valid when dimReadyToCommit()
     bool dimReadyToCommit() const { return m_dimReady; }       // label placed; app commits + calls clearDimState()
     void clearDimState();                                       // back to PickFirst, pending invalidated
+    // One-shot reason the last Dimension click was refused, or nullptr. The
+    // tool used to just `return` on an unusable pick, so the click looked
+    // like it had simply missed — indistinguishable from a mis-aim. The app
+    // drains this each frame and toasts it. Reading clears it.
+    const char* consumeDimRejection() {
+        const char* r = m_dimRejectReason;
+        m_dimRejectReason = nullptr;
+        return r;
+    }
     DimPick dimHitTest(glm::vec2 pos) const { return hitTestDimEntity(pos); } // hover highlight for the viewport
     static PendingDimension resolveDimension(const Sketch& sk, DimPick a, DimPick b);
     // True when the two lines' directions are parallel or anti-parallel
@@ -523,6 +532,8 @@ private:
     PendingDimension m_dimPending;
     glm::vec2 m_dimLabelPos{0.0f};
     bool m_dimReady = false;
+    // Static string literal (never owns storage) — see consumeDimRejection.
+    const char* m_dimRejectReason = nullptr;
     DimPick hitTestDimEntity(glm::vec2 pos) const;
     void handleDimensionTool(glm::vec2 pos);
 };

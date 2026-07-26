@@ -31,6 +31,11 @@ bool SketchSolver::solve(Sketch& sketch, int maxIterations, double tolerance) {
     int numPoints = sketch.pointCount();
     int numEquations = 0;
     for (const auto& c : constraints) {
+        // Reference (non-driving) dimensions annotate only — they enforce
+        // nothing, so they must not consume a degree of freedom. Counting
+        // them would report a freely-movable sketch as Fully/Over-constrained
+        // the moment a measurement was placed on it.
+        if (!c.isDriving) continue;
         switch (c.type) {
             case ConstraintType::Coincident:
                 numEquations += 2; // x and y must match
@@ -85,11 +90,35 @@ bool SketchSolver::solve(Sketch& sketch, int maxIterations, double tolerance) {
         m_state = SketchState::UnderConstrained;
     }
 
+    // Refresh every reference dimension's stored value from the geometry it
+    // measures. Every computeError branch is defined as (current − target),
+    // so adding the residual back onto the target yields the current reading.
+    // Degenerate branches return 0.0, which leaves the last good value in
+    // place rather than collapsing the label to zero.
+    //
+    // Run at both exits below so a label always shows the post-solve geometry
+    // — a reference dim on a shape that a DRIVING constraint just moved has
+    // to follow it, which is the whole point of an annotation.
+    auto refreshReferenceValues = [&] {
+        for (auto& c : constraints) {
+            if (c.isDriving) continue;
+            c.value += computeError(c, sketch);
+        }
+    };
+
     // Iterative relaxation
     for (int iter = 0; iter < maxIterations; ++iter) {
         double maxError = 0.0;
 
         for (auto& constraint : constraints) {
+            // Reference dimensions are pure annotation: never corrected, and
+            // never allowed to hold up convergence. They are reported
+            // satisfied so the UI doesn't paint them as violated — a
+            // measurement cannot be "unsatisfied".
+            if (!constraint.isDriving) {
+                constraint.isSatisfied = true;
+                continue;
+            }
             double error = computeError(constraint, sketch);
             maxError = std::max(maxError, std::abs(error));
 
@@ -106,10 +135,12 @@ bool SketchSolver::solve(Sketch& sketch, int maxIterations, double tolerance) {
             for (auto& c : constraints) {
                 c.isSatisfied = true;
             }
+            refreshReferenceValues();
             return true;
         }
     }
 
+    refreshReferenceValues();
     return false;
 }
 
@@ -176,11 +207,22 @@ double SketchSolver::computeError(const Constraint& c, const Sketch& sketch) con
         }
 
         case ConstraintType::Radius: {
-            // entityA is circle id
-            const auto& circles = sketch.getCircles();
-            for (const auto& circle : circles) {
+            // entityA is a circle OR an arc id — the Dimension tool creates
+            // this type for both (see resolveDimension's Circle/Arc branches),
+            // and applyCorrection below already writes back through
+            // setCircleRadius / setArcRadius. Scanning circles only made an
+            // arc id return 0.0 ("already satisfied"), so applyCorrection's
+            // arc branch was never reached: the radius never moved while
+            // solve() reported success and the label rendered the typed value
+            // over unchanged geometry.
+            for (const auto& circle : sketch.getCircles()) {
                 if (circle.id == c.entityA) {
                     return circle.radius - c.value;
+                }
+            }
+            for (const auto& arc : sketch.getArcs()) {
+                if (arc.id == c.entityA) {
+                    return arc.radius - c.value;
                 }
             }
             return 0.0;

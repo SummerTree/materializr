@@ -164,6 +164,150 @@ TEST(CircleGap, SolverDrivesRimGapToTarget) {
     EXPECT_NEAR(rB, 3.0, 1e-9);
 }
 
+TEST(ReferenceDimension, DoesNotDriveGeometry) {
+    // A reference dimension measures without moving anything: the solver skips
+    // it entirely. Same setup as SolverDrivesCircleRadius, isDriving cleared.
+    Sketch sk;
+    int ctr = sk.addPoint({0.0f, 0.0f});
+    int ci  = sk.addCircle(ctr, 5.0);
+    Constraint c{};
+    c.type = ConstraintType::Radius;
+    c.entityA = ci;
+    c.value = 8.0;
+    c.isDriving = false;
+    sk.addConstraint(c);
+
+    SketchSolver solver;
+    EXPECT_TRUE(solver.solve(sk, 500, 1e-4));
+    double r = 0.0;
+    for (const auto& x : sk.getCircles()) if (x.id == ci) r = x.radius;
+    EXPECT_NEAR(r, 5.0, 1e-9) << "reference dimension moved the geometry";
+}
+
+TEST(ReferenceDimension, RemeasuresItselfAfterSolve) {
+    // The stored value follows the geometry, so the label always reports what
+    // is actually there — value 999 is overwritten by the real radius.
+    Sketch sk;
+    int ctr = sk.addPoint({0.0f, 0.0f});
+    int ci  = sk.addCircle(ctr, 5.0);
+    Constraint c{};
+    c.type = ConstraintType::Radius;
+    c.entityA = ci;
+    c.value = 999.0;
+    c.isDriving = false;
+    int id = sk.addConstraint(c);
+
+    SketchSolver solver;
+    solver.solve(sk, 500, 1e-4);
+    double stored = 0.0;
+    for (const auto& x : sk.getConstraints()) if (x.id == id) stored = x.value;
+    EXPECT_NEAR(stored, 5.0, 1e-6) << "reference value did not re-measure";
+}
+
+TEST(ReferenceDimension, CostsNoDegreeOfFreedom) {
+    // Annotating a sketch must not push it toward Fully/Over-constrained.
+    Sketch sk;
+    int a = sk.addPoint({0.0f, 0.0f});
+    int b = sk.addPoint({10.0f, 0.0f});
+    sk.addLine(a, b);
+
+    SketchSolver solver;
+    solver.solve(sk, 200, 1e-4);
+    int dofBefore = solver.degreesOfFreedom();
+
+    Constraint c{};
+    c.type = ConstraintType::Distance;
+    c.entityA = a;
+    c.entityB = b;
+    c.value = 10.0;
+    c.isDriving = false;
+    sk.addConstraint(c);
+    solver.solve(sk, 200, 1e-4);
+    EXPECT_EQ(solver.degreesOfFreedom(), dofBefore)
+        << "reference dimension consumed a DOF";
+}
+
+TEST(ReferenceDimension, DrivingStillConsumesDegreeOfFreedom) {
+    // Control for the test above — the same constraint, driving, does count.
+    Sketch sk;
+    int a = sk.addPoint({0.0f, 0.0f});
+    int b = sk.addPoint({10.0f, 0.0f});
+    sk.addLine(a, b);
+
+    SketchSolver solver;
+    solver.solve(sk, 200, 1e-4);
+    int dofBefore = solver.degreesOfFreedom();
+
+    Constraint c{};
+    c.type = ConstraintType::Distance;
+    c.entityA = a;
+    c.entityB = b;
+    c.value = 10.0;
+    c.isDriving = true;
+    sk.addConstraint(c);
+    solver.solve(sk, 200, 1e-4);
+    EXPECT_EQ(solver.degreesOfFreedom(), dofBefore - 1);
+}
+
+TEST(ReferenceDimension, DefaultsToDrivingForBackCompat) {
+    // Every constraint ever written before isDriving existed — and every
+    // geometric type — must keep driving. The struct default guarantees it.
+    Constraint c{};
+    EXPECT_TRUE(c.isDriving);
+    EXPECT_FALSE(materializr::constraintSupportsReference(ConstraintType::Horizontal));
+    EXPECT_TRUE(materializr::constraintSupportsReference(ConstraintType::Distance));
+    EXPECT_TRUE(materializr::constraintSupportsReference(ConstraintType::Radius));
+}
+
+TEST(RadiusConstraint, SolverDrivesCircleRadius) {
+    // Control for the arc case below: Radius on a CIRCLE does drive geometry.
+    Sketch sk;
+    int ctr = sk.addPoint({0.0f, 0.0f});
+    int ci  = sk.addCircle(ctr, 5.0);
+    Constraint c{};
+    c.type = ConstraintType::Radius;
+    c.entityA = ci;
+    c.value = 8.0;
+    sk.addConstraint(c);
+
+    SketchSolver solver;
+    EXPECT_TRUE(solver.solve(sk, 500, 1e-4));
+    double r = 0.0;
+    for (const auto& x : sk.getCircles()) if (x.id == ci) r = x.radius;
+    EXPECT_NEAR(r, 8.0, 1e-2);
+}
+
+TEST(RadiusConstraint, SolverDrivesArcRadius) {
+    // The Dimension tool creates ConstraintType::Radius for an ARC pick
+    // (SketchTool::resolveDimension, the DimEntityKind::Arc branch), so the
+    // solver must drive an arc's radius exactly as it drives a circle's.
+    // computeError()'s Radius branch only scans getCircles(), so an arc id
+    // yields error 0.0 → "already satisfied" → applyCorrection's arc branch is
+    // never reached and the radius never moves, while solve() still returns
+    // true and the label renders the TYPED value (Application_Viewport.cpp
+    // renders c.value * 2.0, not the measured radius) — a dimension that
+    // disagrees with its own geometry.
+    Sketch sk;
+    int ctr   = sk.addPoint({0.0f, 0.0f});
+    int start = sk.addPoint({5.0f, 0.0f});
+    int end   = sk.addPoint({0.0f, 5.0f});
+    int ar    = sk.addArc(ctr, start, end, 5.0);
+    Constraint c{};
+    c.type = ConstraintType::Radius;
+    c.entityA = ar;
+    c.value = 8.0;
+    sk.addConstraint(c);
+
+    SketchSolver solver;
+    bool converged = solver.solve(sk, 500, 1e-4);
+    double r = 0.0;
+    for (const auto& x : sk.getArcs()) if (x.id == ar) r = x.radius;
+    // The bug: converged == true while r is still 5.0.
+    EXPECT_NEAR(r, 8.0, 1e-2) << "arc radius not driven (solve returned "
+                              << (converged ? "true" : "false")
+                              << ") — label would read 16.00 mm on a 10.00 mm arc";
+}
+
 TEST(DistancePointLine, DegenerateLineDoesNotNaN) {
     Sketch sk;
     int a = sk.addPoint({2.0f, 2.0f});
@@ -305,6 +449,94 @@ TEST(DimensionPersistence, LegacySixFieldKLineDefaultsOffsetsToZero) {
     EXPECT_DOUBLE_EQ(sk.getConstraints()[0].value, 4.0);
     EXPECT_DOUBLE_EQ(sk.getConstraints()[0].labelOffX, 0.0);
     EXPECT_DOUBLE_EQ(sk.getConstraints()[0].labelOffY, 0.0);
+}
+
+TEST(DimensionPersistence, LegacyKLinesDefaultToDriving) {
+    // Neither a 6-field (pre-offset) nor an 8-field (pre-isDriving) K line
+    // carries the driving flag. Both must load as DRIVING, or every
+    // constraint in every existing project would silently stop enforcing.
+    std::string body =
+        "PLANE 0 0 0 0 0 1 1 0 0 0 1 0\n"
+        "POINT_COUNT 2\n"
+        "P 1 0 0 0 0\n"
+        "P 2 4 0 0 0\n"
+        "LINE_COUNT 1\n"
+        "L 3 1 2 0 0\n"
+        "CIRCLE_COUNT 0\n"
+        "ARC_COUNT 0\n"
+        "SPLINE_COUNT 0\n"
+        "POLYGON_COUNT 0\n"
+        "CONSTRAINT_COUNT 2\n"
+        "K 4 3 1 2 4 0\n"              // 6 fields (legacy)
+        "K 5 3 1 2 4 0 1.5 2.5\n"      // 8 fields (pre-isDriving)
+        "SKETCH_END\n";
+    std::istringstream is(body);
+    Sketch sk;
+    materializr::ProjectIO::parseSketchBody(is, sk, "SKETCH_END");
+    ASSERT_EQ(sk.getConstraints().size(), 2u);
+    for (const auto& c : sk.getConstraints())
+        EXPECT_TRUE(c.isDriving) << "legacy constraint id " << c.id
+                                 << " loaded as non-driving";
+}
+
+TEST(DimensionPersistence, IsDrivingRoundTrips) {
+    std::string body =
+        "PLANE 0 0 0 0 0 1 1 0 0 0 1 0\n"
+        "POINT_COUNT 2\n"
+        "P 1 0 0 0 0\n"
+        "P 2 4 0 0 0\n"
+        "LINE_COUNT 1\n"
+        "L 3 1 2 0 0\n"
+        "CIRCLE_COUNT 0\n"
+        "ARC_COUNT 0\n"
+        "SPLINE_COUNT 0\n"
+        "POLYGON_COUNT 0\n"
+        "CONSTRAINT_COUNT 2\n"
+        "K 4 3 1 2 4 0 0 0 0\n"        // 9 fields, reference
+        "K 5 3 1 2 4 0 0 0 1\n"        // 9 fields, driving
+        "SKETCH_END\n";
+    std::istringstream is(body);
+    Sketch sk;
+    materializr::ProjectIO::parseSketchBody(is, sk, "SKETCH_END");
+    ASSERT_EQ(sk.getConstraints().size(), 2u);
+    EXPECT_FALSE(sk.getConstraints()[0].isDriving);
+    EXPECT_TRUE(sk.getConstraints()[1].isDriving);
+
+    // And back out through writeSketchBody, then in again.
+    std::ostringstream os;
+    materializr::ProjectIO::writeSketchBody(os, sk);
+    std::istringstream back(os.str());
+    Sketch sk2;
+    materializr::ProjectIO::parseSketchBody(back, sk2, "SKETCH_END");
+    ASSERT_EQ(sk2.getConstraints().size(), 2u);
+    EXPECT_FALSE(sk2.getConstraints()[0].isDriving);
+    EXPECT_TRUE(sk2.getConstraints()[1].isDriving);
+}
+
+TEST(DimensionPersistence, OutOfRangeConstraintTypeIsDropped) {
+    // A garbage enum int must not be cast into ConstraintType — the solver's
+    // switches have no default arm and the value would be UB.
+    std::string body =
+        "PLANE 0 0 0 0 0 1 1 0 0 0 1 0\n"
+        "POINT_COUNT 2\n"
+        "P 1 0 0 0 0\n"
+        "P 2 4 0 0 0\n"
+        "LINE_COUNT 1\n"
+        "L 3 1 2 0 0\n"
+        "CIRCLE_COUNT 0\n"
+        "ARC_COUNT 0\n"
+        "SPLINE_COUNT 0\n"
+        "POLYGON_COUNT 0\n"
+        "CONSTRAINT_COUNT 2\n"
+        "K 4 999 1 2 4 0 0 0 1\n"      // out of range → dropped
+        "K 5 3 1 2 4 0 0 0 1\n"        // valid Distance → kept
+        "SKETCH_END\n";
+    std::istringstream is(body);
+    Sketch sk;
+    materializr::ProjectIO::parseSketchBody(is, sk, "SKETCH_END");
+    ASSERT_EQ(sk.getConstraints().size(), 1u);
+    EXPECT_EQ(sk.getConstraints()[0].id, 5);
+    EXPECT_EQ(sk.getConstraints()[0].type, ConstraintType::Distance);
 }
 
 TEST(DimensionPersistence, WriteSketchBodyPreservesLabelOffsets) {
@@ -603,4 +835,86 @@ TEST(DimensionResolve, TriangleAltitudeIsNotMirroredDPL) {
     int p3 = sk.addPoint({10.0f, 10.0f});
     int l2 = sk.addLine(p2, p3);
     EXPECT_FALSE(SketchTool::linesParallelWithinDimTol(sk, l1, l2));
+}
+
+TEST(DimensionResolve, CircleCentreToLineIsDistancePointLine) {
+    // Hole-centre-to-edge: the single most common machining dimension. The
+    // circle pick substitutes its centre point.
+    Sketch sk;
+    int la = sk.addPoint({0.0f, 0.0f});
+    int lb = sk.addPoint({20.0f, 0.0f});
+    int ln = sk.addLine(la, lb);
+    int ctr = sk.addPoint({10.0f, 7.0f});
+    int ci  = sk.addCircle(ctr, 2.0);
+
+    auto r = SketchTool::resolveDimension(sk, {DimEntityKind::Circle, ci},
+                                              {DimEntityKind::Line, ln});
+    ASSERT_TRUE(r.valid) << "circle+line must resolve, not be rejected";
+    EXPECT_EQ(r.type, ConstraintType::DistancePointLine);
+    EXPECT_EQ(r.entityA, ctr) << "should measure from the circle's centre";
+    EXPECT_EQ(r.entityB, ln);
+    EXPECT_NEAR(r.measured, 7.0, 1e-6);
+}
+
+TEST(DimensionResolve, CircleCentreToLineIsOrderIndependent) {
+    Sketch sk;
+    int la = sk.addPoint({0.0f, 0.0f});
+    int lb = sk.addPoint({20.0f, 0.0f});
+    int ln = sk.addLine(la, lb);
+    int ctr = sk.addPoint({10.0f, 7.0f});
+    int ci  = sk.addCircle(ctr, 2.0);
+
+    auto r = SketchTool::resolveDimension(sk, {DimEntityKind::Line, ln},
+                                              {DimEntityKind::Circle, ci});
+    ASSERT_TRUE(r.valid);
+    EXPECT_EQ(r.type, ConstraintType::DistancePointLine);
+    EXPECT_EQ(r.entityA, ctr);
+    EXPECT_NEAR(r.measured, 7.0, 1e-6);
+}
+
+TEST(DimensionResolve, CircleCentreToPointIsDistance) {
+    Sketch sk;
+    int ctr = sk.addPoint({0.0f, 0.0f});
+    int ci  = sk.addCircle(ctr, 2.0);
+    int p   = sk.addPoint({3.0f, 4.0f});
+
+    auto r = SketchTool::resolveDimension(sk, {DimEntityKind::Circle, ci},
+                                              {DimEntityKind::Point, p});
+    ASSERT_TRUE(r.valid);
+    EXPECT_EQ(r.type, ConstraintType::Distance);
+    EXPECT_NEAR(r.measured, 5.0, 1e-6);
+}
+
+TEST(DimensionResolve, ArcCentreToLineWorksToo) {
+    Sketch sk;
+    int la = sk.addPoint({0.0f, 0.0f});
+    int lb = sk.addPoint({20.0f, 0.0f});
+    int ln = sk.addLine(la, lb);
+    int ctr = sk.addPoint({5.0f, 9.0f});
+    int s   = sk.addPoint({8.0f, 9.0f});
+    int e   = sk.addPoint({5.0f, 12.0f});
+    int ar  = sk.addArc(ctr, s, e, 3.0);
+
+    auto r = SketchTool::resolveDimension(sk, {DimEntityKind::Arc, ar},
+                                              {DimEntityKind::Line, ln});
+    ASSERT_TRUE(r.valid);
+    EXPECT_EQ(r.type, ConstraintType::DistancePointLine);
+    EXPECT_EQ(r.entityA, ctr);
+    EXPECT_NEAR(r.measured, 9.0, 1e-6);
+}
+
+TEST(DimensionResolve, TwoCirclesStillGiveRimGapNotCentreDistance) {
+    // Regression: the centre-substitution above must not swallow the
+    // circle+circle case, which stays a rim-to-rim gap.
+    Sketch sk;
+    int cA = sk.addPoint({0.0f, 0.0f});
+    int ciA = sk.addCircle(cA, 5.0);
+    int cB = sk.addPoint({20.0f, 0.0f});
+    int ciB = sk.addCircle(cB, 3.0);
+
+    auto r = SketchTool::resolveDimension(sk, {DimEntityKind::Circle, ciA},
+                                              {DimEntityKind::Circle, ciB});
+    ASSERT_TRUE(r.valid);
+    EXPECT_EQ(r.type, ConstraintType::CircleGap);
+    EXPECT_NEAR(r.measured, 12.0, 1e-6);
 }

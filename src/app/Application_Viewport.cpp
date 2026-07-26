@@ -197,6 +197,76 @@ void Application::gizmoPreviewApply(const glm::mat4& m) {
     }
 }
 
+// Does this Radius constraint measure an ARC (rather than a circle)?
+//
+// Drafting convention splits the two: an arc is called out by RADIUS ("R 10"),
+// a full circle by DIAMETER ("Ø 20"). Constraint::value stores a radius for
+// both, so the label, the edit-popup prefill, and the popup's commit all have
+// to agree on which convention applies — hence one helper rather than three
+// copies of the scan. Non-Radius types are never arc radii.
+static bool constraintIsArcRadiusIn(const Sketch& sk, const Constraint& c) {
+    if (c.type != ConstraintType::Radius) return false;
+    for (const auto& circ : sk.getCircles())
+        if (circ.id == c.entityA) return false; // a circle wins
+    for (const auto& arc : sk.getArcs())
+        if (arc.id == c.entityA) return true;
+    return false;
+}
+
+// Recover the two comparable entities behind a dimension, so the edit popup
+// can offer "Make equal" (equal length for two lines, equal radius for two
+// circles/arcs). Returns false when the dimension has no such pair.
+//
+// Derived rather than stored: every dimension that came from a two-entity pick
+// still carries enough to reconstruct the pair, so no extra state has to be
+// threaded through PendingDimension and the option stays available when the
+// user re-opens an OLD dimension's popup, not just a freshly placed one.
+static bool dimensionEqualPair(const Sketch& sk, const Constraint& c,
+                               int& outA, int& outB) {
+    auto isCurveId = [&sk](int id) {
+        for (const auto& x : sk.getCircles()) if (x.id == id) return true;
+        for (const auto& x : sk.getArcs())    if (x.id == id) return true;
+        return false;
+    };
+    switch (c.type) {
+        case ConstraintType::Angle:      // entityA/entityB are both line ids
+        case ConstraintType::CircleGap:  // entityA/entityB are both curve ids
+            outA = c.entityA; outB = c.entityB;
+            return outA >= 0 && outB >= 0 && outA != outB;
+        case ConstraintType::DistancePointLine: {
+            // entityA is a POINT on the second line, entityB the first line.
+            // Recover the second line as the one owning that point — that is
+            // exactly how resolveDimension's parallel branch built the pair.
+            for (const auto& l : sk.getLines()) {
+                if (l.id == c.entityB) continue;
+                if (l.startPointId == c.entityA || l.endPointId == c.entityA) {
+                    outA = c.entityB; outB = l.id;
+                    return true;
+                }
+            }
+            return false;
+        }
+        case ConstraintType::Distance: {
+            // Only meaningful when both ends are circle/arc centres (a
+            // centre-to-centre dim); two bare points have no "length" to
+            // equalise. Map each centre back to its curve.
+            auto curveOfCentre = [&sk](int ptId) {
+                for (const auto& x : sk.getCircles())
+                    if (x.centerPointId == ptId) return x.id;
+                for (const auto& x : sk.getArcs())
+                    if (x.centerPointId == ptId) return x.id;
+                return -1;
+            };
+            int ca = curveOfCentre(c.entityA), cb = curveOfCentre(c.entityB);
+            if (ca < 0 || cb < 0 || ca == cb) return false;
+            outA = ca; outB = cb;
+            return isCurveId(ca) && isCurveId(cb);
+        }
+        default:
+            return false;
+    }
+}
+
 // Sketch-space auto anchor of a dimension's label: line/pair midpoint,
 // circle/arc center, or the midpoint of the point-to-line perpendicular foot
 // segment. Label offsets (Constraint::labelOffX/Y) are stored relative to
@@ -2557,7 +2627,11 @@ void Application::renderViewport() {
                     ImU32 bg = hovered ? IM_COL32(45, 45, 60, 235)
                                        : IM_COL32(20, 20, 28, 220);
                     dl->AddRectFilled(rMin, rMax, bg, 3.0f);
-                    dl->AddText(tp, IM_COL32(255, 235, 120, 255), text);
+                    // Driving dimensions in the usual amber; reference ones in
+                    // a muted grey so a glance separates "this number controls
+                    // the shape" from "this number just reports it".
+                    dl->AddText(tp, c.isDriving ? IM_COL32(255, 235, 120, 255)
+                                                : IM_COL32(170, 178, 190, 255), text);
                     // Click → open edit popup. Skipped if we're already
                     // editing this same constraint to avoid re-triggering
                     // the open every frame the popup is up.
@@ -2568,9 +2642,11 @@ void Application::renderViewport() {
                             std::snprintf(m_dimEditingBuf, sizeof(m_dimEditingBuf),
                                           "%.2f", c.value * 180.0 / M_PI);
                         } else if (c.type == ConstraintType::Radius) {
-                            // Edited as diameter to match the label.
-                            std::snprintf(m_dimEditingBuf, sizeof(m_dimEditingBuf),
-                                          "%.2f", c.value * 2.0);
+                            // Edited in whatever unit the label shows: radius
+                            // for an arc (R), diameter for a circle (Ø).
+                            std::snprintf(m_dimEditingBuf, sizeof(m_dimEditingBuf), "%.2f",
+                                          constraintIsArcRadiusIn(*m_activeSketch, c)
+                                              ? c.value : c.value * 2.0);
                         } else {
                             std::snprintf(m_dimEditingBuf, sizeof(m_dimEditingBuf),
                                           "%.2f", c.value);
@@ -2606,7 +2682,17 @@ void Application::renderViewport() {
                         if (toImg(dim2world(lsrc), sa) && toImg(dim2world(lpos), sb))
                             dl->AddLine(sa, sb, IM_COL32(255, 235, 120, 90), 1.0f);
                     }
-                    drawLabel(lpos, text, c);
+                    // Reference (non-driving) dimensions are bracketed, the
+                    // standard drafting notation for a measurement that does
+                    // not control the geometry. One place, so every dimension
+                    // type picks it up — drawLabel handles the colour.
+                    if (!c.isDriving) {
+                        char ref[48];
+                        std::snprintf(ref, sizeof(ref), "[%s]", text);
+                        drawLabel(lpos, ref, c);
+                    } else {
+                        drawLabel(lpos, text, c);
+                    }
                 };
                 char lbl[40];
                 for (const auto& c : m_activeSketch->getConstraints()) {
@@ -2664,8 +2750,12 @@ void Application::renderViewport() {
                         // small constant so it floats just past the perimeter.
                         glm::vec2 autoOff =
                             glm::vec2(0.7071f, 0.7071f) * (radius + 1.2f);
-                        std::snprintf(lbl, sizeof(lbl), "\xC3\x98 %.2f mm",
-                                      c.value * 2.0);
+                        // Drafting convention: arcs read as R, circles as Ø.
+                        if (constraintIsArcRadiusIn(*m_activeSketch, c))
+                            std::snprintf(lbl, sizeof(lbl), "R %.2f mm", c.value);
+                        else
+                            std::snprintf(lbl, sizeof(lbl), "\xC3\x98 %.2f mm",
+                                          c.value * 2.0);
                         placeLabel(center, autoOff, lbl, c);
                     } else if (c.type == ConstraintType::Angle) {
                         // SolidWorks-style angle dim: find the vertex where the
@@ -3078,10 +3168,22 @@ void Application::renderViewport() {
                                     if (cn.type == ConstraintType::Angle) {
                                         cn.value = v * M_PI / 180.0;
                                     } else if (cn.type == ConstraintType::Radius) {
-                                        if (v > 0.0) cn.value = v * 0.5;
+                                        // Circles are typed as diameter; arcs
+                                        // as radius, matching the R/Ø label.
+                                        if (v > 0.0)
+                                            cn.value = constraintIsArcRadiusIn(*m_activeSketch, cn)
+                                                           ? v : v * 0.5;
                                     } else if (v > 0.0) {
                                         cn.value = v;
                                     }
+                                    // Typing a number is an explicit statement
+                                    // that this measurement should CONTROL the
+                                    // geometry, so it promotes a reference
+                                    // dimension to driving. Placing a dimension
+                                    // stays a pure measurement; committing a
+                                    // value is what opts into driving.
+                                    if (constraintSupportsReference(cn.type))
+                                        cn.isDriving = true;
                                     break;
                                 }
                                 if (m_sketchSolver) m_sketchSolver->solve(*m_activeSketch);
@@ -3090,6 +3192,67 @@ void Application::renderViewport() {
                             m_meshesDirty = true;
                             m_dimEditingId = -1;
                             ImGui::CloseCurrentPopup();
+                        }
+                        // Driving toggle. A dimension placed by the Dimension
+                        // tool starts as reference (measures only); this is
+                        // where the user promotes it to control the geometry,
+                        // or demotes a driving one back to an annotation.
+                        // Hidden for geometric constraints, where "reference"
+                        // is meaningless (see constraintSupportsReference).
+                        {
+                            Constraint* cur = nullptr;
+                            for (auto& cn : m_activeSketch->getMutableConstraints())
+                                if (cn.id == m_dimEditingId) { cur = &cn; break; }
+                            if (cur && constraintSupportsReference(cur->type)) {
+                                ImGui::Spacing();
+                                bool drv = cur->isDriving;
+                                if (ImGui::Checkbox("Driving", &drv)) {
+                                    recordSketchMutation([&]{
+                                        for (auto& cn : m_activeSketch->getMutableConstraints()) {
+                                            if (cn.id != m_dimEditingId) continue;
+                                            cn.isDriving = drv;
+                                            break;
+                                        }
+                                        if (m_sketchSolver) m_sketchSolver->solve(*m_activeSketch);
+                                    });
+                                    markDirty();
+                                    m_meshesDirty = true;
+                                }
+                                ImGui::SameLine();
+                                ImGui::TextDisabled(drv ? "(controls geometry)"
+                                                        : "(measures only)");
+                            }
+                            // "Make equal" — converts a two-entity dimension
+                            // into an Equal constraint on the same pair (equal
+                            // length for lines, equal radius for circles/arcs).
+                            // Equal carries no measurement, so it is always a
+                            // driving constraint; the numeric dimension it
+                            // replaces is consumed by the conversion.
+                            int eqA = -1, eqB = -1;
+                            if (cur && dimensionEqualPair(*m_activeSketch, *cur, eqA, eqB)) {
+                                ImGui::Spacing();
+                                if (ImGui::Button("Make equal")) {
+                                    int convId = m_dimEditingId;
+                                    recordSketchMutation([&]{
+                                        for (auto& cn : m_activeSketch->getMutableConstraints()) {
+                                            if (cn.id != convId) continue;
+                                            cn.type = ConstraintType::Equal;
+                                            cn.entityA = eqA;
+                                            cn.entityB = eqB;
+                                            cn.value = 0.0;
+                                            cn.isDriving = true;
+                                            break;
+                                        }
+                                        if (m_sketchSolver) m_sketchSolver->solve(*m_activeSketch);
+                                    });
+                                    markDirty();
+                                    m_meshesDirty = true;
+                                    m_dimEditingId = -1;
+                                    ImGui::CloseCurrentPopup();
+                                }
+                                ImGui::SameLine();
+                                ImGui::TextDisabled("(equal length / radius)");
+                            }
                         }
                         // Delete removes the dimension constraint entirely, as
                         // one undoable step ("Remove …" in History).
@@ -6347,6 +6510,10 @@ void Application::renderViewport() {
                             m_sketchTool->onMouseDown(sketchCoord, false);
                             if (m_sketchTool->dimReadyToCommit())
                                 applyPendingDimension();
+                            // Surface a refused pick instead of letting the
+                            // click look like it simply missed the geometry.
+                            if (const char* why = m_sketchTool->consumeDimRejection())
+                                showToast(why, 2.5);
                         }
                     } else if (materializr::touchMode()) {
                         // A held circle awaiting its ✗/✓ bubble: drawing the

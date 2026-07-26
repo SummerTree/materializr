@@ -323,16 +323,21 @@ ProjectSaveResult ProjectIO::save(const std::string& filePath, const Document& d
         // Constraints: opt-in user-applied sketch constraints. One line each,
         // type stored as the enum's int value (stable as long as we only append
         // to ConstraintType in SketchConstraints.h — which is the policy).
-        // K line format: K id type eA eB value valueY labelOffX labelOffY.
-        // Trailing two fields (label offsets) added for the dimension tool;
-        // readers of older builds ignore trailing tokens.
+        // K line format:
+        //   K id type eA eB value valueY labelOffX labelOffY isDriving
+        // Label offsets were added for the dimension tool; isDriving for
+        // reference (annotation-only) dimensions. Readers of older builds
+        // ignore trailing tokens, so a file written here still loads there
+        // — losing the offsets and treating every dimension as driving,
+        // which is that build's only behaviour anyway.
         const auto& cns = sk->getConstraints();
         ofs << "CONSTRAINT_COUNT " << static_cast<int>(cns.size()) << "\n";
         for (const auto& c : cns) {
             ofs << "K " << c.id << " " << static_cast<int>(c.type) << " "
                 << c.entityA << " " << c.entityB << " "
                 << c.value << " " << c.valueY << " "
-                << c.labelOffX << " " << c.labelOffY << "\n";
+                << c.labelOffX << " " << c.labelOffY << " "
+                << (c.isDriving ? 1 : 0) << "\n";
         }
 
         ofs << "SKETCH_END\n";
@@ -657,6 +662,13 @@ void parseSketchBodyImpl(std::istream& ifs, materializr::Sketch& sk,
                 std::istringstream s(line); std::string t; Constraint c{};
                 int tval = 0;
                 s >> t >> c.id >> tval >> c.entityA >> c.entityB >> c.value >> c.valueY;
+                // Range-check before the cast: a value outside the enum's
+                // range is undefined behaviour, and the solver's switches
+                // have no default arm to absorb it. Drop the constraint
+                // rather than carry a garbage type into the solver.
+                if (tval < static_cast<int>(ConstraintType::Coincident) ||
+                    tval > static_cast<int>(ConstraintType::CircleGap))
+                    continue;
                 c.type = static_cast<ConstraintType>(tval);
                 // Label offsets are trailing optional fields (since the
                 // dimension tool); legacy 6-field K lines default to auto
@@ -665,6 +677,14 @@ void parseSketchBodyImpl(std::istream& ifs, materializr::Sketch& sk,
                     c.labelOffX = 0.0;
                     c.labelOffY = 0.0;
                 }
+                // isDriving is the 9th field (reference dimensions). Absent
+                // in every file written before it existed — and in every
+                // geometric constraint ever written — so the default is
+                // DRIVING, preserving old behaviour exactly. Note the stream
+                // is already in fail state here for a legacy 6-field line, so
+                // this extraction fails too and the default stands.
+                int drv = 1;
+                c.isDriving = (s >> drv) ? (drv != 0) : true;
                 c.isSatisfied = false;
                 maxConstraintId = std::max(maxConstraintId, c.id);
                 sk.addRawConstraint(c);
@@ -1373,7 +1393,8 @@ void ProjectIO::writeSketchBody(std::ostream& os, const Sketch& sk) {
         os << "K " << c.id << " " << static_cast<int>(c.type) << " "
            << c.entityA << " " << c.entityB << " "
            << c.value << " " << c.valueY << " "
-           << c.labelOffX << " " << c.labelOffY << "\n";
+           << c.labelOffX << " " << c.labelOffY << " "
+           << (c.isDriving ? 1 : 0) << "\n";
 
     os << "SKETCH_END\n";
 }

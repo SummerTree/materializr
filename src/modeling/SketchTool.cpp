@@ -3222,14 +3222,27 @@ void SketchTool::handleDimensionTool(glm::vec2 pos) {
         case DimPhase::PickSecondOrPlace: {
             DimPick hit = hitTestDimEntity(pos);
             if (hit.kind != DimEntityKind::None) {
-                if (hit.kind == m_dimPickA.kind && hit.id == m_dimPickA.id) return; // same entity
+                if (hit.kind == m_dimPickA.kind && hit.id == m_dimPickA.id) {
+                    m_dimRejectReason = "Same entity — pick a different one.";
+                    return;
+                }
                 PendingDimension pair = resolveDimension(*m_sketch, m_dimPickA, hit);
-                if (pair.valid) { m_dimPending = pair; m_dimPhase = DimPhase::PlaceLabel; }
-                return; // invalid combo: ignore the click, picks unchanged
+                if (pair.valid) { m_dimPending = pair; m_dimPhase = DimPhase::PlaceLabel; return; }
+                // Invalid combo: picks unchanged, but say why rather than
+                // letting the click look like a miss.
+                m_dimRejectReason =
+                    (m_dimPickA.kind == DimEntityKind::Line && hit.kind == DimEntityKind::Line)
+                        ? "These lines can't be dimensioned to each other "
+                          "(they meet, or are collinear)."
+                        : "That pair can't be dimensioned.";
+                return;
             }
             // Empty space: places the tentative single-entity dim (line length).
-            if (m_dimPending.valid) { m_dimLabelPos = pos; m_dimReady = true; }
-            return; // lone point + empty space: no-op, pick stays pending
+            if (m_dimPending.valid) { m_dimLabelPos = pos; m_dimReady = true; return; }
+            // Lone point + empty space: nothing to measure yet.
+            m_dimRejectReason = "A single point has no dimension — "
+                                "pick a second entity.";
+            return;
         }
         case DimPhase::PlaceLabel: {
             m_dimLabelPos = pos;
@@ -3329,6 +3342,25 @@ PendingDimension SketchTool::resolveDimension(const Sketch& sk, DimPick a, DimPi
                    static_cast<double>(glm::distance(pa->pos, pb->pos)) - rA - rB,
                    true};
         return out;
+    }
+
+    // A circle/arc paired with a line or a point dimensions from its CENTRE.
+    // hitTestDimEntity deliberately resolves a centre-point click to the
+    // circle itself (so the rim-gap dim stays reachable), which left the
+    // centre unpickable and made hole-centre-to-edge — the most common
+    // dimension on a machining drawing — impossible to create at all.
+    // Substituting the centre point here recovers it without a modifier key,
+    // so it works the same on touch.
+    if (isCurve(a.kind) && (b.kind == DimEntityKind::Line ||
+                            b.kind == DimEntityKind::Point)) {
+        int ca = centerPointId(a);
+        if (ca < 0) return out;
+        a = {DimEntityKind::Point, ca};
+    } else if (isCurve(b.kind) && (a.kind == DimEntityKind::Line ||
+                                   a.kind == DimEntityKind::Point)) {
+        int cb = centerPointId(b);
+        if (cb < 0) return out;
+        b = {DimEntityKind::Point, cb};
     }
 
     // Normalize point-first for the mixed pair.

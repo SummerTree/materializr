@@ -34,6 +34,29 @@ struct Constraint {
     // created without explicit label placement).
     double labelOffX = 0.0;
     double labelOffY = 0.0;
+
+    // Driving (default) = the solver enforces this constraint and it consumes
+    // a degree of freedom. Reference/driven = the solver ignores it entirely;
+    // it only annotates, re-measuring itself as the geometry moves.
+    //
+    // Defaults to TRUE so every pre-existing constraint — in memory, in old
+    // project files, and every geometric type (Horizontal, Coincident,
+    // Tangent, …) for which "reference" is meaningless — keeps driving
+    // exactly as before. Only the Dimension tool clears it, so a placed
+    // dimension measures without moving anything until the user promotes it
+    // in the label's edit popup. See Application::applyPendingDimension.
+    bool isDriving = true;
 };
+
+// Reference/driven mode is only meaningful for the dimension-bearing types —
+// the ones carrying a numeric value the user reads off the drawing. A
+// geometric relationship (Horizontal, Parallel, Coincident, …) has no
+// measurement to annotate, so it is always driving and the edit popup offers
+// no toggle for it.
+inline bool constraintSupportsReference(ConstraintType t) {
+    return t == ConstraintType::Distance || t == ConstraintType::Radius ||
+           t == ConstraintType::Angle || t == ConstraintType::DistancePointLine ||
+           t == ConstraintType::CircleGap;
+}
 
 } // namespace materializr
