@@ -43,6 +43,7 @@
 #include "ui/ShortcutsPanel.h"
 #include "ui/HelpPanel.h"
 #include "ui/UpdateChecker.h"
+#include "ui/WelcomeScreen.h"
 #include "modeling/Sketch.h"
 #include "modeling/SketchSolver.h"
 #include "modeling/SketchTool.h"
@@ -661,6 +662,19 @@ void Application::renderMirrorPopup() {
 
 void Application::renderUpdatePopup() {
     if (!m_showUpdatePopup) return;
+    // Startup dialogs take turns for the popup-stack level (see the Welcome
+    // screen's render site in Application.cpp run(), and the identical gate
+    // on renderProjectRecoveryPrompt/renderSketchRecoveryPrompt): this popup
+    // and the crash-recovery prompts both call OpenPopup() unconditionally
+    // every frame, and two such raw reopens contending for the same level
+    // closes each other every frame forever — neither ever draws, while the
+    // modal dim still blocks all input (see run()'s comment on this class of
+    // bug). The launch-time update check resolves on a background thread and
+    // can flip m_showUpdatePopup true at ANY frame, including while a
+    // recovery prompt is up — hold off exactly like those prompts hold off
+    // for Welcome, until they've resolved.
+    if (m_welcomeScreen && m_welcomeScreen->isVisible()) return;
+    if (m_pendingProjectRecovery || m_pendingSketchRecovery) return;
 
     ImGui::OpenPopup("Check for Updates");
 

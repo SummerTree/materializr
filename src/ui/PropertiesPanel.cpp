@@ -708,18 +708,20 @@ void PropertiesPanel::renderSketchConstraintsPanel(int sketchId, bool& modified)
         for (const auto& c : sk->getConstraints()) {
             const char* tn = "?";
             switch (c.type) {
-                case ConstraintType::Coincident:    tn = "Coincident";    break;
-                case ConstraintType::Horizontal:    tn = "Horizontal";    break;
-                case ConstraintType::Vertical:      tn = "Vertical";      break;
-                case ConstraintType::Distance:      tn = "Distance";      break;
-                case ConstraintType::Radius:        tn = "Radius";        break;
-                case ConstraintType::Parallel:      tn = "Parallel";      break;
-                case ConstraintType::Perpendicular: tn = "Perpendicular"; break;
-                case ConstraintType::Fixed:         tn = "Fixed";         break;
-                case ConstraintType::Tangent:       tn = "Tangent";       break;
-                case ConstraintType::Equal:         tn = "Equal";         break;
-                case ConstraintType::Concentric:    tn = "Concentric";    break;
-                case ConstraintType::Angle:         tn = "Angle";         break;
+                case ConstraintType::Coincident:        tn = "Coincident";       break;
+                case ConstraintType::Horizontal:        tn = "Horizontal";       break;
+                case ConstraintType::Vertical:          tn = "Vertical";         break;
+                case ConstraintType::Distance:          tn = "Distance";         break;
+                case ConstraintType::Radius:            tn = "Radius";           break;
+                case ConstraintType::Parallel:          tn = "Parallel";         break;
+                case ConstraintType::Perpendicular:     tn = "Perpendicular";    break;
+                case ConstraintType::Fixed:             tn = "Fixed";            break;
+                case ConstraintType::Tangent:           tn = "Tangent";          break;
+                case ConstraintType::Equal:             tn = "Equal";            break;
+                case ConstraintType::Concentric:        tn = "Concentric";       break;
+                case ConstraintType::Angle:             tn = "Angle";            break;
+                case ConstraintType::DistancePointLine: tn = "Dist\xE2\x8A\xA5"; break;
+                case ConstraintType::CircleGap:         tn = "Gap";              break;
             }
             std::fprintf(stderr, " %s=%.2f", tn, c.value);
         }
@@ -758,6 +760,8 @@ void PropertiesPanel::renderSketchConstraintsPanel(int sketchId, bool& modified)
             case ConstraintType::Tangent:       return "Tangent";
             case ConstraintType::Equal:         return "Equal length";
             case ConstraintType::Concentric:    return "Concentric";
+            case ConstraintType::DistancePointLine: return "Dist\xE2\x8A\xA5";
+            case ConstraintType::CircleGap:     return "Gap";
             default:                            return "Constraint";
         }
     };
@@ -794,12 +798,15 @@ void PropertiesPanel::renderSketchConstraintsPanel(int sketchId, bool& modified)
         Constraint& c = cs[i];
         ImGui::PushID(static_cast<int>(c.id));
 
-        // Render dimensional ones (Distance, Radius/Diameter, Angle) inline.
-        // Non-dimensional ones get a single muted bullet — there's nothing to
-        // tune, but listing them confirms what's actually applied.
+        // Render dimensional ones (Distance, Radius/Diameter, Angle,
+        // point-to-line Distance) inline. Non-dimensional ones get a single
+        // muted bullet — there's nothing to tune, but listing them confirms
+        // what's actually applied.
         bool isDim = (c.type == ConstraintType::Distance ||
                       c.type == ConstraintType::Radius   ||
-                      c.type == ConstraintType::Angle);
+                      c.type == ConstraintType::Angle    ||
+                      c.type == ConstraintType::DistancePointLine ||
+                      c.type == ConstraintType::CircleGap);
         if (isDim) {
             ++anyDim;
             auto& edit = m_constraintEdits[c.id];
@@ -818,6 +825,8 @@ void PropertiesPanel::renderSketchConstraintsPanel(int sketchId, bool& modified)
             const char* label =
                 c.type == ConstraintType::Distance ? "Distance"
               : c.type == ConstraintType::Radius   ? "\xC3\x98 (diameter)"
+              : c.type == ConstraintType::DistancePointLine ? "Dist \xE2\x8A\xA5"
+              : c.type == ConstraintType::CircleGap ? "Gap"
                                                    : "Angle";
             if (!edit.focused) {
                 std::snprintf(edit.buf, sizeof(edit.buf), "%.3f", shown);

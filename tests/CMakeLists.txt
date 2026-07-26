@@ -34,6 +34,7 @@ add_library(materializr_core STATIC
     ${CMAKE_SOURCE_DIR}/src/modeling/BatchTransformOp.cpp
     ${CMAKE_SOURCE_DIR}/src/modeling/PushPullOp.cpp
     ${CMAKE_SOURCE_DIR}/src/modeling/Sketch.cpp
+    ${CMAKE_SOURCE_DIR}/src/modeling/SketchTool.cpp
     ${CMAKE_SOURCE_DIR}/src/modeling/SketchEditOp.cpp
     ${CMAKE_SOURCE_DIR}/src/modeling/DuplicateSketchOp.cpp
     ${CMAKE_SOURCE_DIR}/src/modeling/MoveHoleOp.cpp
@@ -203,6 +204,14 @@ add_test(NAME test_history COMMAND test_history)
 add_executable(test_recovery test_recovery.cpp)
 target_link_libraries(test_recovery PRIVATE materializr_core gtest gtest_main)
 add_test(NAME test_recovery COMMAND test_recovery)
+
+# test_recovery_popup_turntaking — headless dear imgui popup-stack regression
+# for the "Recover Sketch?" modal rendering empty/stuck when it collides with
+# another raw-every-frame OpenPopup (the launch update-check popup). Pure
+# ImGui mechanics — links imgui_lib directly, no OCCT/materializr_core needed.
+add_executable(test_recovery_popup_turntaking test_recovery_popup_turntaking.cpp)
+target_link_libraries(test_recovery_popup_turntaking PRIVATE imgui_lib gtest gtest_main)
+add_test(NAME test_recovery_popup_turntaking COMMAND test_recovery_popup_turntaking)
 
 # Exchange formats: BREP round-trip, OBJ/DXF/3MF structural checks
 add_executable(test_exchange_io test_exchange_io.cpp)
@@ -464,3 +473,17 @@ add_test(NAME test_audit_hardening COMMAND test_audit_hardening)
 add_executable(test_brepio_dos test_brepio_dos.cpp)
 target_link_libraries(test_brepio_dos PRIVATE materializr_core gtest gtest_main)
 add_test(NAME test_brepio_dos COMMAND test_brepio_dos)
+
+# test_sketch_dimension — DistancePointLine solver, dimension pair resolution,
+# and K-line label-offset persistence (Onshape-style dimension tool).
+# Pulls in SketchTool.h/.cpp (the Dimension pick state machine), which in turn
+# needs TextSketchOp.cpp (handleTextTool) and SvgImport.cpp (handleSvgTool) —
+# neither is in materializr_core, and SvgImport renders SVG text to outline
+# wires via Font_* (TKV3d/TKService), same as test_svg_roundtrip above.
+add_executable(test_sketch_dimension test_sketch_dimension.cpp
+    ${CMAKE_SOURCE_DIR}/src/modeling/TextSketchOp.cpp
+    ${CMAKE_SOURCE_DIR}/src/modeling/SvgImport.cpp)
+target_link_libraries(test_sketch_dimension PRIVATE materializr_core gtest gtest_main
+    TKV3d TKService)
+add_test(NAME test_sketch_dimension COMMAND test_sketch_dimension)
+

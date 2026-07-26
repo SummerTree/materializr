@@ -96,9 +96,23 @@ public:
     void renderOverlay(PluginContext& ctx) override {
         ImGui::SetCursorPos(ImVec2(10, 30));
         ImGui::PushStyleColor(ImGuiCol_Text, materializr::accentText());
-        ImGui::Text(materializr::touchMode()
-            ? "SKETCH MODE - Draw shapes. Finish Sketch applies, Exit Sketch discards."
-            : "SKETCH MODE - Draw shapes. Enter to finish, Escape to cancel.");
+        if (m_sketchTool->getMode() == SketchToolMode::Dimension) {
+            const char* msg = "DIMENSION - Click an entity to dimension.";
+            switch (m_sketchTool->getDimPhase()) {
+                case DimPhase::PickSecondOrPlace:
+                    msg = "DIMENSION - Click a second entity, or empty space to place.";
+                    break;
+                case DimPhase::PlaceLabel:
+                    msg = "DIMENSION - Click to place the label.";
+                    break;
+                default: break;
+            }
+            ImGui::Text("%s", msg);
+        } else {
+            ImGui::Text(materializr::touchMode()
+                ? "SKETCH MODE - Draw shapes. Finish Sketch applies, Exit Sketch discards."
+                : "SKETCH MODE - Draw shapes. Enter to finish, Escape to cancel.");
+        }
         ImGui::PopStyleColor();
 
         // Dimension input when placing

@@ -1794,6 +1794,9 @@ void Application::handleToolAction(int action) {
         case ToolAction::Trim:
             if (m_inSketchMode) m_sketchTool->setMode(SketchToolMode::Trim);
             break;
+        case ToolAction::SketchDimension:
+            if (m_inSketchMode) m_sketchTool->setMode(SketchToolMode::Dimension);
+            break;
         case ToolAction::SketchText:
             if (m_inSketchMode) {
                 // First activation: default to the UI font (always bundled).
@@ -2241,6 +2244,14 @@ void Application::handleShortcuts() {
                     // the now-reverted sketch instead of staying at its last shape.
                     if (m_activeSketchId >= 0) cascadeFromSketchEdit(m_activeSketchId);
                 }
+                // The undo can remove/renumber the very entities the
+                // Dimension tool has picked or is mid-pick on — stale ids
+                // referencing geometry that may no longer exist. Drop them
+                // rather than let the next click resolve against ghosts.
+                if (m_inSketchMode && m_sketchTool &&
+                    m_sketchTool->getMode() == SketchToolMode::Dimension) {
+                    m_sketchTool->clearDimState();
+                }
                 m_meshesDirty = true;
             }
         }
@@ -2262,6 +2273,11 @@ void Application::handleShortcuts() {
                 if (int sid = sketchIdEditedBy(redone);
                     sid >= 0 && !(m_inSketchMode && sid == m_activeSketchId))
                     cascadeFromSketchEdit(sid);
+                // Same stale-pick hazard as the undo path above.
+                if (m_inSketchMode && m_sketchTool &&
+                    m_sketchTool->getMode() == SketchToolMode::Dimension) {
+                    m_sketchTool->clearDimState();
+                }
                 m_meshesDirty = true;
             }
         }
@@ -2329,6 +2345,12 @@ void Application::handleShortcuts() {
     }
     if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_O)) {
         loadProject();
+    }
+    // Plain D — Dimension tool in sketch mode (Onshape-style). Ctrl+D stays
+    // Duplicate (handled below); text-input focus swallows the key.
+    if (m_inSketchMode && m_sketchTool && !io.KeyCtrl && !io.WantTextInput &&
+        ImGui::IsKeyPressed(ImGuiKey_D, false)) {
+        m_sketchTool->setMode(SketchToolMode::Dimension);
     }
     // Ctrl+D — Duplicate in place. Branches on selection type:
     //   Body   → CopyOp (full history support, undoable via Ctrl+Z)
@@ -2524,7 +2546,33 @@ void Application::handleShortcuts() {
             //   2nd press (or 1st press when nothing is in progress) →
             //      exit sketch mode entirely (same as Finish Sketch but
             //      without an explicit click).
-            if (m_sketchTool && m_sketchTool->isPlacing()) {
+            // Dimension mode is picking entities, not "placing" a shape —
+            // isPlacing() never goes true for it, so without this branch
+            // Escape here always fell straight through to exitSketchMode()
+            // and SketchTool::onCancel's Dimension branch (clear picks /
+            // fall back to Select) was unreachable from the keyboard. Route
+            // Dimension explicitly first; onCancel() implements both halves
+            // itself (mid-pick -> clear picks, stay in Dimension; idle ->
+            // Select mode), so a SECOND Escape lands here again with the
+            // mode now Select, isPlacing() still false, and exits the sketch
+            // as usual.
+            //
+            // The ##DimEdit value-entry popup (Application_Viewport.cpp)
+            // ALSO wants Escape (to dismiss itself and keep the measured
+            // value, staying in Dimension/idle-picking, per spec). It runs
+            // during renderViewport(), which happens before this shortcut
+            // handler each frame, and it clears m_dimEditingId as part of
+            // closing — so by the time we get here a naive check can no
+            // longer tell the popup was even open. m_dimPopupConsumedEsc is
+            // set by that render pass on any Escape seen while the popup was
+            // up; consume it here and do NOTHING else, so this press closes
+            // ONLY the popup. The mode-level step above happens on the NEXT
+            // Escape, once the popup is actually gone.
+            if (m_dimPopupConsumedEsc) {
+                m_dimPopupConsumedEsc = false;
+            } else if (m_sketchTool && m_sketchTool->getMode() == SketchToolMode::Dimension) {
+                m_sketchTool->onCancel();
+            } else if (m_sketchTool && m_sketchTool->isPlacing()) {
                 m_sketchTool->onCancel();
             } else {
                 exitSketchMode();
@@ -4014,6 +4062,13 @@ void Application::enterSketchMode() {
     m_sketchEntryHistoryStep = m_history ? m_history->currentStep() : -1;
     if (m_history) m_history->setUndoFloor(m_sketchEntryHistoryStep);  // no undo past sketch entry
     m_toolbar->setSketchMode(true);
+    // Fresh sketch session: drop any stale Dimension edit-popup state left
+    // over from a previous session (e.g. Esc/undo left m_dimEditingId set
+    // without the popup ever closing) so it can't reopen against a
+    // constraint id from a different sketch.
+    m_dimOpenEditRequested = false;
+    m_dimEditingId = -1;
+    m_dimPopupConsumedEsc = false;
     alignCameraToActiveSketch();
 }
 
@@ -4036,6 +4091,13 @@ void Application::enterSketchOnPlane(const gp_Pln& plane) {
     m_sketchEntryHistoryStep = m_history ? m_history->currentStep() : -1;
     if (m_history) m_history->setUndoFloor(m_sketchEntryHistoryStep);  // no undo past sketch entry
     m_toolbar->setSketchMode(true);
+    // Fresh sketch session: drop any stale Dimension edit-popup state left
+    // over from a previous session (e.g. Esc/undo left m_dimEditingId set
+    // without the popup ever closing) so it can't reopen against a
+    // constraint id from a different sketch.
+    m_dimOpenEditRequested = false;
+    m_dimEditingId = -1;
+    m_dimPopupConsumedEsc = false;
     alignCameraToActiveSketch();
 }
 
@@ -4715,6 +4777,13 @@ void Application::enterSketchOnFace(const TopoDS_Face& face, int sourceBodyId) {
     m_sketchEntryHistoryStep = m_history ? m_history->currentStep() : -1;
     if (m_history) m_history->setUndoFloor(m_sketchEntryHistoryStep);  // no undo past sketch entry
     m_toolbar->setSketchMode(true);
+    // Fresh sketch session: drop any stale Dimension edit-popup state left
+    // over from a previous session (e.g. Esc/undo left m_dimEditingId set
+    // without the popup ever closing) so it can't reopen against a
+    // constraint id from a different sketch.
+    m_dimOpenEditRequested = false;
+    m_dimEditingId = -1;
+    m_dimPopupConsumedEsc = false;
     alignCameraToActiveSketch();
 }
 
@@ -4765,12 +4834,30 @@ void Application::applySketchConstraint(ConstraintType type) {
             break;
         }
         case ConstraintType::Parallel:
-        case ConstraintType::Perpendicular:
-        case ConstraintType::Equal: {
+        case ConstraintType::Perpendicular: {
             // Each subsequent line gets bound to the first.
             std::vector<int> v(selLns.begin(), selLns.end());
             for (size_t i = 1; i < v.size(); ++i) {
                 pushConstraint(type, v[0], v[i]);
+                ++added;
+            }
+            break;
+        }
+        case ConstraintType::Equal: {
+            // Equal binds LINES (equal length) or CIRCLES/ARCS (equal radius),
+            // whichever the selection holds — each subsequent entity bound to
+            // the first of its kind. A mixed selection constrains lines to
+            // lines and curves to curves independently.
+            std::vector<int> lns(selLns.begin(), selLns.end());
+            for (size_t i = 1; i < lns.size(); ++i) {
+                pushConstraint(ConstraintType::Equal, lns[0], lns[i]);
+                ++added;
+            }
+            std::vector<int> curves;
+            for (int id : m_sketchTool->getSelectedCircles()) curves.push_back(id);
+            for (int id : m_sketchTool->getSelectedArcs())    curves.push_back(id);
+            for (size_t i = 1; i < curves.size(); ++i) {
+                pushConstraint(ConstraintType::Equal, curves[0], curves[i]);
                 ++added;
             }
             break;
@@ -4900,6 +4987,181 @@ void Application::applySketchConstraint(ConstraintType type) {
     if (added > 0) markDirty();
 }
 
+void Application::applyPendingDimension() {
+    if (!m_inSketchMode || !m_activeSketch || !m_sketchTool) return;
+    // Value copy: clearDimState() below resets the tool's live m_dimPending
+    // to defaults, so a reference here would read back type=Distance,
+    // measured=0.0 by the time the prefill code runs.
+    const PendingDimension pd = m_sketchTool->getPendingDimension();
+    if (!pd.valid || !m_sketchTool->dimReadyToCommit()) return;
+
+    // Label offset = placed position minus the auto anchor the renderer uses.
+    // The renderer resolves anchor per type; store the raw placed position
+    // relative to the dimension's geometric anchor (computed the same way the
+    // label pass does — see dimensionAutoAnchor in Application_Viewport.cpp).
+    glm::vec2 anchor = dimensionAutoAnchor(pd);
+    glm::vec2 off = m_sketchTool->getDimLabelPos() - anchor;
+
+    int editId = -1;
+    // Popup prefill value: the new-add path prefills from the freshly
+    // measured geometry (pd.measured). A dedup MATCH instead keeps whatever
+    // value the constraint already carried (see the loop below) — so
+    // re-picking an existing dimension just to move its label doesn't
+    // clobber a value the user hand-typed earlier — EXCEPT a reversed-order
+    // Angle match, which must renegotiate the value for correctness (see
+    // the angleSwapped comment below); that path prefills from the fresh
+    // pd.measured like a new add.
+    double prefillValue = pd.measured;
+    recordSketchMutation([&] {
+        // Dedup: same type on the same (unordered) entity pair replaces the
+        // label placement instead of stacking a duplicate constraint —
+        // matches applyDimension's policy. Deliberately does NOT overwrite
+        // c.value with pd.measured on a match: pd.measured is a live
+        // re-measurement of the CURRENT geometry, which can differ from a
+        // value the user already typed into the edit popup, and clobbering
+        // it here would silently discard that typed value with no undo step
+        // to recover it (bitwise-equal values skip recordSketchMutation's
+        // history push). The one exception is angleSwapped below, where
+        // keeping the old value would be actively wrong, not just imprecise.
+        bool replaced = false;
+        // Mirrored DistancePointLine pair-identity: a line-line parallel
+        // pick resolves to (point = second line's start endpoint, line =
+        // first line). Picking the SAME two lines in the opposite order
+        // resolves to the mirror pair (point = first line's start endpoint,
+        // line = second line) — a different (point,line) id pair driving
+        // the geometrically same gap between the two lines. Recognise that
+        // as the same dimension so re-picking in reversed order updates the
+        // existing constraint instead of stacking a duplicate.
+        auto isMirroredDPL = [&](const Constraint& c) -> bool {
+            if (c.type != ConstraintType::DistancePointLine ||
+                pd.type != ConstraintType::DistancePointLine) return false;
+            const SketchLine* cLine = nullptr;   // line carrying c (c.entityB)
+            const SketchLine* pdLine = nullptr;  // line carrying pd (pd.entityB)
+            for (const auto& l : m_activeSketch->getLines()) {
+                if (l.id == c.entityB) cLine = &l;
+                if (l.id == pd.entityB) pdLine = &l;
+            }
+            if (!cLine || !pdLine) return false;
+            bool pdPointOnCLine = (pd.entityA == cLine->startPointId ||
+                                    pd.entityA == cLine->endPointId);
+            bool cPointOnPdLine = (c.entityA == pdLine->startPointId ||
+                                    c.entityA == pdLine->endPointId);
+            if (!(pdPointOnCLine && cPointOnPdLine)) return false;
+            // Endpoint cross-membership alone isn't enough: a triangle
+            // altitude dimensioned from each of two non-parallel sides in
+            // turn (P-on-L2 then P-on-L1, sharing no special relationship
+            // beyond "each point happens to be an endpoint of the other
+            // line") satisfies the membership check above but is NOT the
+            // same physical gap — treating it as a match would silently
+            // overwrite the first dimension's constraint with the second
+            // pick's entity ids while keeping the first's stale value.
+            // Mirrored derivation is only actually the same measurement
+            // when the two lines are parallel (see resolveDimension's
+            // line-line branch, which is the only place that produces this
+            // point/line pairing shape in the first place).
+            return SketchTool::linesParallelWithinDimTol(*m_activeSketch, cLine->id, pdLine->id);
+        };
+        for (auto& c : m_activeSketch->getMutableConstraints()) {
+            if (c.type != pd.type) continue;
+            bool same = (c.entityA == pd.entityA && c.entityB == pd.entityB);
+            bool distSwapped = (c.type == ConstraintType::Distance &&
+                                 c.entityA == pd.entityB && c.entityB == pd.entityA);
+            bool angleSwapped = (c.type == ConstraintType::Angle &&
+                                  c.entityA == pd.entityB && c.entityB == pd.entityA);
+            // CircleGap is symmetric in its two circles — a reversed re-pick
+            // of the same pair is the same dimension.
+            bool gapSwapped = (c.type == ConstraintType::CircleGap &&
+                                c.entityA == pd.entityB && c.entityB == pd.entityA);
+            bool mirroredDPL = !same && !distSwapped && !angleSwapped && isMirroredDPL(c);
+            if (same || distSwapped || angleSwapped || gapSwapped || mirroredDPL) {
+                // Reversed-order matches (Angle swap, mirrored
+                // DistancePointLine) adopt the NEW pick's entity order/ids
+                // so the constraint stays consistent with how it was just
+                // re-picked.
+                if (distSwapped || angleSwapped || gapSwapped || mirroredDPL) {
+                    c.entityA = pd.entityA;
+                    c.entityB = pd.entityB;
+                }
+                // Value: left untouched everywhere the stored number stays
+                // geometrically correct under the (possibly new) entity
+                // order — same-order matches, a swapped Distance/mirrored
+                // DPL (both are order-independent magnitudes: a distance or
+                // a perpendicular gap reads the same regardless of which
+                // point/line ended up as entityA/entityB). Angle is NOT
+                // order-independent: c.value is defined as "entityB's angle
+                // relative to entityA's", so swapping which line is which
+                // without renegotiating the number would have the solver
+                // enforce the NEGATED relative angle against the wrong
+                // reference line — a silent geometry flip, not just a label
+                // move. pd.measured was freshly computed for the NEW order,
+                // so it's the only value consistent with the swapped roles.
+                if (angleSwapped) c.value = pd.measured;
+                c.labelOffX = off.x;
+                c.labelOffY = off.y;
+                editId = c.id;
+                prefillValue = c.value;
+                replaced = true;
+                break;
+            }
+        }
+        if (!replaced) {
+            Constraint c{};
+            c.type = pd.type;
+            c.entityA = pd.entityA;
+            c.entityB = pd.entityB;
+            c.value = pd.measured;
+            c.labelOffX = off.x;
+            c.labelOffY = off.y;
+            // Dimensions are REFERENCE by default: placing one measures the
+            // geometry without moving it. The solver skips it and it costs no
+            // degree of freedom, so annotating a sketch can never drag it out
+            // of shape or flip it to Over-constrained. The label's edit popup
+            // has a "Driving" checkbox to promote it when the user actually
+            // wants the number to control the geometry.
+            //
+            // Only here — Constraint::isDriving defaults to true, so the
+            // right-click Add Constraint menu and every geometric constraint
+            // are unaffected.
+            c.isDriving = false;
+            editId = m_activeSketch->addConstraint(c);
+        }
+        if (m_sketchSolver) {
+            m_sketchSolver->setSketch(m_activeSketch.get());
+            m_sketchSolver->solve(*m_activeSketch);
+        }
+    });
+    m_sketchTool->clearDimState();
+
+    // Open the existing edit popup, prefilled from prefillValue — the
+    // freshly measured geometry for a new dimension, or the KEPT existing
+    // value for a dedup match (see the comment above; a match never writes
+    // pd.measured into c.value, so the popup must prefill from what's
+    // actually stored, not from the re-measurement). Enter drives the
+    // geometry, Esc keeps the prefilled value.
+    if (editId >= 0) {
+        m_dimEditingId = editId;
+        if (pd.type == ConstraintType::Angle)
+            std::snprintf(m_dimEditingBuf, sizeof(m_dimEditingBuf), "%.2f",
+                          prefillValue * 180.0 / M_PI);
+        else if (pd.type == ConstraintType::Radius)
+            std::snprintf(m_dimEditingBuf, sizeof(m_dimEditingBuf), "%.2f",
+                          prefillValue * 2.0); // edited as diameter
+        else
+            std::snprintf(m_dimEditingBuf, sizeof(m_dimEditingBuf), "%.2f", prefillValue);
+        m_dimEditingFocus = true;
+        m_dimOpenEditRequested = true; // viewport calls OpenPopup("##DimEdit") next frame
+        // No m_meshesDirty here: for a new dimension pd.measured is the
+        // geometry's CURRENT value (resolveDimension reads it off the live
+        // picks) so this commit never moves anything for the solver to
+        // re-tessellate — same as applySketchConstraint's Distance/Angle
+        // path just above, which doesn't set it either. For a dedup match
+        // the value is untouched entirely. The ##DimEdit popup's own commit
+        // handler sets m_meshesDirty when a typed value actually changes
+        // geometry.
+        markDirty();
+    }
+}
+
 void Application::recordSketchMutation(const std::function<void()>& mutator) {
     if (!m_activeSketch) { mutator(); return; }
     // Signature includes counts AND element IDs so that swaps (trim line→line,
@@ -4945,6 +5207,17 @@ void Application::recordSketchMutation(const std::function<void()>& mutator) {
             mix(vb);
             std::memcpy(&vb, &c.valueY, sizeof(vb));
             mix(vb);
+            // Label offsets too: a dedup-replace that only re-places a
+            // label (value bitwise-equal) must still register as a
+            // mutation, or the re-placement gets no undo step.
+            std::memcpy(&vb, &c.labelOffX, sizeof(vb));
+            mix(vb);
+            std::memcpy(&vb, &c.labelOffY, sizeof(vb));
+            mix(vb);
+            // Driving/reference too — promoting a dimension changes no
+            // number, so without this the toggle hashes identically and
+            // recordSketchMutation skips the history push entirely.
+            mix(static_cast<size_t>(c.isDriving ? 1 : 0));
         }
         return h;
     };
@@ -5161,6 +5434,13 @@ void Application::editSketch(int sketchId) {
     m_sketchEntryHistoryStep = m_history ? m_history->currentStep() : -1;
     if (m_history) m_history->setUndoFloor(m_sketchEntryHistoryStep);  // no undo past sketch entry
     m_toolbar->setSketchMode(true);
+    // Fresh sketch session: drop any stale Dimension edit-popup state left
+    // over from a previous session (e.g. Esc/undo left m_dimEditingId set
+    // without the popup ever closing) so it can't reopen against a
+    // constraint id from a different sketch.
+    m_dimOpenEditRequested = false;
+    m_dimEditingId = -1;
+    m_dimPopupConsumedEsc = false;
     m_selection->clear();
     alignCameraToActiveSketch();
 }
@@ -5440,6 +5720,11 @@ void Application::exitSketchMode() {
     m_sketchTool->setMode(SketchToolMode::None);
     m_sketchTool->setSketch(nullptr);
     m_sketchTool->setSolver(nullptr);
+    // Drop any stale Dimension edit-popup state so it can't reopen (with a
+    // now-dangling constraint id) on the next sketch session.
+    m_dimOpenEditRequested = false;
+    m_dimEditingId = -1;
+    m_dimPopupConsumedEsc = false;
 
     // Persist the sketch into the document if it has any geometry. New sketches get added;
     // edits to existing sketches are already reflected via the shared_ptr.
@@ -5507,8 +5792,14 @@ void Application::renderSketchRecoveryPrompt() {
     // strands the dialog in the top-left corner for good.
     ImVec2 c = ImGui::GetMainViewport()->GetCenter();
     ImGui::SetNextWindowPos(c, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    // NoSavedSettings: this window's geometry is meaningless across launches
+    // (it's re-centred every frame above), so never let a degenerate Pos/Size
+    // — e.g. from some future popup-stack collision like the update-popup one
+    // this class of bug already caused once — get written to imgui.ini and
+    // self-perpetuate as the window's starting size on the next launch.
     if (ImGui::BeginPopupModal("Recover Sketch?", nullptr,
-                               ImGuiWindowFlags_AlwaysAutoResize)) {
+                               ImGuiWindowFlags_AlwaysAutoResize |
+                               ImGuiWindowFlags_NoSavedSettings)) {
         ImGui::TextUnformatted(
             "An unfinished sketch from your last session was found.");
         ImGui::TextDisabled(
@@ -5630,8 +5921,10 @@ void Application::renderProjectRecoveryPrompt() {
     // Pinned centred every frame — see the Android note on the sketch prompt.
     ImVec2 c = ImGui::GetMainViewport()->GetCenter();
     ImGui::SetNextWindowPos(c, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    // NoSavedSettings — see the identical note on renderSketchRecoveryPrompt.
     if (ImGui::BeginPopupModal("Recover Project?", nullptr,
-                               ImGuiWindowFlags_AlwaysAutoResize)) {
+                               ImGuiWindowFlags_AlwaysAutoResize |
+                               ImGuiWindowFlags_NoSavedSettings)) {
         materializr::ProjectRecoveryMeta meta;
         materializr::readProjectRecoveryMeta(meta);
         ImGui::TextUnformatted(

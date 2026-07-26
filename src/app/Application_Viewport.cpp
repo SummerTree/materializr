@@ -197,6 +197,170 @@ void Application::gizmoPreviewApply(const glm::mat4& m) {
     }
 }
 
+// Does this Radius constraint measure an ARC (rather than a circle)?
+//
+// Drafting convention splits the two: an arc is called out by RADIUS ("R 10"),
+// a full circle by DIAMETER ("Ø 20"). Constraint::value stores a radius for
+// both, so the label, the edit-popup prefill, and the popup's commit all have
+// to agree on which convention applies — hence one helper rather than three
+// copies of the scan. Non-Radius types are never arc radii.
+static bool constraintIsArcRadiusIn(const Sketch& sk, const Constraint& c) {
+    if (c.type != ConstraintType::Radius) return false;
+    for (const auto& circ : sk.getCircles())
+        if (circ.id == c.entityA) return false; // a circle wins
+    for (const auto& arc : sk.getArcs())
+        if (arc.id == c.entityA) return true;
+    return false;
+}
+
+// Recover the two comparable entities behind a dimension, so the edit popup
+// can offer "Make equal" (equal length for two lines, equal radius for two
+// circles/arcs). Returns false when the dimension has no such pair.
+//
+// Derived rather than stored: every dimension that came from a two-entity pick
+// still carries enough to reconstruct the pair, so no extra state has to be
+// threaded through PendingDimension and the option stays available when the
+// user re-opens an OLD dimension's popup, not just a freshly placed one.
+static bool dimensionEqualPair(const Sketch& sk, const Constraint& c,
+                               int& outA, int& outB) {
+    auto isCurveId = [&sk](int id) {
+        for (const auto& x : sk.getCircles()) if (x.id == id) return true;
+        for (const auto& x : sk.getArcs())    if (x.id == id) return true;
+        return false;
+    };
+    switch (c.type) {
+        case ConstraintType::Angle:      // entityA/entityB are both line ids
+        case ConstraintType::CircleGap:  // entityA/entityB are both curve ids
+            outA = c.entityA; outB = c.entityB;
+            return outA >= 0 && outB >= 0 && outA != outB;
+        case ConstraintType::DistancePointLine: {
+            // entityA is a POINT on the second line, entityB the first line.
+            // Recover the second line as the one owning that point — that is
+            // exactly how resolveDimension's parallel branch built the pair.
+            for (const auto& l : sk.getLines()) {
+                if (l.id == c.entityB) continue;
+                if (l.startPointId == c.entityA || l.endPointId == c.entityA) {
+                    outA = c.entityB; outB = l.id;
+                    return true;
+                }
+            }
+            return false;
+        }
+        case ConstraintType::Distance: {
+            // Only meaningful when both ends are circle/arc centres (a
+            // centre-to-centre dim); two bare points have no "length" to
+            // equalise. Map each centre back to its curve.
+            auto curveOfCentre = [&sk](int ptId) {
+                for (const auto& x : sk.getCircles())
+                    if (x.centerPointId == ptId) return x.id;
+                for (const auto& x : sk.getArcs())
+                    if (x.centerPointId == ptId) return x.id;
+                return -1;
+            };
+            int ca = curveOfCentre(c.entityA), cb = curveOfCentre(c.entityB);
+            if (ca < 0 || cb < 0 || ca == cb) return false;
+            outA = ca; outB = cb;
+            return isCurveId(ca) && isCurveId(cb);
+        }
+        default:
+            return false;
+    }
+}
+
+// Sketch-space auto anchor of a dimension's label: line/pair midpoint,
+// circle/arc center, or the midpoint of the point-to-line perpendicular foot
+// segment. Label offsets (Constraint::labelOffX/Y) are stored relative to
+// this, so it has to stay in sync with the dimension-label render pass below.
+glm::vec2 Application::dimensionAutoAnchor(const PendingDimension& pd) const {
+    if (!m_activeSketch || !pd.valid) return glm::vec2(0.0f);
+    const Sketch& sk = *m_activeSketch;
+    auto lineEnds = [&sk](int id, glm::vec2& s, glm::vec2& e) {
+        for (const auto& l : sk.getLines())
+            if (l.id == id) {
+                const SketchPoint* sp = sk.getPoint(l.startPointId);
+                const SketchPoint* ep = sk.getPoint(l.endPointId);
+                if (!sp || !ep) return false;
+                s = sp->pos; e = ep->pos; return true;
+            }
+        return false;
+    };
+    switch (pd.type) {
+        case ConstraintType::Distance: {
+            const SketchPoint* a = sk.getPoint(pd.entityA);
+            const SketchPoint* b = sk.getPoint(pd.entityB);
+            return (a && b) ? 0.5f * (a->pos + b->pos) : glm::vec2(0.0f);
+        }
+        case ConstraintType::Radius: {
+            for (const auto& c : sk.getCircles())
+                if (c.id == pd.entityA) {
+                    const SketchPoint* ctr = sk.getPoint(c.centerPointId);
+                    if (ctr) return ctr->pos;
+                }
+            for (const auto& a : sk.getArcs())
+                if (a.id == pd.entityA) {
+                    const SketchPoint* ctr = sk.getPoint(a.centerPointId);
+                    if (ctr) return ctr->pos;
+                }
+            return glm::vec2(0.0f);
+        }
+        case ConstraintType::DistancePointLine: {
+            const SketchPoint* p = sk.getPoint(pd.entityA);
+            glm::vec2 s, e;
+            if (p && lineEnds(pd.entityB, s, e)) {
+                glm::vec2 d = e - s;
+                float len2 = glm::dot(d, d);
+                if (len2 > 1e-12f) {
+                    // Foot clamped to the physical segment: the constraint
+                    // measures against the infinite carrier, but a label
+                    // anchored past the segment's end hangs over unrelated
+                    // geometry (rectangle corners made parallel-line dims
+                    // look attached to a third line).
+                    float t = glm::clamp(glm::dot(p->pos - s, d) / len2, 0.0f, 1.0f);
+                    glm::vec2 foot = s + d * t;
+                    return 0.5f * (p->pos + foot);
+                }
+            }
+            return p ? p->pos : glm::vec2(0.0f);
+        }
+        case ConstraintType::Angle: {
+            glm::vec2 as, ae, bs, be;
+            if (lineEnds(pd.entityA, as, ae) && lineEnds(pd.entityB, bs, be))
+                return 0.25f * (as + ae + bs + be);
+            return glm::vec2(0.0f);
+        }
+        case ConstraintType::CircleGap: {
+            glm::vec2 cA(0.0f), cB(0.0f);
+            double rA = -1.0, rB = -1.0;
+            auto grab = [&](int id, glm::vec2& ctr, double& r) {
+                for (const auto& c : sk.getCircles())
+                    if (c.id == id) {
+                        const SketchPoint* p = sk.getPoint(c.centerPointId);
+                        if (p) { ctr = p->pos; r = c.radius; }
+                        return;
+                    }
+                for (const auto& a : sk.getArcs())
+                    if (a.id == id) {
+                        const SketchPoint* p = sk.getPoint(a.centerPointId);
+                        if (p) { ctr = p->pos; r = a.radius; }
+                        return;
+                    }
+            };
+            grab(pd.entityA, cA, rA);
+            grab(pd.entityB, cB, rB);
+            if (rA < 0.0 || rB < 0.0) return 0.0f * cA;
+            glm::vec2 d = cB - cA;
+            float len = glm::length(d);
+            if (len < 1e-6f) return 0.5f * (cA + cB);
+            glm::vec2 u = d / len;
+            // Midpoint of the gap: from A's rim to B's rim along the centre line.
+            glm::vec2 rimA = cA + u * static_cast<float>(rA);
+            glm::vec2 rimB = cB - u * static_cast<float>(rB);
+            return 0.5f * (rimA + rimB);
+        }
+        default: return glm::vec2(0.0f);
+    }
+}
+
 void Application::renderViewport() {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     ImGuiWindowFlags vpFlags = 0;
@@ -2440,6 +2604,16 @@ void Application::renderViewport() {
                 // Reset the per-frame "click swallowed by a label" flag —
                 // re-evaluated below as labels are drawn and hit-tested.
                 m_dimEditingClickedThisFrame = false;
+                // The Dimension tool's commit path (applyPendingDimension, in
+                // Application.cpp) sets m_dimEditingId + this flag from outside
+                // any ImGui window scope. OpenPopup only takes effect when
+                // called from the window that owns the popup's ID stack, so
+                // defer it to here — same scope as the label-click OpenPopup
+                // calls below.
+                if (m_dimOpenEditRequested) {
+                    ImGui::OpenPopup("##DimEdit");
+                    m_dimOpenEditRequested = false;
+                }
                 auto drawLabel = [&](glm::vec2 pos, const char* text,
                                      const Constraint& c) {
                     ImVec2 sp;
@@ -2453,7 +2627,11 @@ void Application::renderViewport() {
                     ImU32 bg = hovered ? IM_COL32(45, 45, 60, 235)
                                        : IM_COL32(20, 20, 28, 220);
                     dl->AddRectFilled(rMin, rMax, bg, 3.0f);
-                    dl->AddText(tp, IM_COL32(255, 235, 120, 255), text);
+                    // Driving dimensions in the usual amber; reference ones in
+                    // a muted grey so a glance separates "this number controls
+                    // the shape" from "this number just reports it".
+                    dl->AddText(tp, c.isDriving ? IM_COL32(255, 235, 120, 255)
+                                                : IM_COL32(170, 178, 190, 255), text);
                     // Click → open edit popup. Skipped if we're already
                     // editing this same constraint to avoid re-triggering
                     // the open every frame the popup is up.
@@ -2464,9 +2642,11 @@ void Application::renderViewport() {
                             std::snprintf(m_dimEditingBuf, sizeof(m_dimEditingBuf),
                                           "%.2f", c.value * 180.0 / M_PI);
                         } else if (c.type == ConstraintType::Radius) {
-                            // Edited as diameter to match the label.
-                            std::snprintf(m_dimEditingBuf, sizeof(m_dimEditingBuf),
-                                          "%.2f", c.value * 2.0);
+                            // Edited in whatever unit the label shows: radius
+                            // for an arc (R), diameter for a circle (Ø).
+                            std::snprintf(m_dimEditingBuf, sizeof(m_dimEditingBuf), "%.2f",
+                                          constraintIsArcRadiusIn(*m_activeSketch, c)
+                                              ? c.value : c.value * 2.0);
                         } else {
                             std::snprintf(m_dimEditingBuf, sizeof(m_dimEditingBuf),
                                           "%.2f", c.value);
@@ -2474,6 +2654,44 @@ void Application::renderViewport() {
                         m_dimEditingFocus = true;
                         m_dimEditingClickedThisFrame = true;
                         ImGui::OpenPopup("##DimEdit");
+                    }
+                };
+                // Resolves a constraint's label position from its stored
+                // offset (Constraint::labelOffX/Y, relative to the type's
+                // geometric anchor — see dimensionAutoAnchor) or the auto
+                // position when unset (legacy / not yet user-placed). Draws a
+                // thin leader from the anchor to the label whenever the user
+                // has moved it off the auto spot.
+                // `leaderFrom` overrides where a placed label's leader starts
+                // (default: the anchor). DistancePointLine passes its dim
+                // line's midpoint — the offset math must stay anchored on
+                // dimensionAutoAnchor (what applyPendingDimension stored
+                // against), but a leader drawn from that anchor points at the
+                // constraint's pinned corner, not the dimension line.
+                auto placeLabel = [&](glm::vec2 anchor, glm::vec2 autoOff,
+                                      const char* text, const Constraint& c,
+                                      const glm::vec2* leaderFrom = nullptr) {
+                    bool placed = (c.labelOffX != 0.0 || c.labelOffY != 0.0);
+                    glm::vec2 lpos = placed
+                        ? anchor + glm::vec2(static_cast<float>(c.labelOffX),
+                                             static_cast<float>(c.labelOffY))
+                        : anchor + autoOff;
+                    if (placed) {
+                        glm::vec2 lsrc = leaderFrom ? *leaderFrom : anchor;
+                        ImVec2 sa, sb;
+                        if (toImg(dim2world(lsrc), sa) && toImg(dim2world(lpos), sb))
+                            dl->AddLine(sa, sb, IM_COL32(255, 235, 120, 90), 1.0f);
+                    }
+                    // Reference (non-driving) dimensions are bracketed, the
+                    // standard drafting notation for a measurement that does
+                    // not control the geometry. One place, so every dimension
+                    // type picks it up — drawLabel handles the colour.
+                    if (!c.isDriving) {
+                        char ref[48];
+                        std::snprintf(ref, sizeof(ref), "[%s]", text);
+                        drawLabel(lpos, ref, c);
+                    } else {
+                        drawLabel(lpos, text, c);
                     }
                 };
                 char lbl[40];
@@ -2496,7 +2714,7 @@ void Application::renderViewport() {
                             perp = perp / pl * off;
                         }
                         std::snprintf(lbl, sizeof(lbl), "%.2f mm", c.value);
-                        drawLabel(mid + perp, lbl, c);
+                        placeLabel(mid, perp, lbl, c);
                     } else if (c.type == ConstraintType::Radius) {
                         glm::vec2 center(0.0f);
                         float radius = 1.0f;
@@ -2526,15 +2744,19 @@ void Application::renderViewport() {
                             }
                         }
                         if (!found) continue;
-                        // Place the label tangentially outside the circle (up
+                        // Auto label sits tangentially outside the circle (up
                         // and to the right) so the centre stays clear for
                         // concentric-circle drawing. Offset is the radius + a
                         // small constant so it floats just past the perimeter.
-                        glm::vec2 labelPos = center +
+                        glm::vec2 autoOff =
                             glm::vec2(0.7071f, 0.7071f) * (radius + 1.2f);
-                        std::snprintf(lbl, sizeof(lbl), "\xC3\x98 %.2f mm",
-                                      c.value * 2.0);
-                        drawLabel(labelPos, lbl, c);
+                        // Drafting convention: arcs read as R, circles as Ø.
+                        if (constraintIsArcRadiusIn(*m_activeSketch, c))
+                            std::snprintf(lbl, sizeof(lbl), "R %.2f mm", c.value);
+                        else
+                            std::snprintf(lbl, sizeof(lbl), "\xC3\x98 %.2f mm",
+                                          c.value * 2.0);
+                        placeLabel(center, autoOff, lbl, c);
                     } else if (c.type == ConstraintType::Angle) {
                         // SolidWorks-style angle dim: find the vertex where the
                         // two constrained lines meet, draw a small arc spanning
@@ -2612,13 +2834,273 @@ void Application::renderViewport() {
                                             0, 1.5f);
                         }
 
-                        // Label hugs the outside of the arc midpoint.
+                        // Auto label hugs the outside of the arc midpoint.
                         float midA = angA + diff * 0.5f;
                         glm::vec2 labelPos = vertex +
                             glm::vec2(std::cos(midA), std::sin(midA)) * (arcR + 2.5f);
                         float deg = std::abs(static_cast<float>(diff * 180.0 / M_PI));
                         std::snprintf(lbl, sizeof(lbl), "%.1f\xC2\xB0", deg);
-                        drawLabel(labelPos, lbl, c);
+                        // The stored offset is relative to dimensionAutoAnchor's
+                        // Angle anchor (mean of all four line endpoints), NOT
+                        // `vertex` — applyPendingDimension() computed it that
+                        // way, so the leader/placed-position math has to match
+                        // or a placed label would drift from where it was
+                        // dropped. autoOff folds that mismatch away: it's
+                        // defined so anchor + autoOff == labelPos exactly,
+                        // reproducing today's arc-hugging auto placement
+                        // whenever the constraint has no stored offset.
+                        glm::vec2 angleAnchor =
+                            0.25f * (aS->pos + aE->pos + bS->pos + bE->pos);
+                        glm::vec2 autoOff = labelPos - angleAnchor;
+                        placeLabel(angleAnchor, autoOff, lbl, c);
+                    } else if (c.type == ConstraintType::DistancePointLine) {
+                        // Validate the entities exist before trusting
+                        // dimensionAutoAnchor's result — it silently returns
+                        // (0,0) on a dangling id, which would otherwise plant
+                        // a stray label at the sketch origin.
+                        const SketchPoint* dp = m_activeSketch->getPoint(c.entityA);
+                        const SketchLine* dpLine = nullptr;
+                        for (const auto& l : m_activeSketch->getLines())
+                            if (l.id == c.entityB) { dpLine = &l; break; }
+                        if (!dp || !dpLine) continue;
+                        const SketchPoint* ls = m_activeSketch->getPoint(dpLine->startPointId);
+                        const SketchPoint* le = m_activeSketch->getPoint(dpLine->endPointId);
+                        if (!ls || !le) continue;
+                        glm::vec2 seg = le->pos - ls->pos;
+                        float segLen = glm::length(seg);
+                        if (segLen < 1e-6f) continue;
+                        glm::vec2 dirA = seg / segLen;
+                        glm::vec2 nA(-dirA.y, dirA.x);
+                        float sd = glm::dot(dp->pos - ls->pos, nA);
+
+                        PendingDimension pd;
+                        pd.type = c.type; pd.entityA = c.entityA;
+                        pd.entityB = c.entityB; pd.valid = true;
+                        glm::vec2 anchor = dimensionAutoAnchor(pd);
+                        bool hasOff = (c.labelOffX != 0.0 || c.labelOffY != 0.0);
+                        glm::vec2 labelPos = hasOff
+                            ? anchor + glm::vec2(static_cast<float>(c.labelOffX),
+                                                 static_cast<float>(c.labelOffY))
+                            : anchor;
+                        // CAD-style perpendicular dimension line, drawn at the
+                        // label's station along the line. The constraint pins
+                        // one endpoint of the measured pair — in rectangles
+                        // that's a corner sitting on a NEIGHBORING edge, and a
+                        // leader pointing there read as "the dim attached to a
+                        // third line". The dim line spans the measured gap
+                        // wherever the label sits instead.
+                        float tL = glm::clamp(glm::dot(labelPos - ls->pos, dirA),
+                                              0.0f, segLen);
+                        glm::vec2 baseA = ls->pos + dirA * tL;
+                        glm::vec2 baseB = baseA + nA * sd;
+                        ImVec2 pA, pB;
+                        if (toImg(dim2world(baseA), pA) && toImg(dim2world(baseB), pB)) {
+                            dl->AddLine(pA, pB, IM_COL32(20, 20, 28, 200), 3.0f);
+                            dl->AddLine(pA, pB, IM_COL32(255, 235, 120, 230), 1.5f);
+                        }
+                        std::snprintf(lbl, sizeof(lbl), "%.2f mm", c.value);
+                        glm::vec2 midDim = 0.5f * (baseA + baseB);
+                        placeLabel(anchor, midDim - anchor, lbl, c, &midDim);
+                    } else if (c.type == ConstraintType::CircleGap) {
+                        // Draw the gap segment between the two facing rims,
+                        // label at its midpoint (the leader runs from there).
+                        auto grab = [&](int id, glm::vec2& ctr, double& r) -> bool {
+                            for (const auto& cc : m_activeSketch->getCircles())
+                                if (cc.id == id) {
+                                    const SketchPoint* p = m_activeSketch->getPoint(cc.centerPointId);
+                                    if (p) { ctr = p->pos; r = cc.radius; return true; }
+                                }
+                            for (const auto& aa : m_activeSketch->getArcs())
+                                if (aa.id == id) {
+                                    const SketchPoint* p = m_activeSketch->getPoint(aa.centerPointId);
+                                    if (p) { ctr = p->pos; r = aa.radius; return true; }
+                                }
+                            return false;
+                        };
+                        glm::vec2 cA, cB; double rA = 0, rB = 0;
+                        if (!grab(c.entityA, cA, rA) || !grab(c.entityB, cB, rB)) continue;
+                        glm::vec2 d = cB - cA;
+                        float len = glm::length(d);
+                        if (len < 1e-6f) continue;
+                        glm::vec2 u = d / len;
+                        glm::vec2 rimA = cA + u * static_cast<float>(rA);
+                        glm::vec2 rimB = cB - u * static_cast<float>(rB);
+                        ImVec2 pA, pB;
+                        if (toImg(dim2world(rimA), pA) && toImg(dim2world(rimB), pB)) {
+                            dl->AddLine(pA, pB, IM_COL32(20, 20, 28, 200), 3.0f);
+                            dl->AddLine(pA, pB, IM_COL32(255, 235, 120, 230), 1.5f);
+                        }
+                        PendingDimension pd;
+                        pd.type = c.type; pd.entityA = c.entityA;
+                        pd.entityB = c.entityB; pd.valid = true;
+                        glm::vec2 anchor = dimensionAutoAnchor(pd);
+                        std::snprintf(lbl, sizeof(lbl), "%.2f mm", c.value);
+                        placeLabel(anchor, glm::vec2(0.0f), lbl, c, &anchor);
+                    }
+                }
+
+                // Dimension tool feedback: highlight the hovered pickable
+                // entity while picking, and ghost the pending label at the
+                // cursor (with a leader from its anchor) once enough entities
+                // are picked to resolve a dimension.
+                if (m_sketchTool->getMode() == SketchToolMode::Dimension) {
+                    ImVec2 mp = ImGui::GetMousePos();
+                    glm::vec2 sketchCursor = screenToSketch(
+                        mp.x - imgMin.x, mp.y - imgMin.y, imgSize.x, imgSize.y);
+                    DimPick hov = m_sketchTool->dimHitTest(sketchCursor);
+                    if (hov.kind == DimEntityKind::Point) {
+                        const SketchPoint* p = m_activeSketch->getPoint(hov.id);
+                        ImVec2 sp;
+                        if (p && toImg(dim2world(p->pos), sp))
+                            dl->AddCircle(sp, 7.0f, IM_COL32(255, 235, 120, 255), 0, 2.0f);
+                    } else if (hov.kind == DimEntityKind::Line) {
+                        for (const auto& l : m_activeSketch->getLines()) {
+                            if (l.id != hov.id) continue;
+                            const SketchPoint* a = m_activeSketch->getPoint(l.startPointId);
+                            const SketchPoint* b = m_activeSketch->getPoint(l.endPointId);
+                            ImVec2 sa, sb;
+                            if (a && b && toImg(dim2world(a->pos), sa) &&
+                                toImg(dim2world(b->pos), sb))
+                                dl->AddLine(sa, sb, IM_COL32(255, 235, 120, 200), 3.0f);
+                            break;
+                        }
+                    } else if (hov.kind == DimEntityKind::Circle ||
+                               hov.kind == DimEntityKind::Arc) {
+                        glm::vec2 hCenter(0.0f);
+                        float hRadius = 0.0f;
+                        bool hFound = false;
+                        if (hov.kind == DimEntityKind::Circle) {
+                            for (const auto& circ : m_activeSketch->getCircles())
+                                if (circ.id == hov.id) {
+                                    const SketchPoint* cp = m_activeSketch->getPoint(circ.centerPointId);
+                                    if (cp) {
+                                        hCenter = cp->pos;
+                                        hRadius = static_cast<float>(circ.radius);
+                                        hFound = true;
+                                    }
+                                    break;
+                                }
+                        } else {
+                            for (const auto& arc : m_activeSketch->getArcs())
+                                if (arc.id == hov.id) {
+                                    const SketchPoint* cp = m_activeSketch->getPoint(arc.centerPointId);
+                                    if (cp) {
+                                        hCenter = cp->pos;
+                                        hRadius = static_cast<float>(arc.radius);
+                                        hFound = true;
+                                    }
+                                    break;
+                                }
+                        }
+                        if (hFound) {
+                            // Screen-space radius: project the center and a
+                            // point one radius away along the sketch plane's
+                            // X axis, then measure the pixel span between
+                            // them (the plane may be tilted/scaled on screen).
+                            ImVec2 sc, sr;
+                            if (toImg(dim2world(hCenter), sc) &&
+                                toImg(dim2world(hCenter + glm::vec2(hRadius, 0.0f)), sr)) {
+                                float screenR = std::hypot(sr.x - sc.x, sr.y - sc.y);
+                                dl->AddCircle(sc, screenR, IM_COL32(255, 235, 120, 255), 0, 2.0f);
+                            }
+                        }
+                    }
+
+                    const PendingDimension& pend = m_sketchTool->getPendingDimension();
+                    if (pend.valid &&
+                        (m_sketchTool->getDimPhase() == DimPhase::PlaceLabel ||
+                         m_sketchTool->getDimPhase() == DimPhase::PickSecondOrPlace)) {
+                        char gbuf[40];
+                        if (pend.type == ConstraintType::Angle)
+                            std::snprintf(gbuf, sizeof(gbuf), "%.1f\xC2\xB0",
+                                          std::abs(pend.measured) * 180.0 / M_PI);
+                        else if (pend.type == ConstraintType::Radius)
+                            std::snprintf(gbuf, sizeof(gbuf), "\xC3\x98%.2f",
+                                          pend.measured * 2.0);
+                        else
+                            std::snprintf(gbuf, sizeof(gbuf), "%.2f mm", pend.measured);
+                        glm::vec2 ganchor = dimensionAutoAnchor(pend);
+                        // Pending point-to-line / parallel-line dims preview
+                        // the same CAD-style perpendicular dimension line the
+                        // committed render draws, following the cursor's
+                        // station — the leader then hugs the dim line rather
+                        // than the corner point carrying the constraint.
+                        if (pend.type == ConstraintType::DistancePointLine) {
+                            const SketchPoint* gp = m_activeSketch->getPoint(pend.entityA);
+                            const SketchLine* gl = nullptr;
+                            for (const auto& l : m_activeSketch->getLines())
+                                if (l.id == pend.entityB) { gl = &l; break; }
+                            const SketchPoint* gs = gl ? m_activeSketch->getPoint(gl->startPointId) : nullptr;
+                            const SketchPoint* ge = gl ? m_activeSketch->getPoint(gl->endPointId) : nullptr;
+                            if (gp && gs && ge) {
+                                glm::vec2 seg = ge->pos - gs->pos;
+                                float segLen = glm::length(seg);
+                                if (segLen > 1e-6f) {
+                                    glm::vec2 dirA = seg / segLen;
+                                    glm::vec2 nA(-dirA.y, dirA.x);
+                                    float sd = glm::dot(gp->pos - gs->pos, nA);
+                                    float tL = glm::clamp(
+                                        glm::dot(sketchCursor - gs->pos, dirA),
+                                        0.0f, segLen);
+                                    glm::vec2 baseA = gs->pos + dirA * tL;
+                                    glm::vec2 baseB = baseA + nA * sd;
+                                    ImVec2 gA, gB;
+                                    if (toImg(dim2world(baseA), gA) &&
+                                        toImg(dim2world(baseB), gB)) {
+                                        dl->AddLine(gA, gB, IM_COL32(20, 20, 28, 200), 3.0f);
+                                        dl->AddLine(gA, gB, IM_COL32(255, 235, 120, 230), 1.5f);
+                                    }
+                                    ganchor = 0.5f * (baseA + baseB);
+                                }
+                            }
+                        }
+                        // A pending diameter (single circle/arc picked, still
+                        // deciding whether a second circle turns it into a
+                        // gap) draws a diameter line ACROSS the circle rather
+                        // than a leader from the centre — a centre-anchored
+                        // leader reads as "measuring from the centre" and hid
+                        // that a second circle click makes a rim gap.
+                        bool drewSpecial = false;
+                        if (pend.type == ConstraintType::Radius) {
+                            glm::vec2 ctr(0.0f); float rad = 0.0f; bool found = false;
+                            for (const auto& circ : m_activeSketch->getCircles())
+                                if (circ.id == pend.entityA) {
+                                    const SketchPoint* cp = m_activeSketch->getPoint(circ.centerPointId);
+                                    if (cp) { ctr = cp->pos; rad = static_cast<float>(circ.radius); found = true; }
+                                    break;
+                                }
+                            for (const auto& arc : m_activeSketch->getArcs())
+                                if (arc.id == pend.entityA) {
+                                    const SketchPoint* cp = m_activeSketch->getPoint(arc.centerPointId);
+                                    if (cp) { ctr = cp->pos; rad = static_cast<float>(arc.radius); found = true; }
+                                    break;
+                                }
+                            if (found) {
+                                // Diameter line oriented toward the cursor.
+                                glm::vec2 d = sketchCursor - ctr;
+                                float len = glm::length(d);
+                                glm::vec2 u = (len > 1e-6f) ? d / len : glm::vec2(1.0f, 0.0f);
+                                ImVec2 e1, e2;
+                                if (toImg(dim2world(ctr - u * rad), e1) &&
+                                    toImg(dim2world(ctr + u * rad), e2)) {
+                                    dl->AddLine(e1, e2, IM_COL32(20, 20, 28, 200), 3.0f);
+                                    dl->AddLine(e1, e2, IM_COL32(255, 235, 120, 230), 1.5f);
+                                    ImVec2 sc;
+                                    if (toImg(dim2world(sketchCursor), sc))
+                                        dl->AddText(ImVec2(sc.x + 8, sc.y - 8),
+                                                    IM_COL32(255, 235, 120, 220), gbuf);
+                                    drewSpecial = true;
+                                }
+                            }
+                        }
+                        ImVec2 sa, sc;
+                        if (!drewSpecial &&
+                            toImg(dim2world(ganchor), sa) &&
+                            toImg(dim2world(sketchCursor), sc)) {
+                            dl->AddLine(sa, sc, IM_COL32(255, 235, 120, 90), 1.0f);
+                            dl->AddText(ImVec2(sc.x + 8, sc.y - 8),
+                                        IM_COL32(255, 235, 120, 220), gbuf);
+                        }
                     }
                 }
 
@@ -2626,7 +3108,33 @@ void Application::renderViewport() {
                 // BeginPopup returning false (Esc / click-outside) closes the
                 // edit and leaves the constraint unchanged. Enter commits the
                 // typed value, re-runs the solver, and marks the project dirty.
+                // A left click landing while the edit popup is up belongs to
+                // the popup (typically the dismiss-click outside it). The
+                // Dimension tool's routing later this frame checks this flag
+                // so that click can't double as a fresh entity pick — without
+                // it, dismissing the popup over a line started an unwanted
+                // new dimension on that line.
+                m_dimPopupSwallowClick =
+                    (m_dimEditingId >= 0) &&
+                    ImGui::IsMouseClicked(ImGuiMouseButton_Left);
                 if (m_dimEditingId >= 0) {
+                    // Latch "the popup just consumed an Escape" BEFORE
+                    // BeginPopup below can act on it and clear
+                    // m_dimEditingId — the global Escape chain in
+                    // handleShortcuts() runs AFTER this render pass, so by
+                    // then m_dimEditingId would already read -1 and the
+                    // chain would wrongly treat the press as a fresh
+                    // Dimension-mode / sketch-exit step instead of "just
+                    // closed the popup". Covers both ImGui Escape behaviours
+                    // here: while the InputText has focus, the first Escape
+                    // only defocuses it (BeginPopup still returns true,
+                    // m_dimEditingId unchanged) — this block is still
+                    // entered next frame with the popup still up, so a
+                    // second Escape (the one that actually closes it) is
+                    // caught the same way.
+                    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+                        m_dimPopupConsumedEsc = true;
+                    }
                     // Restore normal padding — the viewport window's
                     // WindowPadding(0,0) is still pushed here, and the popup
                     // captures the style at its own Begin.
@@ -2660,10 +3168,22 @@ void Application::renderViewport() {
                                     if (cn.type == ConstraintType::Angle) {
                                         cn.value = v * M_PI / 180.0;
                                     } else if (cn.type == ConstraintType::Radius) {
-                                        if (v > 0.0) cn.value = v * 0.5;
+                                        // Circles are typed as diameter; arcs
+                                        // as radius, matching the R/Ø label.
+                                        if (v > 0.0)
+                                            cn.value = constraintIsArcRadiusIn(*m_activeSketch, cn)
+                                                           ? v : v * 0.5;
                                     } else if (v > 0.0) {
                                         cn.value = v;
                                     }
+                                    // Typing a number is an explicit statement
+                                    // that this measurement should CONTROL the
+                                    // geometry, so it promotes a reference
+                                    // dimension to driving. Placing a dimension
+                                    // stays a pure measurement; committing a
+                                    // value is what opts into driving.
+                                    if (constraintSupportsReference(cn.type))
+                                        cn.isDriving = true;
                                     break;
                                 }
                                 if (m_sketchSolver) m_sketchSolver->solve(*m_activeSketch);
@@ -2673,6 +3193,85 @@ void Application::renderViewport() {
                             m_dimEditingId = -1;
                             ImGui::CloseCurrentPopup();
                         }
+                        // Driving toggle. A dimension placed by the Dimension
+                        // tool starts as reference (measures only); this is
+                        // where the user promotes it to control the geometry,
+                        // or demotes a driving one back to an annotation.
+                        // Hidden for geometric constraints, where "reference"
+                        // is meaningless (see constraintSupportsReference).
+                        {
+                            Constraint* cur = nullptr;
+                            for (auto& cn : m_activeSketch->getMutableConstraints())
+                                if (cn.id == m_dimEditingId) { cur = &cn; break; }
+                            if (cur && constraintSupportsReference(cur->type)) {
+                                ImGui::Spacing();
+                                bool drv = cur->isDriving;
+                                if (ImGui::Checkbox("Driving", &drv)) {
+                                    recordSketchMutation([&]{
+                                        for (auto& cn : m_activeSketch->getMutableConstraints()) {
+                                            if (cn.id != m_dimEditingId) continue;
+                                            cn.isDriving = drv;
+                                            break;
+                                        }
+                                        if (m_sketchSolver) m_sketchSolver->solve(*m_activeSketch);
+                                    });
+                                    markDirty();
+                                    m_meshesDirty = true;
+                                }
+                                ImGui::SameLine();
+                                ImGui::TextDisabled(drv ? "(controls geometry)"
+                                                        : "(measures only)");
+                            }
+                            // "Make equal" — converts a two-entity dimension
+                            // into an Equal constraint on the same pair (equal
+                            // length for lines, equal radius for circles/arcs).
+                            // Equal carries no measurement, so it is always a
+                            // driving constraint; the numeric dimension it
+                            // replaces is consumed by the conversion.
+                            int eqA = -1, eqB = -1;
+                            if (cur && dimensionEqualPair(*m_activeSketch, *cur, eqA, eqB)) {
+                                ImGui::Spacing();
+                                if (ImGui::Button("Make equal")) {
+                                    int convId = m_dimEditingId;
+                                    recordSketchMutation([&]{
+                                        for (auto& cn : m_activeSketch->getMutableConstraints()) {
+                                            if (cn.id != convId) continue;
+                                            cn.type = ConstraintType::Equal;
+                                            cn.entityA = eqA;
+                                            cn.entityB = eqB;
+                                            cn.value = 0.0;
+                                            cn.isDriving = true;
+                                            break;
+                                        }
+                                        if (m_sketchSolver) m_sketchSolver->solve(*m_activeSketch);
+                                    });
+                                    markDirty();
+                                    m_meshesDirty = true;
+                                    m_dimEditingId = -1;
+                                    ImGui::CloseCurrentPopup();
+                                }
+                                ImGui::SameLine();
+                                ImGui::TextDisabled("(equal length / radius)");
+                            }
+                        }
+                        // Delete removes the dimension constraint entirely, as
+                        // one undoable step ("Remove …" in History).
+                        ImGui::Spacing();
+                        if (ImGui::Button("Delete") ||
+                            ImGui::IsKeyPressed(ImGuiKey_Delete, false) ||
+                            ImGui::IsKeyPressed(ImGuiKey_Backspace, false)) {
+                            int delId = m_dimEditingId;
+                            recordSketchMutation([&]{
+                                m_activeSketch->removeConstraint(delId);
+                                if (m_sketchSolver) m_sketchSolver->solve(*m_activeSketch);
+                            });
+                            markDirty();
+                            m_meshesDirty = true;
+                            m_dimEditingId = -1;
+                            ImGui::CloseCurrentPopup();
+                        }
+                        ImGui::SameLine();
+                        ImGui::TextDisabled("(Del)");
                         ImGui::EndPopup();
                     } else {
                         // Popup closed without committing — drop edit state.
@@ -5595,6 +6194,13 @@ void Application::renderViewport() {
                         for (auto& [id, orig] : m_sketchGizmoOriginals)
                             m_activeSketch->movePoint(id, orig + delta);
                     }
+                    // Re-solve so dimensional/geometric constraints hold while
+                    // the gizmo drags geometry — otherwise a constrained
+                    // circle/line could be dragged off its dimension and the
+                    // stale value would keep displaying (the select-drag path
+                    // already solves via SketchTool::onMouseMove; the gizmo
+                    // path bypassed it).
+                    if (m_sketchSolver) m_sketchSolver->solve(*m_activeSketch);
 
                     if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
                         if (m_sketchGizmoHandle == SketchGizmoHandle::Rotate) {
@@ -5895,6 +6501,20 @@ void Application::renderViewport() {
                         // it. Snapshot manually for the drag-commit on mouse-up.
                         m_sketchDragBefore = std::make_shared<Sketch>(*m_activeSketch);
                         recordSketchMutation([&]{ m_sketchTool->onMouseDown(sketchCoord, io.KeyCtrl); });
+                    } else if (m_sketchTool->getMode() == SketchToolMode::Dimension) {
+                        // Picking mutates nothing — no undo record. The commit
+                        // below records the constraint add as one SketchEditOp.
+                        // A click that landed while the ##DimEdit popup was up
+                        // belongs to the popup (dismiss) — never a fresh pick.
+                        if (!m_dimPopupSwallowClick) {
+                            m_sketchTool->onMouseDown(sketchCoord, false);
+                            if (m_sketchTool->dimReadyToCommit())
+                                applyPendingDimension();
+                            // Surface a refused pick instead of letting the
+                            // click look like it simply missed the geometry.
+                            if (const char* why = m_sketchTool->consumeDimRejection())
+                                showToast(why, 2.5);
+                        }
                     } else if (materializr::touchMode()) {
                         // A held circle awaiting its ✗/✓ bubble: drawing the
                         // next shape auto-commits it as-released (the bubble
@@ -6714,6 +7334,8 @@ void Application::renderViewport() {
             if (nCur >= 2) {
                 if (ImGui::MenuItem("Concentric"))
                     applySketchConstraint(ConstraintType::Concentric);
+                if (ImGui::MenuItem("Equal radius"))
+                    applySketchConstraint(ConstraintType::Equal);
             }
             // ImGui automatically greys out an empty submenu, but we want to
             // hint at the cause when nothing matches the selection.

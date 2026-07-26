@@ -47,9 +47,12 @@ void HelpPanel::render() {
         "Pick Sketch on XY/XZ/YZ from the Tools panel (or Sketch on Face after "
         "selecting one), then choose a tool: Line, Rectangle, Circle, Arc, "
         "Spline, Polygon, or Trim. Type a numeric dimension while placing to "
-        "lock the size. Switch to Select / Move to drag existing points and "
-        "lines — double-click empties to select the whole sketch, then use "
-        "Copy / Mirror / Rotate. Click Finish Sketch (or press Enter) to exit.");
+        "lock the size. Press D for the Dimension tool: click a line, circle, "
+        "two points, or two lines (parallel = distance, angled = angle), "
+        "click to place the label, then type the value. Switch to Select / "
+        "Move to drag existing points and lines — double-click empties to "
+        "select the whole sketch, then use Copy / Mirror / Rotate. Click "
+        "Finish Sketch (or press Enter) to exit.");
 
     section("Modelling from a sketch",
         "With a sketch region or face selected, click Extrude or Push/Pull. "

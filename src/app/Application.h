@@ -63,6 +63,7 @@ class PropertiesPanel;
 class Sketch;
 class SketchSolver;
 class SketchTool;
+struct PendingDimension;
 class EventBus;
 class PluginContext;
 
@@ -346,6 +347,16 @@ private:
     // doesn't match the constraint's requirements. Routed from the toolbar
     // Constraints section; constraints are always opt-in.
     void applySketchConstraint(ConstraintType type);
+
+    // Commit the Dimension tool's resolved pending dimension: one undoable
+    // constraint add (or value+label update when the same pair is already
+    // dimensioned), then open the ##DimEdit popup on it for value entry.
+    void applyPendingDimension();
+
+    // Sketch-space auto anchor of a dimension's label: line/pair midpoint,
+    // circle/arc center, or the midpoint of the point-to-line perpendicular
+    // foot segment. Label offsets are stored relative to this.
+    glm::vec2 dimensionAutoAnchor(const PendingDimension& pd) const;
 
     // Align the orbit camera to look straight at the active sketch's plane in ortho.
     // Called when entering sketch mode / editing an existing sketch.
@@ -650,6 +661,25 @@ private:
     char m_dimEditingBuf[32] = "";
     bool m_dimEditingFocus = false;
     bool m_dimEditingClickedThisFrame = false;
+    // Set by applyPendingDimension() (Dimension tool commit) to defer
+    // ImGui::OpenPopup("##DimEdit") to the viewport's own ImGui window scope
+    // next frame — OpenPopup only works when called from the window that
+    // owns the popup's ID stack, which the app-level commit path isn't in.
+    bool m_dimOpenEditRequested = false;
+    // Set by the ##DimEdit popup block (Application_Viewport.cpp) the frame
+    // an Escape press is seen while the popup is up — BEFORE ImGui closes
+    // it and the block clears m_dimEditingId. renderViewport() runs before
+    // handleShortcuts() each frame, so by the time the global Escape chain
+    // asks "is a dimension popup open", m_dimEditingId is already -1; this
+    // flag is how the chain learns the popup just consumed this Escape
+    // press instead of falling through to the Dimension-mode / sketch-exit
+    // steps. Consumed (cleared) by the chain on the SAME press it gates;
+    // also cleared on every sketch enter/exit reset to avoid staleness.
+    bool m_dimPopupConsumedEsc = false;
+    // Same-frame signal: the ##DimEdit popup was open when this frame's left
+    // click landed, so the click belongs to the popup (dismiss/interaction) —
+    // the Dimension tool's click routing must not treat it as a fresh pick.
+    bool m_dimPopupSwallowClick = false;
 
     // Sketch grid step in mm (drives both the visual face grid and snap-to-line)
     float m_sketchGridStep = 1.0f;

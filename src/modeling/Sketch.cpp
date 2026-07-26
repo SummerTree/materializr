@@ -514,9 +514,22 @@ int Sketch::addRectangle(glm::vec2 corner1, glm::vec2 corner2) {
 
     // Create 4 lines forming a closed rectangle
     int firstLineId = addLine(p1, p2);
-    addLine(p2, p3);
-    addLine(p3, p4);
-    addLine(p4, p1);
+    int l2 = addLine(p2, p3);
+    int l3 = addLine(p3, p4);
+    int l4 = addLine(p4, p1);
+
+    // Keep the rectangle rigid: top/bottom horizontal, sides vertical. Without
+    // these a later dimension (e.g. a 2 mm gap to another edge) lets the naive
+    // relaxation solver skew the box into a parallelogram, since nothing holds
+    // its sides square. p1→p2 and p3→p4 are horizontal; p2→p3 and p4→p1 vertical.
+    auto addC = [&](ConstraintType t, int a) {
+        Constraint c; c.id = 0; c.type = t; c.entityA = a; c.entityB = -1;
+        c.isSatisfied = true; addConstraint(c);
+    };
+    addC(ConstraintType::Horizontal, firstLineId);
+    addC(ConstraintType::Horizontal, l3);
+    addC(ConstraintType::Vertical, l2);
+    addC(ConstraintType::Vertical, l4);
 
     return firstLineId;
 }

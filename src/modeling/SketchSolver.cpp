@@ -31,6 +31,11 @@ bool SketchSolver::solve(Sketch& sketch, int maxIterations, double tolerance) {
     int numPoints = sketch.pointCount();
     int numEquations = 0;
     for (const auto& c : constraints) {
+        // Reference (non-driving) dimensions annotate only — they enforce
+        // nothing, so they must not consume a degree of freedom. Counting
+        // them would report a freely-movable sketch as Fully/Over-constrained
+        // the moment a measurement was placed on it.
+        if (!c.isDriving) continue;
         switch (c.type) {
             case ConstraintType::Coincident:
                 numEquations += 2; // x and y must match
@@ -66,6 +71,12 @@ bool SketchSolver::solve(Sketch& sketch, int maxIterations, double tolerance) {
             case ConstraintType::Angle:
                 numEquations += 1; // one angle equation between two lines
                 break;
+            case ConstraintType::DistancePointLine:
+                numEquations += 1;
+                break;
+            case ConstraintType::CircleGap:
+                numEquations += 1;
+                break;
         }
     }
 
@@ -79,11 +90,35 @@ bool SketchSolver::solve(Sketch& sketch, int maxIterations, double tolerance) {
         m_state = SketchState::UnderConstrained;
     }
 
+    // Refresh every reference dimension's stored value from the geometry it
+    // measures. Every computeError branch is defined as (current − target),
+    // so adding the residual back onto the target yields the current reading.
+    // Degenerate branches return 0.0, which leaves the last good value in
+    // place rather than collapsing the label to zero.
+    //
+    // Run at both exits below so a label always shows the post-solve geometry
+    // — a reference dim on a shape that a DRIVING constraint just moved has
+    // to follow it, which is the whole point of an annotation.
+    auto refreshReferenceValues = [&] {
+        for (auto& c : constraints) {
+            if (c.isDriving) continue;
+            c.value += computeError(c, sketch);
+        }
+    };
+
     // Iterative relaxation
     for (int iter = 0; iter < maxIterations; ++iter) {
         double maxError = 0.0;
 
         for (auto& constraint : constraints) {
+            // Reference dimensions are pure annotation: never corrected, and
+            // never allowed to hold up convergence. They are reported
+            // satisfied so the UI doesn't paint them as violated — a
+            // measurement cannot be "unsatisfied".
+            if (!constraint.isDriving) {
+                constraint.isSatisfied = true;
+                continue;
+            }
             double error = computeError(constraint, sketch);
             maxError = std::max(maxError, std::abs(error));
 
@@ -100,10 +135,12 @@ bool SketchSolver::solve(Sketch& sketch, int maxIterations, double tolerance) {
             for (auto& c : constraints) {
                 c.isSatisfied = true;
             }
+            refreshReferenceValues();
             return true;
         }
     }
 
+    refreshReferenceValues();
     return false;
 }
 
@@ -170,11 +207,22 @@ double SketchSolver::computeError(const Constraint& c, const Sketch& sketch) con
         }
 
         case ConstraintType::Radius: {
-            // entityA is circle id
-            const auto& circles = sketch.getCircles();
-            for (const auto& circle : circles) {
+            // entityA is a circle OR an arc id — the Dimension tool creates
+            // this type for both (see resolveDimension's Circle/Arc branches),
+            // and applyCorrection below already writes back through
+            // setCircleRadius / setArcRadius. Scanning circles only made an
+            // arc id return 0.0 ("already satisfied"), so applyCorrection's
+            // arc branch was never reached: the radius never moved while
+            // solve() reported success and the label rendered the typed value
+            // over unchanged geometry.
+            for (const auto& circle : sketch.getCircles()) {
                 if (circle.id == c.entityA) {
                     return circle.radius - c.value;
+                }
+            }
+            for (const auto& arc : sketch.getArcs()) {
+                if (arc.id == c.entityA) {
+                    return arc.radius - c.value;
                 }
             }
             return 0.0;
@@ -277,24 +325,31 @@ double SketchSolver::computeError(const Constraint& c, const Sketch& sketch) con
         }
 
         case ConstraintType::Equal: {
-            // entityA and entityB are line ids; their lengths should be equal
-            const auto& lines = sketch.getLines();
-            float lenA = 0.0f, lenB = 0.0f;
-
-            for (const auto& line : lines) {
-                if (line.id == c.entityA) {
-                    const SketchPoint* sp = sketch.getPoint(line.startPointId);
-                    const SketchPoint* ep = sketch.getPoint(line.endPointId);
-                    if (sp && ep) lenA = glm::length(ep->pos - sp->pos);
-                }
-                if (line.id == c.entityB) {
-                    const SketchPoint* sp = sketch.getPoint(line.startPointId);
-                    const SketchPoint* ep = sketch.getPoint(line.endPointId);
-                    if (sp && ep) lenB = glm::length(ep->pos - sp->pos);
-                }
-            }
-
-            return static_cast<double>(lenA - lenB);
+            // entityA/entityB are EITHER two line ids (equal length) OR two
+            // circle/arc ids (equal radius). Try lengths first, fall back to
+            // radii so one constraint type covers both.
+            auto lineLen = [&](int id, double& out) -> bool {
+                for (const auto& line : sketch.getLines())
+                    if (line.id == id) {
+                        const SketchPoint* sp = sketch.getPoint(line.startPointId);
+                        const SketchPoint* ep = sketch.getPoint(line.endPointId);
+                        if (!sp || !ep) return false;
+                        out = glm::length(ep->pos - sp->pos);
+                        return true;
+                    }
+                return false;
+            };
+            auto curveRad = [&](int id, double& out) -> bool {
+                for (const auto& ci : sketch.getCircles())
+                    if (ci.id == id) { out = ci.radius; return true; }
+                for (const auto& ar : sketch.getArcs())
+                    if (ar.id == id) { out = ar.radius; return true; }
+                return false;
+            };
+            double a = 0.0, b = 0.0;
+            if (lineLen(c.entityA, a) && lineLen(c.entityB, b)) return a - b;
+            if (curveRad(c.entityA, a) && curveRad(c.entityB, b)) return a - b;
+            return 0.0; // mixed / missing: inert
         }
 
         case ConstraintType::Concentric: {
@@ -349,6 +404,47 @@ double SketchSolver::computeError(const Constraint& c, const Sketch& sketch) con
             while (diff >  M_PI) diff -= TWO_PI;
             while (diff < -M_PI) diff += TWO_PI;
             return diff;
+        }
+
+        case ConstraintType::DistancePointLine: {
+            // entityA = point id, entityB = line id. Distance is to the
+            // line's INFINITE carrier, matching how CAD dimensions read.
+            const SketchPoint* p = sketch.getPoint(c.entityA);
+            if (!p) return 0.0;
+            for (const auto& line : sketch.getLines()) {
+                if (line.id != c.entityB) continue;
+                const SketchPoint* a = sketch.getPoint(line.startPointId);
+                const SketchPoint* b = sketch.getPoint(line.endPointId);
+                if (!a || !b) return 0.0;
+                glm::vec2 dir = b->pos - a->pos;
+                float len = glm::length(dir);
+                if (len < 1e-10f) return 0.0; // degenerate line: inert, no NaN
+                glm::vec2 rel = p->pos - a->pos;
+                double dist = std::abs(static_cast<double>(dir.x) * rel.y -
+                                       static_cast<double>(dir.y) * rel.x) / len;
+                return dist - c.value;
+            }
+            return 0.0;
+        }
+
+        case ConstraintType::CircleGap: {
+            // entityA / entityB = circle (or arc) ids. Gap is the rim-to-rim
+            // clearance: |centreA - centreB| - rA - rB.
+            int caPt = -1, cbPt = -1;
+            double rA = 0.0, rB = 0.0;
+            for (const auto& ci : sketch.getCircles()) {
+                if (ci.id == c.entityA) { caPt = ci.centerPointId; rA = ci.radius; }
+                if (ci.id == c.entityB) { cbPt = ci.centerPointId; rB = ci.radius; }
+            }
+            for (const auto& ar : sketch.getArcs()) {
+                if (ar.id == c.entityA) { caPt = ar.centerPointId; rA = ar.radius; }
+                if (ar.id == c.entityB) { cbPt = ar.centerPointId; rB = ar.radius; }
+            }
+            const SketchPoint* pa = sketch.getPoint(caPt);
+            const SketchPoint* pb = sketch.getPoint(cbPt);
+            if (!pa || !pb) return 0.0;
+            double centreDist = glm::length(pa->pos - pb->pos);
+            return (centreDist - rA - rB) - c.value;
         }
     }
 
@@ -546,6 +642,31 @@ void SketchSolver::applyCorrection(const Constraint& c, Sketch& sketch, double e
         }
 
         case ConstraintType::Equal: {
+            // Circle/arc pair → equalise radii to their average (radii live in
+            // the shape structs, written through the dedicated setters). Falls
+            // through to the line-length path below when the ids are lines.
+            {
+                auto curveRad = [&](int id, double& out) -> bool {
+                    for (const auto& ci : sketch.getCircles())
+                        if (ci.id == id) { out = ci.radius; return true; }
+                    for (const auto& ar : sketch.getArcs())
+                        if (ar.id == id) { out = ar.radius; return true; }
+                    return false;
+                };
+                auto setRad = [&](int id, double r) {
+                    for (const auto& ci : sketch.getCircles())
+                        if (ci.id == id) { sketch.setCircleRadius(id, r); return; }
+                    for (const auto& ar : sketch.getArcs())
+                        if (ar.id == id) { sketch.setArcRadius(id, r); return; }
+                };
+                double rA = 0.0, rB = 0.0;
+                if (curveRad(c.entityA, rA) && curveRad(c.entityB, rB)) {
+                    double avg = 0.5 * (rA + rB);
+                    setRad(c.entityA, avg);
+                    setRad(c.entityB, avg);
+                    return;
+                }
+            }
             // Make both lines the same length by adjusting their endpoints
             const auto& lines = sketch.getLines();
             const SketchLine* lineA = nullptr;
@@ -637,6 +758,75 @@ void SketchSolver::applyCorrection(const Constraint& c, Sketch& sketch, double e
             float lenB = glm::length(epB->pos - spB->pos);
             glm::vec2 newDir(std::cos(targetAng), std::sin(targetAng));
             sketch.movePoint(lineB->endPointId, spB->pos + newDir * lenB);
+            break;
+        }
+
+        case ConstraintType::DistancePointLine: {
+            const SketchPoint* p = sketch.getPoint(c.entityA);
+            if (!p) return;
+            for (const auto& line : sketch.getLines()) {
+                if (line.id != c.entityB) continue;
+                // Defensive identity guard: resolveDimension rejects picking
+                // a point that IS an endpoint of the target line, but a
+                // constraint reaching the solver this way (e.g. loaded from
+                // an older project file, or injected directly) has zero
+                // ACTUAL perpendicular distance (the point sits on the line
+                // by construction) with no correction direction to separate
+                // them along — the ~value/2 nudge below would cancel itself
+                // for the point (it's also one of the endpoints being
+                // corrected) but not for the OTHER endpoint, which gets
+                // flung outward every iteration instead of settling. Leave
+                // it alone; computeError() above returns 0-value harmlessly.
+                if (c.entityA == line.startPointId || c.entityA == line.endPointId) return;
+                const SketchPoint* a = sketch.getPoint(line.startPointId);
+                const SketchPoint* b = sketch.getPoint(line.endPointId);
+                if (!a || !b) return;
+                glm::vec2 dir = b->pos - a->pos;
+                float len = glm::length(dir);
+                if (len < 1e-10f) return;
+                dir /= len;
+                glm::vec2 n(-dir.y, dir.x); // unit normal
+                float s = glm::dot(p->pos - a->pos, n); // signed distance
+                if (s < 0.0f) { n = -n; s = -s; }       // n points line → point
+                // Move ONLY the measured point, not the reference line. The
+                // line is what we're dimensioning AGAINST (e.g. an already-
+                // placed box's edge); dragging its endpoints too would deform
+                // that box every time a neighbour is dimensioned to it. The
+                // point's own geometry (if part of a constrained rectangle)
+                // gets re-squared by that rectangle's H/V constraints in the
+                // following relaxation passes.
+                float corr = (static_cast<float>(c.value) - s);
+                sketch.movePoint(c.entityA, p->pos + n * corr);
+                return;
+            }
+            break;
+        }
+
+        case ConstraintType::CircleGap: {
+            // Drive the centres apart/together so the rim gap reaches target;
+            // radii are left to their own Radius constraints. Target centre
+            // distance = value + rA + rB.
+            int caPt = -1, cbPt = -1;
+            double rA = 0.0, rB = 0.0;
+            for (const auto& ci : sketch.getCircles()) {
+                if (ci.id == c.entityA) { caPt = ci.centerPointId; rA = ci.radius; }
+                if (ci.id == c.entityB) { cbPt = ci.centerPointId; rB = ci.radius; }
+            }
+            for (const auto& ar : sketch.getArcs()) {
+                if (ar.id == c.entityA) { caPt = ar.centerPointId; rA = ar.radius; }
+                if (ar.id == c.entityB) { cbPt = ar.centerPointId; rB = ar.radius; }
+            }
+            const SketchPoint* pa = sketch.getPoint(caPt);
+            const SketchPoint* pb = sketch.getPoint(cbPt);
+            if (!pa || !pb) return;
+            glm::vec2 diff = pb->pos - pa->pos;
+            float centreDist = glm::length(diff);
+            if (centreDist < 1e-10f) { diff = glm::vec2(1.0f, 0.0f); centreDist = 1.0f; }
+            glm::vec2 dir = diff / centreDist;
+            float targetCentre = static_cast<float>(c.value + rA + rB);
+            float corr = (targetCentre - centreDist) * 0.5f;
+            sketch.movePoint(caPt, pa->pos - dir * corr);
+            sketch.movePoint(cbPt, pb->pos + dir * corr);
             break;
         }
     }
