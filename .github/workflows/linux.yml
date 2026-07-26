@@ -12,6 +12,13 @@ on:
       - 'docs/**'
       - 'packaging/**'
       - '.github/workflows/windows.yml'
+  pull_request:
+    branches: [ main ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'packaging/**'
+      - '.github/workflows/windows.yml'
   workflow_dispatch:
   release:
     types: [ published ]

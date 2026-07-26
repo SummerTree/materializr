@@ -10,9 +10,20 @@ on:
     paths-ignore:
       - '**.md'
       - 'scripts/**'
+  pull_request:
+    branches: [ main ]
+    paths-ignore:
+      - '**.md'
+      - 'scripts/**'
   workflow_dispatch:
   release:
     types: [ published ]
+
+# A new commit on a PR (or on main) cancels the in-flight run for that ref.
+# This job is the long one, so superseded runs are worth cancelling.
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   windows:
@@ -31,7 +42,13 @@ jobs:
       # OCCT (and friends) into the feed; subsequent builds download the
       # binaries instead of recompiling, dropping OCCT's ~1h cold compile to
       # a few minutes. Replaces the now-removed `x-gha` backend.
-      VCPKG_BINARY_SOURCES: "clear;nuget,GitHub,readwrite"
+      #
+      # READ-ONLY on pull requests. A PR from a fork gets a read-only
+      # GITHUB_TOKEN, so a `readwrite` push would fail the step; and PR builds
+      # shouldn't be able to write the cache that later main builds consume
+      # anyway — that would let an untrusted PR poison a trusted build.
+      VCPKG_BINARY_SOURCES: >-
+        clear;nuget,GitHub,${{ github.event_name == 'pull_request' && 'read' || 'readwrite' }}
       # Where the NuGet feed lives. Per-org URL; ${{ github.repository_owner }}
       # resolves to materializr-cad for this repo, but stays correct on forks.
       NUGET_FEED_URL: "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json"
@@ -43,7 +60,14 @@ jobs:
       # GITHUB_TOKEN is the workflow's own short-lived token; with the
       # `packages: write` permission above it can both pull cached binaries
       # and push new ones.
+      #
+      # Skipped for PRs from a FORK: that token cannot authenticate to this
+      # org's feed at all, so configuring the source would only produce 401s on
+      # every restore. Those runs compile the dependencies from source instead —
+      # slow (OCCT is ~1h cold) but correct. Same-repo PRs keep the cache and
+      # stay fast.
       - name: Configure vcpkg binary cache (GitHub Packages NuGet feed)
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         shell: pwsh
         run: |
           $nuget = & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" fetch nuget | Select-Object -Last 1
@@ -65,6 +89,10 @@ jobs:
           & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" x-update-baseline
           & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install --triplet x64-windows
 
+      # BUILD_TESTS=ON: this build used to skip the test suite entirely, so
+      # every Windows-specific code path (the _WIN32 branches in
+      # ProjectRecovery, url_open.h, portable-file-dialogs) shipped without a
+      # single test having run against it on Windows.
       - name: Configure
         shell: pwsh
         run: |
@@ -72,11 +100,18 @@ jobs:
             -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `
             -DVCPKG_TARGET_TRIPLET=x64-windows `
             -DVCPKG_MANIFEST_MODE=ON `
-            -DBUILD_TESTS=OFF
+            -DBUILD_TESTS=ON
 
       - name: Build
         shell: pwsh
         run: cmake --build build --config Release --parallel
+
+      # -C Release: the Visual Studio generator is multi-config, so ctest needs
+      # the configuration named explicitly or it finds no tests to run and
+      # exits 0 — a green check that verified nothing.
+      - name: Test
+        shell: pwsh
+        run: ctest --test-dir build -C Release --output-on-failure
 
       - name: Stage portable package
         shell: pwsh
@@ -106,14 +141,23 @@ jobs:
           name: Materializr-windows-x64-portable
           path: Materializr-windows-x64.zip
 
+      # APPVERSION goes through the environment, not through `${{ }}` inline in
+      # the command line. Actions expands `${{ }}` textually BEFORE pwsh parses
+      # the line, and git ref names may legally contain `"`, `;`, `$` and
+      # backticks — enough to close the quoted string and append a statement, in
+      # a job that holds contents/packages write. Reading $env: instead removes
+      # that path entirely. (It also keeps the ref out of the command line now
+      # that PRs run this, where ref_name is "<number>/merge".)
       - name: Build installer (NSIS)
         shell: pwsh
+        env:
+          APPVERSION: ${{ github.ref_name }}
         run: |
           choco install nsis -y --no-progress
           & "C:\Program Files (x86)\NSIS\makensis.exe" `
             "/DSTAGING=$PWD\staging\Materializr" `
             "/DOUTFILE=$PWD\Materializr-Setup.exe" `
-            "/DAPPVERSION=${{ github.ref_name }}" `
+            "/DAPPVERSION=$env:APPVERSION" `
             packaging\windows\installer.nsi
 
       - name: Upload installer artifact

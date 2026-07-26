@@ -6,8 +6,20 @@ name: macOS Build
 # published GitHub Release it also attaches the .dmg. The Linux/Windows/Android
 # builds are unaffected.
 
+# pull_request matters most here: this is the ONLY job that runs ctest, so
+# before it ran on PRs a contribution was first tested after it had already
+# been merged to main.
 on:
   push:
+    branches: [ main ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'android/**'
+      - 'scripts/**'
+      - '.github/workflows/linux.yml'
+      - '.github/workflows/windows.yml'
+  pull_request:
     branches: [ main ]
     paths-ignore:
       - '**.md'
@@ -20,7 +32,8 @@ on:
   release:
     types: [ published ]
 
-# A newer push on main cancels an in-flight build — older runs wouldn't ship.
+# A newer push on main (or a new commit on a PR) cancels an in-flight build —
+# older runs wouldn't ship, and a superseded PR result is noise.
 concurrency:
   group: macos-${{ github.ref }}
   cancel-in-progress: true
