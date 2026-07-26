@@ -29,6 +29,7 @@
 #include <cstdlib>
 #include <string>
 #include <vector>
+#include "test_tmp_path.h"
 
 using namespace materializr;
 
@@ -478,7 +479,7 @@ TEST(Unfold, DISABLED_DiagConformal) {
         cases.push_back({"loft", facesOf(loft.Shape())});
     }
 
-    std::system("mkdir -p /tmp/cdiag");
+    const std::string diagDir = mzrtest::tmpSubdir("cdiag");
     std::fprintf(stderr, "\n%-11s %-12s ok pcs  dist%%  curv  loops  pts  selfX\n", "shape", "method");
     for (auto& c : cases) {
         if (c.faces.empty()) { std::fprintf(stderr, "%-11s (no faces)\n", c.name.c_str()); continue; }
@@ -488,7 +489,7 @@ TEST(Unfold, DISABLED_DiagConformal) {
             std::fprintf(stderr, "%-11s %-12s %d  %d  %6.1f %6.1f %5zu %5zu %6d\n",
                          c.name.c_str(), m, fp.ok ? 1 : 0, fp.piecesPlaced, fp.distortionPct,
                          fp.curvatureDeg, loops, pts, countSelfIntersections(fp));
-            dumpJson("/tmp/cdiag/" + c.name + "-" + m + ".json", fp);
+            dumpJson(diagDir + "/" + c.name + "-" + m + ".json", fp);
         };
         report("conformal",   unfoldConformal(c.faces, 10.0, 1.0));
         report("developable", unfoldDevelopableNet(c.faces, 10.0, 1.0));

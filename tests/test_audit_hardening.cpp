@@ -24,6 +24,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include "test_tmp_path.h"
 
 using materializr::AppSettings;
 using materializr::SvgImport;
@@ -32,10 +33,9 @@ using materializr::SvgPaths;
 namespace {
 
 std::string tempPath(const char* name) {
-    const char* dir = std::getenv("TMPDIR");
-    std::string base = (dir && *dir) ? dir : "/tmp";
-    if (!base.empty() && base.back() != '/') base += '/';
-    return base + name;
+    // temp_directory_path() honours TMPDIR on POSIX and TEMP/TMP on Windows,
+    // where the old "/tmp" fallback was an unwritable path.
+    return mzrtest::tmpPath(name);
 }
 
 void writeFile(const std::string& path, const std::string& text) {

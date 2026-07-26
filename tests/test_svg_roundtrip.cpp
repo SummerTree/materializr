@@ -15,6 +15,7 @@
 #include <gtest/gtest.h>
 #include <cstdio>
 #include <memory>
+#include "test_tmp_path.h"
 
 using materializr::Sketch;
 using materializr::SvgExport;
@@ -41,7 +42,7 @@ TEST(SvgRoundTrip, ClosedLineLoopStaysOneClosedLoop) {
     for (int i = 0; i < 8; ++i) pid[i] = sk.addPoint({V[i][0], V[i][1]});
     for (int i = 0; i < 8; ++i) sk.addLine(pid[i], pid[(i + 1) % 8]);
 
-    const std::string path = "/tmp/mtz_svg_rt_loop.svg";
+    const std::string path = mzrtest::tmpPath("mtz_svg_rt_loop.svg");
     auto res = SvgExport::exportSketch(path, sk);
     ASSERT_TRUE(res.success) << res.errorMessage;
     EXPECT_EQ(res.curveCount, 1) << "one connected loop must export as ONE path";
@@ -69,7 +70,7 @@ TEST(SvgRoundTrip, CircleComesBackAsNativeCircle) {
     int c = sk.addPoint({10.0f, 10.0f});
     sk.addCircle(c, 7.0);
 
-    const std::string path = "/tmp/mtz_svg_rt_circle.svg";
+    const std::string path = mzrtest::tmpPath("mtz_svg_rt_circle.svg");
     auto res = SvgExport::exportSketch(path, sk);
     ASSERT_TRUE(res.success) << res.errorMessage;
 
@@ -100,7 +101,7 @@ TEST(SvgRoundTrip, LineArcProfileStaysClosed) {
     sk.addLine(p3, p4);
     sk.addLine(p4, p0);
 
-    const std::string path = "/tmp/mtz_svg_rt_arc.svg";
+    const std::string path = mzrtest::tmpPath("mtz_svg_rt_arc.svg");
     auto res = SvgExport::exportSketch(path, sk);
     ASSERT_TRUE(res.success) << res.errorMessage;
     EXPECT_EQ(res.curveCount, 1) << "lines + arc sharing endpoints = ONE path";
@@ -131,7 +132,7 @@ TEST(SvgRoundTrip, SplineSurvives) {
     ids.push_back(sk.addPoint({20, 4}));
     sk.addSpline(ids);
 
-    const std::string path = "/tmp/mtz_svg_rt_spline.svg";
+    const std::string path = mzrtest::tmpPath("mtz_svg_rt_spline.svg");
     auto res = SvgExport::exportSketch(path, sk);
     ASSERT_TRUE(res.success) << res.errorMessage;
 
