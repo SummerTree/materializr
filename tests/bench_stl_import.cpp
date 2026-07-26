@@ -56,7 +56,11 @@ static std::string writeSphereStl(double r, int nLat, int nLong) {
 }
 
 int main() {
+#ifdef _WIN32
+    _putenv_s("MZR_STL_TIMING", "1"); // per-stage breakdown to stderr
+#else
     setenv("MZR_STL_TIMING", "1", 1); // per-stage breakdown to stderr
+#endif
     const int nLat = 320, nLong = 320; // ~204k triangles (a heavy real-world STL)
     std::string path = writeSphereStl(10.0, nLat, nLong);
     std::printf("Generated ~%d-triangle sphere STL\n\n", 2 * nLat * nLong);

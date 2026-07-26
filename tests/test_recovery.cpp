@@ -23,6 +23,8 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <csignal>
+#else
+#include <process.h>
 #endif
 
 namespace fs = std::filesystem;
@@ -36,17 +38,36 @@ void writeFile(const std::string& path, const std::string& text) {
     os << text;
 }
 
-std::string recDir() { return g_base + "/materializr/recovery"; }
+// Must match recoveryDir() in ProjectRecovery.cpp byte-for-byte — a prefix
+// assertion compares strings, and the Windows branch mixes separators.
+std::string recDir() {
+#ifdef _WIN32
+    return g_base + "\\materializr/recovery";
+#else
+    return g_base + "/materializr/recovery";
+#endif
+}
 
 // Pre-main setup: sandbox the config dir and seed a "crashed previous
 // session" — a slot-0 snapshot (legacy filename) with no lock held.
 struct Env {
     Env() {
+#ifdef _WIN32
+        const int pid = ::_getpid();
+#else
+        const int pid = ::getpid();
+#endif
         g_base = (fs::temp_directory_path() /
-                  ("mzr_recovery_test_" + std::to_string(::getpid()))).string();
+                  ("mzr_recovery_test_" + std::to_string(pid))).string();
         fs::remove_all(g_base);
         fs::create_directories(recDir());
+        // Point the app's config base at the sandbox: ProjectRecovery reads
+        // XDG_CONFIG_HOME on POSIX but %USERPROFILE% on Windows.
+#ifdef _WIN32
+        ::_putenv_s("USERPROFILE", g_base.c_str());
+#else
         ::setenv("XDG_CONFIG_HOME", g_base.c_str(), 1);
+#endif
         writeFile(recDir() + "/autosave.materializr", "fake-snapshot-slot0");
         writeFile(recDir() + "/autosave.materializr.meta",
                   "MZRECOVERY 1\nSAVEDAT 1234\nBODIES 3\nSTEPS 7\n"

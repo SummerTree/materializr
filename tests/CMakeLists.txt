@@ -444,6 +444,9 @@ add_test(NAME test_svg_roundtrip COMMAND test_svg_roundtrip)
 # probe_kernel_matrix — one-line-per-case battery of kernel-sensitive modeling
 # ops for diffing behavior across OCCT versions (7.6.x apt vs 7.9.3 vs 8.0.0);
 # fork-isolated cases so crashes/hangs report instead of killing the battery.
+# POSIX-only (fork/waitpid is the crash containment); neither is a ctest, so
+# Windows loses no coverage by skipping them.
+if(NOT WIN32)
 add_executable(probe_kernel_matrix probe_kernel_matrix.cpp)
 target_link_libraries(probe_kernel_matrix PRIVATE materializr_core)
 
@@ -451,6 +454,7 @@ target_link_libraries(probe_kernel_matrix PRIVATE materializr_core)
 # identical case stream on every OCCT version, for cross-kernel diffing).
 add_executable(probe_validity_fuzz probe_validity_fuzz.cpp)
 target_link_libraries(probe_validity_fuzz PRIVATE materializr_core)
+endif()
 
 # test_blend_cut — #55: chamfer across a surface feature via the swept-wedge
 # cut fallback matches chamfer-then-cut exactly; native-success path untouched
