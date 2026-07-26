@@ -3,6 +3,41 @@
 All notable changes to Materializr are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow SemVer.
 
+## [1.5.1] — 2026-07-26
+
+### Added
+
+- **Sketch dimension tool** (`D` or toolbar): measure or drive line lengths,
+  circle diameters, arc radii, point/line distances, angles, rim-to-rim gaps
+  and hole-centre offsets. Reference by default (bracketed grey labels that
+  measure without moving anything); typing a value or ticking *Driving* makes
+  the solver hold the geometry to the number. Contributed by @TechHQUSA.
+- **Thread profiles**: trapezoidal (ACME/leadscrew), square, buttress and
+  rounded join the standard V profile — external and internal — plus a radial
+  fit clearance for 3D-printed bolt+nut pairs.
+- **Polygon tool readout**: live radius and side count while placing.
+- The Thread tool gets its own icon instead of sharing the rotate arrows.
+
+### Fixed
+
+- **Parts showing through walls** on complex assemblies: the renderer no
+  longer displaces faces to break depth ties, so faces and edges sit exactly
+  where they should at every zoom level.
+- **Multi-body transforms bake on reload**: moving several bodies at once now
+  reloads as an editable history step; upstream edits propagate and undo
+  restores every body.
+- **Fillets drifting after push/pull edits**: push/pull hands face identity
+  through to downstream features, so fillets/chamfers stay on their edges
+  across replay.
+- **Threads**: cut correctly on unioned bodies; run through end chamfers like
+  a real bolt lead-in; resizing one segment of a stepped rod no longer carves
+  the neighbour; internal rounded threads keep a continuous smooth bore at
+  any length; re-cuts are cancellable mid-boolean.
+- **Section view** no longer stalls on threaded bodies — computes in the
+  background and can be cancelled.
+- **Malformed BREP files** with absurd section counts are rejected instantly
+  instead of hanging the importer.
+
 ## [1.5.0] — 2026-07-18
 
 ### Highlights
