@@ -86,7 +86,7 @@ something behaves oddly, a bug report is the most useful thing you can send.
 **Sketch** — lines, circles, arcs, splines, polygons, rectangles with
 SketchUp-style inference snapping (endpoints, midpoints, perpendicular,
 tangent, 15° increments) and opt-in dimensions & constraints. **Text** as
-real outline geometry (three bundled fonts) and **SVG import** with live
+real outline geometry (ten bundled fonts) and **SVG import** with live
 placement preview — both become ordinary closed regions you can extrude.
 Drop a **reference image** into the viewport and model against it.
 
@@ -146,12 +146,14 @@ up front:
   chamfers and boolean-seam features following upstream *sketch* edits — the
   move case is the remaining frontier and keeps narrowing.
 
-- **Threads have to be the last thing you do to a body.** Once a part is
-  threaded, further operations on it are refused with a prompt to delete the
-  thread, make your change, and re-apply it. *Why:* threads are dense
-  geometry; re-running cuts or fillets across them is unreliable, so
-  threading is a terminal finishing step. (Re-threading is cheap now — the
-  1.4.0 swept engine builds threads near-instantly.)
+- **Threads are re-applied after every change to a threaded body.** You can
+  keep modeling on a threaded part — new operations are automatically
+  reordered to happen before the thread in the body's history, and the
+  thread is then re-cut on top (a progress prompt lets you cancel). *Why:*
+  threads are dense geometry; running cuts or fillets across them directly
+  is unreliable, so the app applies your change to the unthreaded shape and
+  threads it again last. Re-threading is near-instant for standard profiles;
+  the cost is only noticeable on long angular threads (square/ACME/buttress).
 
 - **Chamfering an edge that meets a fillet can still fail.** 1.5.0 added a
   **cut-based fallback** (the blend's cross-section is swept along the edge
@@ -241,8 +243,7 @@ this would exist without them.
 
 **Bundled fonts**
 
-- [JetBrains Mono](https://www.jetbrains.com/lp/mono/) — UI font
-  (SIL Open Font License 1.1).
-- [DejaVu Sans](https://dejavu-fonts.github.io/) and DejaVu Serif —
-  shipped as choices for the sketch Text tool (DejaVu Fonts License,
-  derived from Bitstream Vera).
+Ten typefaces ship for the sketch Text tool (JetBrains Mono, DejaVu Sans &
+Serif, Liberation Sans & Serif, Ubuntu, Comic Neue, Black Ops One, Anton,
+Pacifico), plus the Iconoir icon font for the UI. Full credits, copyrights
+and license texts: [`assets/fonts/FONT-CREDITS.md`](assets/fonts/FONT-CREDITS.md).
