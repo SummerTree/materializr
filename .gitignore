@@ -18,7 +18,7 @@ compile_commands.json
 Thumbs.db
 
 # Runtime-generated UI layout (written on first launch from the built-in default)
-imgui.ini
+imgui.ini*
 
 # Dependencies (fetched by CMake)
 third_party/imgui/
