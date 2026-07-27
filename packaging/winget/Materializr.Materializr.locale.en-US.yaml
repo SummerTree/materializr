@@ -1,7 +1,7 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.12.0.schema.json
 
 PackageIdentifier: Materializr.Materializr
-PackageVersion: 1.5.0
+PackageVersion: 1.5.1
 PackageLocale: en-US
 Publisher: Materializr
 PublisherUrl: https://github.com/materializr-cad
@@ -33,16 +33,18 @@ Tags:
 - opencascade
 - svg
 ReleaseNotes: |-
-  Materializr 1.5.0 — the biggest feature release since 1.3.0.
-  Highlights
-  - File exchange: BREP import/export, OBJ and 3MF export, DXF import/export; IGES axis conversion fixed; projects prefer the shorter .mzr extension
-  - Reference images: drop a picture into the viewport and model against it
-  - New modeling ops: Guided Loft, N-section loft, Boundary Fill, and Separate
-  - Chamfer/fillet rebuilt: corner miters and hips, plus a cut-based fallback for blends the native builder refuses; face-lineage topological naming
-  - History: extrude remembers its regions, cascade disables steps that can't follow, hovering a step highlights its geometry
-  - Desktop: Linux HiDPI interface scale, click-drag line tool, movable operation panels
+  Materializr 1.5.1
+  Added
+  - Sketch dimension tool (D or toolbar): measure or drive line lengths, circle diameters, arc radii, point/line distances, angles and gaps; reference by default, driving when you type a value
+  - Four new thread profiles: trapezoidal (ACME), square, buttress and rounded, plus a fit clearance for 3D-printed bolt+nut pairs
+  - Polygon tool live radius readout
   Fixed
-  - macOS 26.x startup crash; audit hardening (op validity gates, SVG budgets, settings clamping, transactional load); shell and stepped-hole fixes
-ReleaseNotesUrl: https://github.com/materializr-cad/materializr/releases/tag/v1.5.0
+  - Parts showing through walls on complex assemblies (depth-tie rendering fix)
+  - Multi-body move/rotate/scale now reloads as an editable history step
+  - Fillets drifting after push/pull edits
+  - Threads cut correctly on unioned bodies and through end chamfers; stepped-rod resize confinement; internal rounded threads keep a smooth bore at any length
+  - Section view no longer stalls on threaded bodies; thread re-cuts are cancellable
+  - Malformed BREP files are rejected instantly instead of hanging the importer
+ReleaseNotesUrl: https://github.com/materializr-cad/materializr/releases/tag/v1.5.1
 ManifestType: defaultLocale
 ManifestVersion: 1.12.0
