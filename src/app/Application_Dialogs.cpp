@@ -1761,16 +1761,24 @@ void Application::renderThreadPanel() {
     ImGui::SameLine(); ImGui::Text("mm");
     }
     // Depth beyond ~0.65·pitch merges grooves into floating helical fins;
-    // beyond ~45% of the radius it eats the core. Clamp + say so.
+    // beyond ~45% of the radius it eats the core. Multi-start Rounded cuts
+    // with the semicircular rope tool whose radius IS the depth, capped at
+    // 0.45·pitch so a land survives between the interleaved grooves — the
+    // panel must advertise the depth the engine will actually cut, not one
+    // it silently truncates. Clamp + say so.
     {
-        float maxDepth = static_cast<float>(
-            std::min(0.65 * m_threadPitch, 0.45 * m_threadRadius));
+        const bool ropeCap = m_threadStarts > 1 &&
+                             m_threadProfile == 4;   // Rounded (combo index)
+        float maxDepth = static_cast<float>(std::min(
+            (ropeCap ? 0.45 : 0.65) * m_threadPitch, 0.45 * m_threadRadius));
         if (m_threadDepth > maxDepth) {
             m_threadDepth = maxDepth;
             std::snprintf(m_threadDepthBuf, sizeof(m_threadDepthBuf), "%.2f",
                           m_threadDepth);
         }
-        ImGui::TextDisabled("Depth caps at 0.65 \xC3\x97 pitch.");
+        ImGui::TextDisabled(ropeCap
+            ? "Depth caps at 0.45 \xC3\x97 pitch (multi-start rounded)."
+            : "Depth caps at 0.65 \xC3\x97 pitch.");
     }
 
     // Cross-section profile. Standard is the fast shipped V-thread; the others
@@ -1797,23 +1805,54 @@ void Application::renderThreadPanel() {
 
     // Multi-start: N interleaved helixes; crest spacing stays = pitch, each
     // helix advances N x pitch per turn (a quarter-turn bottle cap = 3-4
-    // starts with a coarse pitch).
+    // starts with a coarse pitch). Stepped field, not a slider (Steve);
+    // im-touch gets bare +/- buttons — a text field would summon the mobile
+    // keyboard for a single-digit value.
     ImGui::Text("Starts"); ImGui::SameLine();
-    ImGui::SetNextItemWidth(uiSz(120, 0).x);
-    ImGui::SliderInt("##thrStarts", &m_threadStarts, 1, 6);
+    if (imTouchLayout()) {
+        if (ImGui::Button("-##thrStartsDn") && m_threadStarts > 1)
+            --m_threadStarts;
+        ImGui::SameLine(); ImGui::Text("%d", m_threadStarts); ImGui::SameLine();
+        if (ImGui::Button("+##thrStartsUp") && m_threadStarts < 6)
+            ++m_threadStarts;
+    } else {
+        ImGui::SetNextItemWidth(uiSz(120, 0).x);
+        if (ImGui::InputInt("##thrStarts", &m_threadStarts, 1, 1))
+            m_threadStarts = std::min(6, std::max(1, m_threadStarts));
+        if (m_threadStarts > 1)
+            ImGui::SetItemTooltip("Multi-start thread: %d interleaved helixes. "
+                                  "One full seat = 1/%d turn.",
+                                  m_threadStarts, m_threadStarts);
+    }
     if (m_threadStarts > 1) {
-        ImGui::SetItemTooltip("Multi-start thread: %d interleaved helixes. "
-                              "One full seat = 1/%d turn.",
-                              m_threadStarts, m_threadStarts);
         ImGui::TextDisabled("lead %.2f mm/turn", m_threadStarts *
                             std::max(0.1f, m_threadPitch));
+        // The single-start sweep shortcuts don't apply to interleaved
+        // helixes — every multi-start thread is a boolean cut.
+        if (m_threadProfile == 0 || m_threadProfile == 4)
+            ImGui::TextDisabled("Multi-start cuts per-groove — slower than "
+                                "a single start.");
     }
 
-    double turns = m_threadLength / std::max(0.1f, m_threadPitch);
-    ImGui::TextDisabled("%.0f turns over the face", turns);
-    if (turns > 300.0) {
+    // "Turns" a user perceives = revolutions of one helix (length/lead);
+    // crest count (length/pitch) is what sets the boolean cost, so the
+    // guards key on it. The engine refuses >300 crests outright, and the
+    // per-turn fallback (which a multi-start cut lands on whenever the
+    // compound tool demotes) tops out at 120 zones — warn before Apply
+    // instead of failing after a minute of cutting.
+    double crests = m_threadLength / std::max(0.1f, m_threadPitch);
+    if (m_threadStarts > 1)
+        ImGui::TextDisabled("%.0f crests over the face; each start winds "
+                            "%.1f turns", crests, crests / m_threadStarts);
+    else
+        ImGui::TextDisabled("%.0f turns over the face", crests);
+    if (crests > 300.0) {
         ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.3f, 1.0f),
                            "Too many turns (max 300) — raise the pitch.");
+    } else if (m_threadStarts > 1 && crests > 120.0) {
+        ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.3f, 1.0f),
+                           "Multi-start beyond 120 crests can fail the cut "
+                           "— raise the pitch.");
     }
     ImGui::TextDisabled("Computed on Apply — may take a few seconds.");
     ImGui::TextWrapped("Later cuts (holes, slots, chamfers) reorder beneath "
@@ -1832,7 +1871,10 @@ void Application::renderThreadPanel() {
     }
     bool escPressed = ImGui::IsKeyPressed(ImGuiKey_Escape, false);
 
-    if (applyClicked && turns <= 300.0) {
+    // >300 crests is the engine's hard refusal; the multi-start >120 case is
+    // only a warning (the compound path can still land it — per-turn is the
+    // fallback ceiling, not the front door).
+    if (applyClicked && crests <= 300.0) {
         commitThread();
     } else if (cancelClicked || escPressed) {
         cancelThread();

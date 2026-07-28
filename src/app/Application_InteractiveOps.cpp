@@ -923,6 +923,9 @@ void Application::beginThread() {
     m_threadPitch = static_cast<float>(pitch);
     m_threadDepth = static_cast<float>(0.6134 * pitch);
     m_threadRightHanded = true;
+    // A standard coarse bolt is single-start; a lingering starts=3 from the
+    // last cap would silently lose the sweep fast path (and its geometry).
+    m_threadStarts = 1;
     std::snprintf(m_threadPitchBuf, sizeof(m_threadPitchBuf), "%.2f", m_threadPitch);
     std::snprintf(m_threadDepthBuf, sizeof(m_threadDepthBuf), "%.2f", m_threadDepth);
 

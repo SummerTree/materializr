@@ -124,6 +124,31 @@ TEST(ThreadProfiles, MultiStartExternalValid) {
     }
 }
 
+TEST(ThreadProfiles, MultiStartRoundedDepthCap) {
+    // Multi-start Rounded cuts with the rope tool, whose radius (= depth)
+    // caps at 0.45·pitch. A requested depth above that cap must clamp to it
+    // — same solid as asking for the cap exactly — not get rejected by
+    // volume/probe gates measuring a deeper groove than the tool cuts.
+    const double R = 10.0, L = 9.0, P = 3.0;
+    TopoDS_Shape cyl = BRepPrimAPI_MakeCylinder(R, L).Shape();
+    auto build = [&](double depth) {
+        ThreadOp t;
+        configure(t, R, L, ThreadProfile::Rounded, 0.0);
+        t.setDepth(depth);
+        t.setIsHole(false);
+        t.setStarts(3);
+        return t.buildResult(cyl);
+    };
+    TopoDS_Shape atCap  = build(0.45 * P);
+    TopoDS_Shape beyond = build(0.60 * P);   // above the rope cap, below 0.65P
+    ASSERT_FALSE(atCap.IsNull());
+    ASSERT_FALSE(beyond.IsNull()) << "over-deep rounded multi-start rejected "
+                                     "instead of clamped";
+    EXPECT_TRUE(BRepCheck_Analyzer(beyond).IsValid());
+    EXPECT_NEAR(vol(beyond), vol(atCap), 1e-3)
+        << "clamped depth should cut the identical groove";
+}
+
 TEST(ThreadProfiles, MultiStartInternalValid) {
     // 2-start internal (nut side of a fast-acting pair).
     const double R = 10.0, L = 9.0;

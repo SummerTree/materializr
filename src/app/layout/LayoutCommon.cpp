@@ -21,6 +21,7 @@
 #include <filesystem>
 #include "ui/AboutDialog.h"
 #include "ui/HelpPanel.h"
+#include "ui/LandingPage.h"   // File → New Project dismisses the landing page
 #include "ui/LogoTexture.h"
 #include "ui/ShortcutsPanel.h"
 #include "ui/ThemeManager.h"
@@ -225,7 +226,7 @@ bool Application::openNewTab() {
 }
 
 void Application::renderNewTabMenuBody() {
-    if (ImGui::MenuItem("New Tab")) openNewTab();
+    if (ImGui::MenuItem("New Project")) openNewTab();
     // The open flavors land IN the new tab. Cancelling the picker leaves an
     // empty tab behind (browser-style about:blank) — one click to close.
     if (ImGui::MenuItem("Open Project...")) {
@@ -357,11 +358,14 @@ void Application::renderFileMenuItems(bool withSettings) {
     }
     if (ImGui::MenuItem("Save Project", "Ctrl+S")) saveProjectQuick();
     if (ImGui::MenuItem("Save Project As...")) saveProject();
-    if (ImGui::MenuItem("New Project")) closeProject();
+    // A new project opens in its own tab (non-destructive — the current
+    // project keeps its tab); the landing page's New Project tile still
+    // resets in place, where the leaving-home guard has already run.
+    if (ImGui::MenuItem("New Project")) {
+        if (m_landingPage) m_landingPage->setVisible(false);
+        openNewTab();
+    }
     ImGui::Separator();
-    // Tabs: full strip UI comes with the per-layout chrome (phase 3); the
-    // menu + Ctrl+Tab already drive the real session machinery.
-    if (ImGui::MenuItem("New Tab")) switchToSession(createSession());
     if (ImGui::BeginMenu("Tabs", m_sessions.size() > 1)) {
         for (size_t i = 0; i < m_sessions.size(); ++i) {
             ImGui::PushID(static_cast<int>(i));

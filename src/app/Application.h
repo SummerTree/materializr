@@ -300,8 +300,8 @@ private:
     // etc.) the just-created session is cleaned up again. False = nothing
     // happened (the refusal already toasted).
     bool openNewTab();
-    // The "+" button's dropdown, shared by all three layouts: New Tab /
-    // Open Project... / Open Recent — the open flavors land IN the new tab.
+    // The "+" button's dropdown, shared by all three layouts: New Project /
+    // Open Project... / Open Recent — every flavor lands in its own new tab.
     void renderNewTabMenuBody();
     // Classic: dock-style tab bar pinned to the top of the Viewport window —
     // deliberately NOT a dock node, so tabs can't be dragged into the panel

@@ -168,7 +168,7 @@ void Application::renderImTouchLayout() {
             // Tab affordance (Steve's popout): more than one open project adds
             // a chevron and the chip becomes the button that opens the tabs
             // sheet — no extra chrome when only one project is open (the chip
-            // still opens the sheet then too, for "+ New Tab").
+            // still opens the sheet then too, for "+ New Project").
             std::string chev = "  " ICON_IC_NAV_ARROW_DOWN;
             if (sessionDirty(m_activeSession)) pn += " \xe2\x80\xa2";
             const float padX = 14.0f * s;

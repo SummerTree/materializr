@@ -450,8 +450,16 @@ TopoDS_Shape ThreadOp::buildResult(const TopoDS_Shape& body) const {
     // and leaves paper-thin helical fins instead of crests (ISO depth is
     // 0.6134·P); beyond ~45% of the radius it eats the core. Clamp rather
     // than fail — the UI clamps too, but reloaded files / old params must
-    // never produce garbage solids.
-    const double depth = std::min({m_depth, 0.65 * m_pitch, 0.45 * m_radius});
+    // never produce garbage solids. Multi-start Rounded always cuts with
+    // the rope tool, whose radius IS the depth and caps at 0.45·pitch (a
+    // land must survive between the interleaved grooves) — fold that cap in
+    // here so the analytic volume window and the shape probes measure the
+    // SAME groove the tool cuts, instead of a deeper one it silently won't.
+    const bool ropeDepthCap =
+        m_profile == ThreadProfile::Rounded && m_starts > 1;
+    const double depth = std::min({m_depth,
+                                   (ropeDepthCap ? 0.45 : 0.65) * m_pitch,
+                                   0.45 * m_radius});
     // Multi-start: each of the N interleaved helixes advances N·P per turn
     // (the LEAD) while the groove FORM and the crest spacing stay keyed to
     // the user's pitch P. At any fixed angle the grooves still pass every P
@@ -2072,8 +2080,11 @@ bool ThreadOp::undo(Document& doc) {
 
 std::string ThreadOp::description() const {
     char buf[128];
-    std::snprintf(buf, sizeof(buf), "%s thread Ø%.1f, pitch %.2f mm%s",
-                  m_isHole ? "Internal" : "External",
+    char starts[24] = "";
+    if (m_starts > 1)
+        std::snprintf(starts, sizeof(starts), "%d-start ", m_starts);
+    std::snprintf(buf, sizeof(buf), "%s %sthread Ø%.1f, pitch %.2f mm%s",
+                  m_isHole ? "Internal" : "External", starts,
                   m_radius * 2.0, m_pitch, m_rightHanded ? "" : " (LH)");
     return buf;
 }
@@ -2087,9 +2098,15 @@ void ThreadOp::renderProperties() {
     if (m_depth < 0.05) m_depth = 0.05;
     // Past ~0.65·pitch the grooves merge and shred the crests into floating
     // helical fins (Steve found this empirically — "it's jumping lol").
-    double maxDepth = std::min(0.65 * m_pitch, 0.45 * m_radius);
+    // Multi-start Rounded cuts with the rope tool, capped at 0.45·pitch —
+    // same clamp buildResult applies, so the field shows what gets cut.
+    const bool ropeCap = m_profile == ThreadProfile::Rounded && m_starts > 1;
+    double maxDepth =
+        std::min((ropeCap ? 0.45 : 0.65) * m_pitch, 0.45 * m_radius);
     if (m_depth > maxDepth) m_depth = maxDepth;
-    ImGui::TextDisabled("Depth caps at 0.65 \xC3\x97 pitch (ISO is 0.61).");
+    ImGui::TextDisabled(ropeCap
+        ? "Depth caps at 0.45 \xC3\x97 pitch (multi-start rounded)."
+        : "Depth caps at 0.65 \xC3\x97 pitch (ISO is 0.61).");
     // Cross-section profile. Standard is the fast, shipped V-thread; the rest
     // are the maker/printing set (clean but slower — a boolean cut per turn).
     const char* kProfiles[] = {"Standard (V)", "Trapezoidal (ACME)",
@@ -2107,6 +2124,15 @@ void ThreadOp::renderProperties() {
     }
     bool rh = m_rightHanded;
     if (ImGui::Checkbox("Right-handed", &rh)) m_rightHanded = rh;
+    // Multi-start was missing here entirely — a saved 3-start cap could not
+    // have its start count edited after the fact. Same 1-6 range and stepped
+    // style as the create panel.
+    int starts = m_starts;
+    ImGui::InputInt("Starts", &starts, 1, 1);
+    m_starts = std::min(6, std::max(1, starts));
+    if (m_starts > 1)
+        ImGui::TextDisabled("lead %.2f mm/turn (%d interleaved helixes)",
+                            m_starts * m_pitch, m_starts);
     ImGui::Text("Diameter: %.2f mm   Length: %.2f mm", m_radius * 2.0, m_length);
 }
 
