@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -58,8 +59,20 @@ struct ProjectHistory {
 class ProjectIO {
 public:
     // `history` is optional; when provided it is written as a HISTORY section.
+    // `thumbnailPng` is optional; when provided (encoded PNG bytes) it is
+    // written as a THUMB_PNG section — base64 on one line, so pre-1.6 loaders
+    // skip it as an unknown section and old files simply have none.
     static ProjectSaveResult save(const std::string& filePath, const Document& doc,
-                                  const ProjectHistory* history = nullptr);
+                                  const ProjectHistory* history = nullptr,
+                                  const std::vector<uint8_t>* thumbnailPng = nullptr);
+
+    // Extract just the embedded thumbnail (PNG bytes) without loading the
+    // project: inflates, then hops over the body blocks via their length
+    // prefixes — no OCCT parsing. Returns false when the file has no
+    // THUMB_PNG section (any pre-1.6 save) or can't be read. Cheap enough
+    // to run over the whole recent-projects list at startup.
+    static bool peekThumbnail(const std::string& filePath,
+                              std::vector<uint8_t>& pngOut);
     // `historyOut` is optional; when provided it receives the parsed HISTORY
     // section (left empty/.present=false if the file has none).
     static ProjectLoadResult load(const std::string& filePath, Document& doc,

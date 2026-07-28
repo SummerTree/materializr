@@ -491,3 +491,7 @@ target_link_libraries(test_sketch_dimension PRIVATE materializr_core gtest gtest
     TKV3d TKService)
 add_test(NAME test_sketch_dimension COMMAND test_sketch_dimension)
 
+# Embedded project thumbnail: THUMB_PNG save/peek round-trip + legacy skip
+add_executable(test_project_thumbnail test_project_thumbnail.cpp)
+target_link_libraries(test_project_thumbnail PRIVATE materializr_core gtest gtest_main)
+add_test(NAME test_project_thumbnail COMMAND test_project_thumbnail)

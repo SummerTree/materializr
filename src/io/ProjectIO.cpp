@@ -19,6 +19,7 @@
 #include <zlib.h>
 #include <cstdio>
 
+#include <array>
 #include <cstddef>
 #include <fstream>
 #include <sstream>
@@ -186,10 +187,58 @@ std::string gunzipInflate(const std::string& src) {
     return (ret == Z_STREAM_END) ? out : std::string{};
 }
 
+// ─── base64 (for the THUMB_PNG section) ─────────────────────────────────────
+// The thumbnail rides in the line-oriented tail region, where older loaders
+// skip unknown sections one getline at a time — so the PNG must be a single
+// newline-free line, hence base64 rather than a raw length-prefixed blob.
+const char kB64Alphabet[] =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+std::string base64Encode(const uint8_t* data, size_t len) {
+    std::string out;
+    out.reserve(((len + 2) / 3) * 4);
+    for (size_t i = 0; i < len; i += 3) {
+        uint32_t v = static_cast<uint32_t>(data[i]) << 16;
+        if (i + 1 < len) v |= static_cast<uint32_t>(data[i + 1]) << 8;
+        if (i + 2 < len) v |= static_cast<uint32_t>(data[i + 2]);
+        out += kB64Alphabet[(v >> 18) & 63];
+        out += kB64Alphabet[(v >> 12) & 63];
+        out += (i + 1 < len) ? kB64Alphabet[(v >> 6) & 63] : '=';
+        out += (i + 2 < len) ? kB64Alphabet[v & 63] : '=';
+    }
+    return out;
+}
+bool base64Decode(const std::string& in, std::vector<uint8_t>& out) {
+    // Reverse table built once; -1 = invalid character.
+    static const auto table = [] {
+        std::array<int8_t, 256> t;
+        t.fill(-1);
+        for (int i = 0; i < 64; ++i)
+            t[static_cast<unsigned char>(kB64Alphabet[i])] = static_cast<int8_t>(i);
+        return t;
+    }();
+    out.clear();
+    out.reserve((in.size() / 4) * 3);
+    uint32_t acc = 0;
+    int bits = 0;
+    for (char c : in) {
+        if (c == '=') break;
+        int8_t v = table[static_cast<unsigned char>(c)];
+        if (v < 0) return false;
+        acc = (acc << 6) | static_cast<uint32_t>(v);
+        bits += 6;
+        if (bits >= 8) {
+            bits -= 8;
+            out.push_back(static_cast<uint8_t>((acc >> bits) & 0xFF));
+        }
+    }
+    return !out.empty();
+}
+
 } // namespace
 
 ProjectSaveResult ProjectIO::save(const std::string& filePath, const Document& doc,
-                                  const ProjectHistory* history) {
+                                  const ProjectHistory* history,
+                                  const std::vector<uint8_t>* thumbnailPng) {
     ProjectSaveResult result;
 
     // OCCT BinTools::Write (per body and inside the HISTORY blocks) can throw
@@ -240,6 +289,14 @@ ProjectSaveResult ProjectIO::save(const std::string& filePath, const Document& d
         }
 
         ofs << "\nBODY_END\n";
+    }
+
+    // --- Thumbnail (optional, 1.6+) ---
+    // Placed FIRST in the tail region so peekThumbnail can stop parsing the
+    // moment the body blocks end. One base64 line — see the encoder note.
+    if (thumbnailPng && !thumbnailPng->empty()) {
+        ofs << "THUMB_PNG "
+            << base64Encode(thumbnailPng->data(), thumbnailPng->size()) << "\n";
     }
 
     // --- Sketches ---
@@ -1288,6 +1345,98 @@ ProjectLoadResult ProjectIO::load(const std::string& filePath, Document& doc,
     // clean empty state so failure is unambiguous — never half a project.
     if (!result.success) doc.clear();
     return result;
+}
+
+bool ProjectIO::peekThumbnail(const std::string& filePath,
+                              std::vector<uint8_t>& pngOut) {
+    // Mirrors loadImpl's preamble (slurp → inflate → header → SAVED_BY →
+    // BODY_COUNT) but hops over each body via its length prefix instead of
+    // handing the bytes to OCCT, then reads the first tail line. Everything
+    // here is bounds-checked the same way the real loader is; any surprise
+    // just means "no thumbnail".
+    try {
+        std::ifstream raw(filePath, std::ios::in | std::ios::binary);
+        if (!raw.is_open()) return false;
+        raw.seekg(0, std::ios::end);
+        std::streampos rawSize = raw.tellg();
+        raw.seekg(0, std::ios::beg);
+        if (rawSize > static_cast<std::streampos>(512LL * 1024 * 1024)) return false;
+        std::ostringstream slurp;
+        slurp << raw.rdbuf();
+        std::string contents = slurp.str();
+        raw.close();
+        if (looksLikeGzip(contents)) {
+            contents = gunzipInflate(contents);
+            if (contents.empty()) return false;
+        }
+
+        std::istringstream ifs(contents, std::ios::binary);
+        std::string line;
+        if (!std::getline(ifs, line) ||
+            line.rfind("MATERIALIZR_PROJECT", 0) != 0) return false;
+        int fileVersion = 2;
+        {
+            auto sp = line.find("v");
+            if (sp != std::string::npos) {
+                try { fileVersion = std::stoi(line.substr(sp + 1)); } catch (...) {}
+            }
+        }
+        // v2 saves predate thumbnails entirely, and every thumbnail-bearing
+        // save is v3 with length-prefixed bodies — required for the hop below.
+        if (fileVersion < 3) return false;
+
+        {
+            auto pos = ifs.tellg();
+            std::string peek;
+            if (!(std::getline(ifs, peek) && peek.rfind("SAVED_BY ", 0) == 0))
+                ifs.seekg(pos);
+        }
+
+        int bodyCount = 0;
+        {
+            if (!std::getline(ifs, line)) return false;
+            std::istringstream iss(line);
+            std::string label;
+            iss >> label >> bodyCount;
+            if (label != "BODY_COUNT" || iss.fail() || bodyCount < 0) return false;
+        }
+
+        for (int i = 0; i < bodyCount; ++i) {
+            if (!std::getline(ifs, line)) return false;
+            std::istringstream iss(line);
+            std::string label;
+            iss >> label;
+            if (label != "BODY_START") return false;
+            // BODY_START id "name" visible r g b byteCount — the byte count is
+            // the last token after the closing quote (same parse as the loader).
+            auto lq = line.rfind('"');
+            if (lq == std::string::npos) return false;
+            std::istringstream after(line.substr(lq + 1));
+            int visible = 1;
+            float r, g, b;
+            std::size_t byteCount = 0;
+            after >> visible >> r >> g >> b >> byteCount;
+            if (after.fail()) return false;
+            std::streampos here = ifs.tellg();
+            if (here < 0) return false;
+            std::size_t remaining =
+                contents.size() > static_cast<std::size_t>(here)
+                    ? contents.size() - static_cast<std::size_t>(here) : 0;
+            if (byteCount > remaining) return false;
+            ifs.seekg(here + static_cast<std::streamoff>(byteCount));
+            if (!std::getline(ifs, line)) return false;   // newline after payload
+            if (!std::getline(ifs, line)) return false;
+            if (line != "BODY_END") return false;
+        }
+
+        // The tail region: THUMB_PNG is written as its very first line, so
+        // hitting SKETCH_COUNT (or anything else) means this save has none.
+        if (!std::getline(ifs, line)) return false;
+        if (line.rfind("THUMB_PNG ", 0) != 0) return false;
+        return base64Decode(line.substr(10), pngOut);
+    } catch (...) {
+        return false;
+    }
 }
 
 std::unique_ptr<SketchEditOp> ProjectIO::rehydrateSketchEditOp(
