@@ -104,9 +104,37 @@ void Application::renderModernLayout() {
             ImGui::SetCursorPos(ImVec2(lx + chip + 10.0f * s,
                                        (topH - ImGui::GetTextLineHeight()) * 0.5f));
             ImGui::TextColored(touchui::textPrimary(), "Materializr");
-            std::string pn = projectDisplayName();
-            ImGui::SameLine();
-            ImGui::TextColored(touchui::textDim(), "/ %s", pn.c_str());
+            // The old "/ projectname" breadcrumb is now the tab row: one pill
+            // per open project (dirty dot included), right-click/long-press
+            // for Save / Save As / Close, and a trailing "+".
+            const float pillH = 30.0f * s;
+            ImGui::SameLine(0.0f, 12.0f * s);
+            ImGui::SetCursorPosY((topH - pillH) * 0.5f);
+            for (size_t i = 0; i < m_sessions.size(); ++i) {
+                ImGui::PushID(static_cast<int>(i));
+                std::string label = sessionDisplayLabel(i);
+                if (sessionDirty(i)) label += " \xe2\x80\xa2";
+                const bool active = (i == m_activeSession);
+                ImGui::PushStyleColor(ImGuiCol_Button,
+                    ImGui::GetColorU32(active ? touchui::rowBg()
+                                              : touchui::panelBg()));
+                ImGui::PushStyleColor(ImGuiCol_Text,
+                    ImGui::GetColorU32(active ? touchui::textPrimary()
+                                              : touchui::textDim()));
+                if (ImGui::Button(label.c_str(), ImVec2(0, pillH)) && !active)
+                    switchToSession(i);
+                ImGui::PopStyleColor(2);
+                if (ImGui::BeginPopupContextItem("tabctx")) {
+                    renderTabMenuItems(i);
+                    ImGui::EndPopup();
+                }
+                ImGui::SameLine(0.0f, 6.0f * s);
+                ImGui::SetCursorPosY((topH - pillH) * 0.5f);
+                ImGui::PopID();
+            }
+            if (touchui::iconButton("newtab", MZ_ICON_ADD, pillH))
+                switchToSession(createSession());
+            tip("New tab");
         }
 
         // Right-aligned controls: [Finish, Discard,] Undo, Redo,

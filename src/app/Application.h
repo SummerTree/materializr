@@ -284,6 +284,29 @@ private:
     // tab is replaced by a fresh empty one (there is always >= 1). Unsaved-
     // changes prompting is the CALLER's job (route through guardedOpen).
     void closeSession(size_t idx);
+
+    // ── Tab UI (phase 3) ─────────────────────────────────────────────────
+    // Display label for a tab: explicit name → file basename → "Untitled".
+    std::string sessionDisplayLabel(size_t i) const;
+    // Unsaved-changes state, valid for active AND inactive sessions.
+    bool sessionDirty(size_t i) const;
+    // Make tab i active if it isn't (switch may refuse → false + toast).
+    // Every per-tab menu action funnels through this so Save/Close always
+    // operate on the ACTIVE session's machinery.
+    bool activateTabFor(size_t i);
+    // Shared per-tab dropdown body: Save / Save As / Close Tab.
+    void renderTabMenuItems(size_t i);
+    // Classic: dock-style tab bar pinned to the top of the Viewport window —
+    // deliberately NOT a dock node, so tabs can't be dragged into the panel
+    // docks (Steve: "only bound to the viewport to keep it from getting
+    // weird"). Also hosts the trailing "+".
+    void renderViewportTabBar();
+    // Im-touch: the open-projects sheet the project-name chip opens.
+    void renderTouchTabsSheet();
+    // Set when the active session changed OUTSIDE the classic tab bar
+    // (Ctrl+Tab, menus, a refused switch snapping back) so the bar re-asserts
+    // the visual selection exactly once instead of fighting user clicks.
+    bool m_tabSelectionSync = true;
     // (Re)apply the current mirrors to everything that holds a Document /
     // History / SelectionManager pointer: panels, event-bus binds, plugin
     // context, per-History callbacks. Called from the ctor and every adopt.

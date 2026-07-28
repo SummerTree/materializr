@@ -26,6 +26,7 @@
 #include "ui/ThemeManager.h"
 #include "ui/Toolbar.h"
 #include "ui/TouchIcons.h"
+#include "ui/UiTheme.h"   // accentText for the touch tabs sheet heading
 #include "viewport/Viewport.h"
 #include "gl_common.h"
 #include "touch_mode.h"
@@ -172,6 +173,129 @@ void Application::touchUndo() {
     if (m_history->canUndo()) undoWithCascade();
 }
 
+// ─── Tab UI helpers (shared by all three layouts' tab affordances) ──────────
+
+std::string Application::sessionDisplayLabel(size_t i) const {
+    if (i >= m_sessions.size()) return "Untitled";
+    // Same fallback chain as projectDisplayName(): explicit name → file
+    // basename → Untitled. The active tab reads the LIVE working copies;
+    // inactive tabs read their stashed ones.
+    const std::string& name = (i == m_activeSession) ? m_currentProjectName
+                                                     : m_sessions[i]->projectName;
+    const std::string& path = (i == m_activeSession) ? m_currentProjectPath
+                                                     : m_sessions[i]->projectPath;
+    if (!name.empty()) return name;
+    if (!path.empty()) return std::filesystem::path(path).filename().string();
+    return "Untitled";
+}
+
+bool Application::sessionDirty(size_t i) const {
+    if (i >= m_sessions.size()) return false;
+    if (i == m_activeSession) return isDirty();
+    const ProjectSession& s = *m_sessions[i];
+    return (s.history && s.history->currentStep() != s.savedAtHistoryStep) ||
+           s.unsavedNonHistoryChanges;
+}
+
+bool Application::activateTabFor(size_t i) {
+    return i == m_activeSession || switchToSession(i);
+}
+
+void Application::renderTabMenuItems(size_t i) {
+    // Actions on a non-active tab activate it first; a refused switch
+    // (mid-sketch etc.) already toasted, so the action just doesn't happen.
+    if (ImGui::MenuItem("Save")) {
+        if (activateTabFor(i)) saveProjectQuick();
+    }
+    if (ImGui::MenuItem("Save As...")) {
+        if (activateTabFor(i)) saveProject();
+    }
+    ImGui::Separator();
+    if (ImGui::MenuItem("Close Tab")) {
+        if (activateTabFor(i))
+            guardedOpen([this]() { closeSession(m_activeSession); });
+    }
+}
+
+void Application::renderViewportTabBar() {
+    // Classic only: the strip lives INSIDE the Viewport window, above the 3D
+    // image, styled like the dock tab bars — but it is a plain ImGui tab bar,
+    // not a dock node, so tabs cannot be dragged into the Tools/Items docks.
+    const ImGuiTabBarFlags barFlags = ImGuiTabBarFlags_FittingPolicyScroll;
+    if (!ImGui::BeginTabBar("##projectTabs", barFlags)) return;
+    // On a sync frame (the active session changed OUTSIDE this bar — menus,
+    // Ctrl+Tab, a refused switch), ImGui's internal selection still points at
+    // the OLD tab for this frame. Interpreting that stale "visible" as a user
+    // click would silently switch right back — so clicks are ignored for the
+    // whole sync frame while SetSelected drags ImGui to the real active tab.
+    const bool syncing = m_tabSelectionSync;
+    m_tabSelectionSync = false;
+    bool closedOne = false;
+    for (size_t i = 0; i < m_sessions.size() && !closedOne; ++i) {
+        ImGui::PushID(static_cast<int>(i));
+        ImGuiTabItemFlags tif = ImGuiTabItemFlags_NoReorder;
+        if (i == m_activeSession && syncing)
+            tif |= ImGuiTabItemFlags_SetSelected;
+        if (sessionDirty(i)) tif |= ImGuiTabItemFlags_UnsavedDocument;
+        bool open = true;
+        const bool visible =
+            ImGui::BeginTabItem(sessionDisplayLabel(i).c_str(), &open, tif);
+        if (ImGui::BeginPopupContextItem("tabctx")) {
+            renderTabMenuItems(i);
+            ImGui::EndPopup();
+        }
+        if (visible) {
+            ImGui::EndTabItem();
+            // Outside sync frames, a visible non-active tab = a user click.
+            // A refused switch re-arms the sync so the visual snaps back.
+            if (!syncing && i != m_activeSession) {
+                if (!switchToSession(i)) m_tabSelectionSync = true;
+            }
+        }
+        if (!open) {
+            // The tab's × — same guarded flow as the menu item.
+            if (activateTabFor(i))
+                guardedOpen([this]() { closeSession(m_activeSession); });
+            closedOne = true;   // indices may have shifted; finish this frame
+        }
+        ImGui::PopID();
+    }
+    if (!closedOne &&
+        ImGui::TabItemButton("+", ImGuiTabItemFlags_Trailing |
+                                      ImGuiTabItemFlags_NoTooltip))
+        switchToSession(createSession());
+    ImGui::EndTabBar();
+}
+
+void Application::renderTouchTabsSheet() {
+    // Im-touch: opened by tapping the project-name chip. Rows switch tabs;
+    // each row's ⋮ opens the shared Save / Save As / Close menu; the last
+    // row starts a fresh tab.
+    if (!ImGui::BeginPopup("##TouchTabs")) return;
+    ImGui::TextColored(materializr::accentText(), "Open projects");
+    ImGui::Separator();
+    for (size_t i = 0; i < m_sessions.size(); ++i) {
+        ImGui::PushID(static_cast<int>(i));
+        std::string label = sessionDisplayLabel(i);
+        if (sessionDirty(i)) label += " \xe2\x80\xa2";
+        if (ImGui::MenuItem(label.c_str(), nullptr, i == m_activeSession)) {
+            switchToSession(i);
+        }
+        ImGui::SameLine(ImGui::GetContentRegionMax().x -
+                        ImGui::CalcTextSize(MZ_ICON_MORE).x -
+                        ImGui::GetStyle().FramePadding.x * 2.0f);
+        if (ImGui::SmallButton(MZ_ICON_MORE)) ImGui::OpenPopup("touchtabctx");
+        if (ImGui::BeginPopup("touchtabctx")) {
+            renderTabMenuItems(i);
+            ImGui::EndPopup();
+        }
+        ImGui::PopID();
+    }
+    ImGui::Separator();
+    if (ImGui::MenuItem("+  New Tab")) switchToSession(createSession());
+    ImGui::EndPopup();
+}
+
 // The four menu bodies, shared by classic's menu bar and the modern/im-touch
 // overflow popup — one item list each, so the layouts cannot drift.
 void Application::renderFileMenuItems(bool withSettings) {
@@ -206,17 +330,8 @@ void Application::renderFileMenuItems(bool withSettings) {
     if (ImGui::BeginMenu("Tabs", m_sessions.size() > 1)) {
         for (size_t i = 0; i < m_sessions.size(); ++i) {
             ImGui::PushID(static_cast<int>(i));
-            // Same fallback chain as projectDisplayName(): explicit name →
-            // file basename → Untitled. The active tab reads the LIVE working
-            // copies; inactive tabs read their stashed ones.
-            std::string name = (i == m_activeSession) ? m_currentProjectName
-                                                      : m_sessions[i]->projectName;
-            std::string path = (i == m_activeSession) ? m_currentProjectPath
-                                                      : m_sessions[i]->projectPath;
-            std::string label = !name.empty() ? name
-                : !path.empty() ? std::filesystem::path(path).filename().string()
-                                : std::string("Untitled");
-            if (ImGui::MenuItem(label.c_str(), i == m_activeSession ? "(current)" : nullptr,
+            if (ImGui::MenuItem(sessionDisplayLabel(i).c_str(),
+                                i == m_activeSession ? "(current)" : nullptr,
                                 i == m_activeSession))
                 switchToSession(i);
             ImGui::PopID();

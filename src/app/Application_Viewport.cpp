@@ -404,6 +404,13 @@ void Application::renderViewport() {
         m_viewportWinW = ws.x; m_viewportWinH = ws.y;
     }
 
+    // Classic: the project tab strip lives at the top of the viewport (and
+    // ONLY the viewport — it's a plain tab bar, not a dock node, so tabs
+    // can't be dragged into the panel docks). Drawn before contentSize is
+    // measured so the 3D image and all item-relative picking shift down
+    // together; suppressed while the landing page owns the screen.
+    if (classicLayout() && !landingPageUp()) renderViewportTabBar();
+
     ImVec2 contentSize = ImGui::GetContentRegionAvail();
     int w = static_cast<int>(contentSize.x);
     int h = static_cast<int>(contentSize.y);

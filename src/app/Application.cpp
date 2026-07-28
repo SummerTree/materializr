@@ -410,6 +410,7 @@ void Application::stashActiveSessionState() {
 }
 
 void Application::applySessionState(size_t idx) {
+    m_tabSelectionSync = true;   // tab bars re-assert the visual selection
     m_activeSession = idx;
     ProjectSession& in = *m_sessions[idx];
     m_document = in.document.get();

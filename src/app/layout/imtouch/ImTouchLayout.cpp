@@ -165,11 +165,18 @@ void Application::renderImTouchLayout() {
                           " (" + std::to_string(n) + ")";
                 }
             }
+            // Tab affordance (Steve's popout): more than one open project adds
+            // a chevron and the chip becomes the button that opens the tabs
+            // sheet — no extra chrome when only one project is open (the chip
+            // still opens the sheet then too, for "+ New Tab").
+            std::string chev = "  " ICON_IC_NAV_ARROW_DOWN;
+            if (sessionDirty(m_activeSession)) pn += " \xe2\x80\xa2";
             const float padX = 14.0f * s;
             const ImVec2 tn = ImGui::CalcTextSize(pn.c_str());
             const ImVec2 tsl = sel.empty() ? ImVec2(0.0f, 0.0f)
                                            : ImGui::CalcTextSize(sel.c_str());
-            const float bw = padX * 2.0f + tn.x + tsl.x;
+            const ImVec2 tc = ImGui::CalcTextSize(chev.c_str());
+            const float bw = padX * 2.0f + tn.x + tsl.x + tc.x;
             const ImVec2 p = ImGui::GetCursorScreenPos();
             dl->AddRectFilled(p, ImVec2(p.x + bw, p.y + bh),
                               ImGui::GetColorU32(touchui::rowBg()),
@@ -179,7 +186,12 @@ void Application::renderImTouchLayout() {
             if (!sel.empty())
                 dl->AddText(ImVec2(p.x + padX + tn.x, p.y + (bh - tsl.y) * 0.5f),
                             ImGui::GetColorU32(touchui::textDim()), sel.c_str());
-            ImGui::Dummy(ImVec2(bw, bh));
+            dl->AddText(ImVec2(p.x + padX + tn.x + tsl.x,
+                               p.y + (bh - tc.y) * 0.5f),
+                        ImGui::GetColorU32(touchui::textDim()), chev.c_str());
+            if (ImGui::InvisibleButton("##projTabsChip", ImVec2(bw, bh)))
+                ImGui::OpenPopup("##TouchTabs");
+            renderTouchTabsSheet();
         }
     }
     ImGui::End();
