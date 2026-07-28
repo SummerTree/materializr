@@ -22,6 +22,10 @@ void HelpPanel::render() {
     if (!m_visible) return;
 
     ImGui::SetNextWindowSize(uiSz(560, 540), ImGuiCond_FirstUseEver);
+    if (m_raise) {
+        ImGui::SetNextWindowFocus();
+        m_raise = false;
+    }
     if (!ImGui::Begin("User Guide", &m_visible)) { ImGui::End(); return; }
 
     ImGui::TextWrapped(

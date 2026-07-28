@@ -420,7 +420,14 @@ void Application::applySessionState(size_t idx) {
     m_currentProjectName = in.projectName;
     m_savedAtHistoryStep = in.savedAtHistoryStep;
     m_unsavedNonHistoryChanges = in.unsavedNonHistoryChanges;
-    if (m_viewport) m_viewport->getCamera() = in.camera;
+    if (m_viewport) {
+        m_viewport->getCamera() = in.camera;
+        // The copied camera carries the aspect of wherever it was stashed
+        // (or a fresh session's default) — squished/stretched rendering
+        // until a real resize without this (Steve's "taller and skinnier
+        // mug", 2026-07-28).
+        m_viewport->syncCameraAspect();
+    }
     wireDocumentConsumers();
 }
 

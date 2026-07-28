@@ -434,6 +434,7 @@ void Application::renderFileMenuItems(bool withSettings) {
             m_settingsOrbitButton = m_orbitButton;
             m_settingsPanButton = m_panButton;
             m_showSettings = true;
+            m_settingsRaise = true;
         }
     }
     ImGui::Separator();

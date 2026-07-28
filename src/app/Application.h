@@ -314,6 +314,10 @@ private:
     // (Ctrl+Tab, menus, a refused switch snapping back) so the bar re-asserts
     // the visual selection exactly once instead of fighting user clicks.
     bool m_tabSelectionSync = true;
+    // One-shot: raise the Settings window on the next render. Set by every
+    // explicit open request — an already-open window buried under the home
+    // page otherwise never surfaces.
+    bool m_settingsRaise = false;
     // (Re)apply the current mirrors to everything that holds a Document /
     // History / SelectionManager pointer: panels, event-bus binds, plugin
     // context, per-History callbacks. Called from the ctor and every adopt.

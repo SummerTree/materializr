@@ -131,6 +131,13 @@ namespace materializr {
 
 void Application::renderSettings() {
     if (!m_showSettings) return;
+    if (m_settingsRaise) {
+        // An already-open Settings window can sit BURIED under the full-
+        // screen home page (it only auto-focuses on first appearance) — the
+        // gear then looks dead. Raise on every explicit open request.
+        ImGui::SetNextWindowFocus();
+        m_settingsRaise = false;
+    }
     ImGui::SetNextWindowSize(uiSz(420, 420), ImGuiCond_Appearing);
     if (ImGui::Begin("Settings", &m_showSettings)) {
         bool changed = false; // any change persists the settings file
@@ -5253,6 +5260,7 @@ void Application::renderLandingPage() {
         m_settingsOrbitButton = m_orbitButton;
         m_settingsPanButton = m_panButton;
         m_showSettings = true;
+        m_settingsRaise = true;
         break;   // page stays up beneath the settings window
     case AT::OpenHelp:
         if (m_helpPanel) m_helpPanel->setVisible(true);
