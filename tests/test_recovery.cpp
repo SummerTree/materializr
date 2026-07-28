@@ -89,7 +89,18 @@ struct Env {
                             fs::file_time_type::clock::now() -
                                 std::chrono::hours(1), ec);
     }
-    ~Env() { fs::remove_all(g_base); }
+    ~Env() {
+        // Non-throwing overload, and it matters on Windows. claimedSlot()
+        // deliberately leaks the slot lock handle for the process lifetime;
+        // there that is an exclusive CreateFileA handle, which BLOCKS deletion
+        // of the file. The throwing overload then raises filesystem_error out
+        // of a static destructor — std::terminate, and a non-zero exit that
+        // ctest reports as a failure even though every test passed. POSIX
+        // unlinks open files happily, so this only ever surfaced on Windows.
+        // A few leftover files in the temp directory are harmless.
+        std::error_code ec;
+        fs::remove_all(g_base, ec);
+    }
 } g_env;
 
 } // namespace
