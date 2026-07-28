@@ -33,7 +33,12 @@ struct ProjectRecoveryMeta {
 // write (or truncate) each other's snapshot: the old single shared path let
 // instance A's rename/overwrite yank the file out from under instance B
 // (SIGBUS) and made the restore prompt offer the WRONG session's work.
-std::string projectRecoveryPath();
+// PER-SESSION (tab) snapshots: within this instance's slot, session 0 keeps
+// the legacy file name and session K>0 appends "-t<K>". Every open project
+// gets its own snapshot file, so a crash can offer ALL of them back — the
+// active session writes on the debounce, inactive sessions are written once
+// at tab-deactivation (they cannot change while inactive).
+std::string projectRecoveryPath(int sessionIndex = 0);
 
 // Snapshot the document (+ optional history) to the recovery sidecar, written to
 // a temp file then atomically renamed so a crash mid-write never leaves a
@@ -41,7 +46,7 @@ std::string projectRecoveryPath();
 // unsaved). Best-effort; returns success.
 bool writeProjectRecovery(const Document& doc, const ProjectHistory* history,
                           const std::string& projectPath, int bodyCount,
-                          int stepCount);
+                          int stepCount, int sessionIndex = 0);
 
 // Startup scan: true if some ORPHANED recovery snapshot exists — one whose
 // owning instance is provably dead (its slot lock is acquirable). A snapshot
@@ -58,8 +63,15 @@ std::string projectRecoveryRestorePath();
 // Read the chosen orphan's sidecar metadata (for the restore prompt).
 bool readProjectRecoveryMeta(ProjectRecoveryMeta& meta);
 
-// Delete THIS instance's snapshot + meta (clean exit).
-void clearProjectRecovery();
+// How many orphaned snapshots the startup scan found in total (all dead
+// slots, all their sessions). hasProjectRecovery() picks the newest as the
+// restore candidate; the rest are offered on subsequent launches — and once
+// the tab UI lands, all of them restore into tabs in one go.
+int projectRecoveryOrphanCount();
+
+// Delete THIS instance's snapshot + meta for one session (clean exit /
+// closing a tab).
+void clearProjectRecovery(int sessionIndex = 0);
 
 // Delete the chosen ORPHANED snapshot + meta (user discard, failed restore,
 // or right after a successful restore so it isn't offered again).

@@ -64,6 +64,7 @@ inline void resetFpuForOcct() {
 #include "ui/AboutDialog.h"
 #include "ui/WelcomeScreen.h"
 #include "ui/LandingPage.h"
+#include "app/ProjectSession.h"
 #include "ui_layout_bridge.h"
 #include <fstream>
 #include "ios_storekit.h"
@@ -182,9 +183,13 @@ Application::Application(bool safeMode, float uiScaleOverride)
     // PlaneRenderer ownership moved to ConstructionPlanePlugin (registered
     // as a plugin render pass). Application no longer touches it directly.
     m_backgroundRenderer = std::make_unique<BackgroundRenderer>();
-    m_document = std::make_unique<Document>();
-    m_history = std::make_unique<History>();
-    m_selection = std::make_unique<SelectionManager>();
+    // First project session ("tab"). The session owns document/history/
+    // selection; m_document & co are mirrors into it (see Application.h).
+    m_sessions.push_back(std::make_unique<ProjectSession>());
+    m_activeSession = 0;
+    m_document = m_sessions[0]->document.get();
+    m_history = m_sessions[0]->history.get();
+    m_selection = m_sessions[0]->selection.get();
     m_eventBus = std::make_unique<EventBus>();
 
     // Cascade: when a SketchEditOp commits via a user-driven path that
@@ -237,7 +242,6 @@ Application::Application(bool safeMode, float uiScaleOverride)
     m_selectionHighlight = std::make_unique<SelectionHighlight>();
     m_boxSelect = std::make_unique<BoxSelect>();
     m_sectionView = std::make_unique<SectionView>();
-    m_sectionView->setDocument(m_document.get());
     m_statusBar = std::make_unique<StatusBar>();
     m_themeManager = std::make_unique<ThemeManager>();
     m_propertiesPanel = std::make_unique<PropertiesPanel>();
@@ -253,12 +257,11 @@ Application::Application(bool safeMode, float uiScaleOverride)
     m_shortcutsPanel = std::make_unique<ShortcutsPanel>();
     m_helpPanel = std::make_unique<HelpPanel>();
     m_measureTool = std::make_unique<MeasureTool>();
-    m_measureTool->setDocument(m_document.get());
-    m_measureTool->setSelectionManager(m_selection.get());
 
-    // Wire up references
-    m_toolbar->setSelectionManager(m_selection.get());
-    m_toolbar->setHistory(m_history.get());
+    // Wire up references. Everything that consumes the ACTIVE SESSION's
+    // document/history/selection is wired in wireDocumentConsumers() (called
+    // below, and again on every tab switch); only session-independent wiring
+    // stays inline here.
     m_toolbar->setPluginContext(m_pluginContext.get());
     // Touch mode gates the UI scale and the whole input/UX model, and it must be
     // known before fonts and widget sizes are baked below. Resolve it from the
@@ -286,14 +289,10 @@ Application::Application(bool safeMode, float uiScaleOverride)
         // hard-coded pixel widths grow with the font instead of clipping.
         materializr::setUiScale(m_window->uiScale());
     }
-    m_history->setThreadsLastDeclineCallback([this]{ showThreadsLastToast(); });
+    // The recut hook reads m_document dynamically ([this] capture), so it is
+    // tab-safe installed once; the per-History callbacks live in
+    // wireDocumentConsumers().
     installThreadRecutHook();
-    m_historyPanel->setHistory(m_history.get());
-    m_historyPanel->setDocument(m_document.get());
-    m_historyPanel->setEventBus(m_eventBus.get());
-    m_itemsPanel->setDocument(m_document.get());
-    m_itemsPanel->setSelectionManager(m_selection.get());
-    m_itemsPanel->setHistory(m_history.get());
     m_itemsPanel->setDirtyCallback([this]() { markDirty(); });
     m_itemsPanel->setExportStlCallback([this](int bodyId) { exportBodyAsStl(bodyId); });
     m_itemsPanel->setExportToProjectCallback(
@@ -305,12 +304,6 @@ Application::Application(bool safeMode, float uiScaleOverride)
     m_itemsPanel->setCombineSketchesCallback(
         [this](const std::vector<int>& ids) { combineSketches(ids); });
     m_itemsPanel->setRotatePlaneCallback([this](int planeId) { beginRotatePlaneAboutAxis(planeId); });
-    m_statusBar->setDocument(m_document.get());
-    m_statusBar->setSelectionManager(m_selection.get());
-    m_propertiesPanel->setHistory(m_history.get());
-    m_propertiesPanel->setDocument(m_document.get());
-    m_propertiesPanel->setSelectionManager(m_selection.get());
-    m_propertiesPanel->setEventBus(m_eventBus.get());
     m_propertiesPanel->setRotatePlaneCallback([this](int planeId) { beginRotatePlaneAboutAxis(planeId); });
     m_propertiesPanel->setDirtyCallback([this]() { markDirty(); });
     m_propertiesPanel->setLinkInfoCallback(
@@ -350,17 +343,88 @@ Application::Application(bool safeMode, float uiScaleOverride)
     renderSplashFrame("Almost there");
     setupCommands();
 
-    // Wire EventBus into core services
+    // Session-dependent wiring: panels, event-bus binds, plugin context.
+    wireDocumentConsumers();
+    materializr::force_link::linkAll();
+    PluginRegistry::instance().initAll(*m_pluginContext);
+}
+
+void Application::wireDocumentConsumers() {
+    // Everything that caches a Document/History/SelectionManager pointer.
+    // Re-run in full on every adoptSession — a consumer missing from this
+    // list keeps operating on the PREVIOUS tab's project, which is the
+    // defining bug class of the tabs design. Guards allow the ctor to call
+    // this before every panel exists.
+    if (m_sectionView) m_sectionView->setDocument(m_document);
+    if (m_measureTool) {
+        m_measureTool->setDocument(m_document);
+        m_measureTool->setSelectionManager(m_selection);
+    }
+    if (m_toolbar) {
+        m_toolbar->setSelectionManager(m_selection);
+        m_toolbar->setHistory(m_history);
+    }
+    if (m_historyPanel) {
+        m_historyPanel->setHistory(m_history);
+        m_historyPanel->setDocument(m_document);
+        m_historyPanel->setEventBus(m_eventBus.get());
+    }
+    if (m_itemsPanel) {
+        m_itemsPanel->setDocument(m_document);
+        m_itemsPanel->setSelectionManager(m_selection);
+        m_itemsPanel->setHistory(m_history);
+    }
+    if (m_statusBar) {
+        m_statusBar->setDocument(m_document);
+        m_statusBar->setSelectionManager(m_selection);
+    }
+    if (m_propertiesPanel) {
+        m_propertiesPanel->setHistory(m_history);
+        m_propertiesPanel->setDocument(m_document);
+        m_propertiesPanel->setSelectionManager(m_selection);
+        m_propertiesPanel->setEventBus(m_eventBus.get());
+    }
+    // Core services of THIS session bind to the app-wide event bus, and the
+    // per-History callbacks are re-applied (they are instance state, not
+    // type state — a fresh session's History has none).
     m_document->setEventBus(m_eventBus.get());
     m_history->setEventBus(m_eventBus.get());
     m_selection->setEventBus(m_eventBus.get());
+    m_history->setThreadsLastDeclineCallback([this]{ showThreadsLastToast(); });
+    if (m_pluginContext && m_viewport)
+        m_pluginContext->_bind(m_document, m_history, m_selection,
+                               m_eventBus.get(), &m_viewport->getCamera(),
+                               &m_meshesDirty, &m_inSketchMode);
+}
 
-    // Plugin system
-    m_pluginContext->_bind(m_document.get(), m_history.get(), m_selection.get(),
-                          m_eventBus.get(), &m_viewport->getCamera(), &m_meshesDirty,
-                          &m_inSketchMode);
-    materializr::force_link::linkAll();
-    PluginRegistry::instance().initAll(*m_pluginContext);
+void Application::adoptSession(size_t idx) {
+    if (idx >= m_sessions.size()) return;
+    // Snapshot the outgoing project's recovery file while its state is still
+    // live in the mirrors — inactive tabs don't tick the debounced writer.
+    if (idx != m_activeSession) writeSessionRecoveryNow();
+    // Stash the outgoing session's working state. The mirrors themselves
+    // (m_document & co) need no stashing — they already point into it.
+    if (m_activeSession < m_sessions.size()) {
+        ProjectSession& out = *m_sessions[m_activeSession];
+        out.projectPath = m_currentProjectPath;
+        out.projectName = m_currentProjectName;
+        out.savedAtHistoryStep = m_savedAtHistoryStep;
+        out.unsavedNonHistoryChanges = m_unsavedNonHistoryChanges;
+        if (m_viewport) out.camera = m_viewport->getCamera();
+    }
+
+    m_activeSession = idx;
+    ProjectSession& in = *m_sessions[idx];
+    m_document = in.document.get();
+    m_history = in.history.get();
+    m_selection = in.selection.get();
+    m_currentProjectPath = in.projectPath;
+    m_currentProjectName = in.projectName;
+    m_savedAtHistoryStep = in.savedAtHistoryStep;
+    m_unsavedNonHistoryChanges = in.unsavedNonHistoryChanges;
+    if (m_viewport) m_viewport->getCamera() = in.camera;
+
+    wireDocumentConsumers();
 }
 
 Application::~Application() {
@@ -5948,10 +6012,28 @@ void Application::writeProjectRecoveryIfDue() {
     if (!m_threadRecuts.empty()) return;
     ProjectHistory hist = captureProjectHistory(/*cancelPreviews=*/false);
     if (materializr::writeProjectRecovery(*m_document, &hist, m_currentProjectPath,
-                                          bodies, curStep + 1)) {
+                                          bodies, curStep + 1,
+                                          currentSession().recoveryIndex)) {
         m_lastRecoveryWrite = now;
         m_lastRecoveryStep = curStep;
     }
+}
+
+void Application::writeSessionRecoveryNow() {
+    // Forced (undebounced) snapshot of the ACTIVE session — called when a tab
+    // is about to deactivate. An inactive session cannot change, so this one
+    // write keeps its recovery file exact until it becomes active again;
+    // combined with the debounced writer above, EVERY open project survives a
+    // crash, not just the front tab.
+    if (!isDirty() || !m_document) return;
+    if (m_history && m_history->canRedo()) return;   // same below-tip guard
+    if (!m_threadRecuts.empty()) return;
+    ProjectHistory hist = captureProjectHistory(/*cancelPreviews=*/false);
+    materializr::writeProjectRecovery(
+        *m_document, &hist, m_currentProjectPath,
+        m_document->bodyCount(),
+        (m_history ? m_history->currentStep() : -1) + 1,
+        currentSession().recoveryIndex);
 }
 
 void Application::renderProjectRecoveryPrompt() {
@@ -5979,6 +6061,13 @@ void Application::renderProjectRecoveryPrompt() {
                             meta.bodyCount, meta.stepCount);
         ImGui::TextDisabled(
             "Materializr didn't close cleanly (a crash, hang, or restart).");
+        // Several tabs' worth of work can be waiting (one snapshot per open
+        // project); they restore one per launch until the tab UI can take
+        // them all at once.
+        if (materializr::projectRecoveryOrphanCount() > 1)
+            ImGui::TextDisabled("%d more recovered project(s) will be offered "
+                                "on the next launch.",
+                                materializr::projectRecoveryOrphanCount() - 1);
         ImGui::Spacing();
         if (ImGui::Button("Restore it", ImVec2(140, 0))) {
             restoreProjectRecoveryNow();
@@ -6031,6 +6120,10 @@ void Application::run() {
     // A whole-project recovery snapshot surviving means the last session ended
     // unexpectedly with unsaved work — offer to restore that too.
     m_pendingProjectRecovery = materializr::hasProjectRecovery();
+    std::fprintf(stderr, "[Recovery] startup scan: pending=%d orphans=%d path=%s\n",
+                 m_pendingProjectRecovery ? 1 : 0,
+                 materializr::projectRecoveryOrphanCount(),
+                 materializr::projectRecoveryRestorePath().c_str());
 
     // Opt-in perf instrumentation (MZR_PERF=1): once a second, report how many
     // frames we actually RENDERED vs how many loop iterations ran, plus which
@@ -6817,9 +6910,11 @@ void Application::run() {
 
     // Persist preferences on a clean exit (in addition to saving on each change).
     saveAppSettings();
-    // Clean exit → the crash-recovery snapshot is no longer "unfinished work".
-    // A snapshot surviving to the next launch therefore means a crash/hang/kill.
-    materializr::clearProjectRecovery();
+    // Clean exit → the crash-recovery snapshots are no longer "unfinished
+    // work" — clear EVERY session's file, not just the active tab's. A
+    // snapshot surviving to the next launch therefore means a crash/hang/kill.
+    for (const auto& s : m_sessions)
+        materializr::clearProjectRecovery(s->recoveryIndex);
 }
 
 } // namespace materializr

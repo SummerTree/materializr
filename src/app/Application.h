@@ -61,6 +61,7 @@ class StatusBar;
 class ThemeManager;
 class PropertiesPanel;
 class LandingPage;
+struct ProjectSession;
 class Sketch;
 class SketchSolver;
 class SketchTool;
@@ -251,6 +252,22 @@ private:
     // relying on z-order alone is fragile because any later focus event can
     // lift a chrome window above the page.
     bool landingPageUp() const;
+
+    // ── Project sessions (tabs) ──────────────────────────────────────────
+    // Make m_sessions[idx] the active project: stash the outgoing session's
+    // working state (path/name/dirty/camera), repoint the m_document /
+    // m_history / m_selection mirrors, restore the incoming session's state
+    // and rewire every consumer that caches document pointers.
+    void adoptSession(size_t idx);
+    // Forced (undebounced) recovery snapshot of the active session; called
+    // right before a tab deactivates so inactive tabs always have an exact
+    // crash-recovery file.
+    void writeSessionRecoveryNow();
+    // (Re)apply the current mirrors to everything that holds a Document /
+    // History / SelectionManager pointer: panels, event-bus binds, plugin
+    // context, per-History callbacks. Called from the ctor and every adopt.
+    void wireDocumentConsumers();
+    ProjectSession& currentSession() { return *m_sessions[m_activeSession]; }
     // Landing-page tile context menu: load a recent project's BAKED bodies
     // into a scratch Document and export them as STEP/STL. Deliberately not
     // parametric — final shapes only.
@@ -570,9 +587,17 @@ private:
     std::unique_ptr<SelectionHighlight> m_selectionHighlight;
     std::unique_ptr<BoxSelect> m_boxSelect;
     std::unique_ptr<SectionView> m_sectionView;
-    std::unique_ptr<Document> m_document;
-    std::unique_ptr<History> m_history;
-    std::unique_ptr<SelectionManager> m_selection;
+    // The open projects ("tabs"). Sessions OWN the document/history/selection;
+    // the raw pointers below are mirrors into m_sessions[m_activeSession],
+    // repointed by adoptSession() so the existing ~900 `m_document->` sites
+    // compile (and stay tab-correct) unchanged. Declared HERE, where the old
+    // unique_ptrs sat, so destruction order relative to the renderers and the
+    // event bus is exactly what it was single-session.
+    std::vector<std::unique_ptr<ProjectSession>> m_sessions;
+    size_t m_activeSession = 0;
+    Document* m_document = nullptr;
+    History* m_history = nullptr;
+    SelectionManager* m_selection = nullptr;
     std::unique_ptr<EventBus> m_eventBus;
     std::unique_ptr<PluginContext> m_pluginContext;
 

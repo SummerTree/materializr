@@ -939,7 +939,7 @@ void Application::beginThread() {
                 continue;
             try {
                 materializr::topo::Context ctx;
-                ctx.doc = m_document.get();
+                ctx.doc = m_document;
                 ctx.shape = m_document->getBody(m_threadBodyId);
                 ctx.type = TopAbs_FACE;
                 m_threadFaceRef = materializr::topo::mint(TopoDS::Face(e.shape), ctx);
@@ -4180,7 +4180,7 @@ bool Application::launchThreadRecut(ThreadOp& op, int attempts) {
 void Application::installThreadRecutHook() {
     ThreadOp::setAsyncRecutHook([this](ThreadOp& op, Document& doc) -> bool {
         // Only the live document (headless/temp docs keep the sync path).
-        if (!m_document || &doc != m_document.get()) return false;
+        if (!m_document || &doc != m_document) return false;
         // Single-flight per op: a request while one is pending stays pending —
         // the landing check sees the body changed since launch and RELAUNCHES
         // against the current state, so the newest edit always wins.

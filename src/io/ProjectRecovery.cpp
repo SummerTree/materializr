@@ -46,6 +46,17 @@ std::string slotSnapshotPath(int slot) {
     if (slot == 0) return recoveryDir() + "/autosave.materializr";
     return recoveryDir() + "/autosave-" + std::to_string(slot) + ".materializr";
 }
+// Per-session (tab) snapshot within a slot. Session 0 keeps the slot's legacy
+// name so snapshots written by older single-session builds are still found
+// (and ours still restore on an older build); later sessions insert "-t<K>"
+// before the extension.
+std::string sessionSnapshotPath(int slot, int sessionIndex) {
+    if (sessionIndex <= 0) return slotSnapshotPath(slot);
+    std::string base = slotSnapshotPath(slot);
+    const std::string ext = ".materializr";
+    return base.substr(0, base.size() - ext.size()) +
+           "-t" + std::to_string(sessionIndex) + ext;
+}
 std::string slotLockPath(int slot) {
     return recoveryDir() + "/slot" + std::to_string(slot) + ".lock";
 }
@@ -114,16 +125,20 @@ std::string metaPathFor(const std::string& snapshotPath) {
     return snapshotPath + ".meta";
 }
 
-// The orphaned snapshot chosen by hasProjectRecovery() for this launch.
+// The orphaned snapshot chosen by hasProjectRecovery() for this launch, and
+// how many orphans the scan saw in total (for the prompt's plural wording).
 std::string s_candidatePath;
+int s_orphanCount = 0;
 } // namespace
 
-std::string projectRecoveryPath() { return slotSnapshotPath(claimedSlot()); }
+std::string projectRecoveryPath(int sessionIndex) {
+    return sessionSnapshotPath(claimedSlot(), sessionIndex);
+}
 
 bool writeProjectRecovery(const Document& doc, const ProjectHistory* history,
                           const std::string& projectPath, int bodyCount,
-                          int stepCount) {
-    const std::string path = projectRecoveryPath();
+                          int stepCount, int sessionIndex) {
+    const std::string path = projectRecoveryPath(sessionIndex);
     std::error_code ec;
     std::filesystem::create_directories(
         std::filesystem::path(path).parent_path(), ec);
@@ -160,25 +175,33 @@ bool hasProjectRecovery() {
     (void)claimedSlot();
 
     s_candidatePath.clear();
+    s_orphanCount = 0;
     std::error_code ec;
     std::filesystem::file_time_type bestTime{};
     for (int n = 0; n < 16; ++n) {
-        const std::string snap = slotSnapshotPath(n);
-        if (!std::filesystem::exists(snap, ec)) continue;
-        // Liveness probe: acquirable lock = the owning instance is dead (or
-        // the file predates slot locks — same conclusion: nobody owns it).
+        // Liveness probe once per slot: acquirable lock = the owning instance
+        // is dead (or the files predate slot locks — same conclusion: nobody
+        // owns them). A dead slot may hold SEVERAL per-session snapshots —
+        // one per tab that instance had open — and every one is an orphan.
         LockHandle h = tryLock(slotLockPath(n));
         if (h == kBadLock) continue; // owner alive (possibly us) — not ours to offer
         releaseLock(h);
-        auto t = std::filesystem::last_write_time(snap, ec);
-        if (ec) t = std::filesystem::file_time_type{};
-        if (s_candidatePath.empty() || t > bestTime) {
-            s_candidatePath = snap;
-            bestTime = t;
+        for (int t = 0; t < 16; ++t) {
+            const std::string snap = sessionSnapshotPath(n, t);
+            if (!std::filesystem::exists(snap, ec)) continue;
+            ++s_orphanCount;
+            auto mt = std::filesystem::last_write_time(snap, ec);
+            if (ec) mt = std::filesystem::file_time_type{};
+            if (s_candidatePath.empty() || mt > bestTime) {
+                s_candidatePath = snap;
+                bestTime = mt;
+            }
         }
     }
     return !s_candidatePath.empty();
 }
+
+int projectRecoveryOrphanCount() { return s_orphanCount; }
 
 std::string projectRecoveryRestorePath() { return s_candidatePath; }
 
@@ -207,11 +230,12 @@ bool readProjectRecoveryMeta(ProjectRecoveryMeta& meta) {
     return true;
 }
 
-void clearProjectRecovery() {
+void clearProjectRecovery(int sessionIndex) {
     std::error_code ec;
-    std::filesystem::remove(projectRecoveryPath(), ec);
-    std::filesystem::remove(projectRecoveryPath() + ".tmp", ec);
-    std::filesystem::remove(metaPathFor(projectRecoveryPath()), ec);
+    const std::string p = projectRecoveryPath(sessionIndex);
+    std::filesystem::remove(p, ec);
+    std::filesystem::remove(p + ".tmp", ec);
+    std::filesystem::remove(metaPathFor(p), ec);
 }
 
 void clearProjectRecoveryCandidate() {
