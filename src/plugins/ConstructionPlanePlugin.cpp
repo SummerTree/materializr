@@ -66,6 +66,14 @@ REGISTER_PLUGIN(ConstructionPlane, [](materializr::PluginContext& ctx) {
         [](const materializr::PlaneChangedEvent&) {
             if (g_state) g_state->dirty = true;
         });
+    // A different TAB is now in front: this cache belongs to the old
+    // document. No Plane event fires for that (neither document changed —
+    // the active one did), so without this the previous project's planes
+    // keep drawing over the new one.
+    ctx.events().subscribe<materializr::ActiveDocumentChangedEvent>(
+        [](const materializr::ActiveDocumentChangedEvent&) {
+            if (g_state) g_state->dirty = true;
+        });
 
     // Render pass — Application iterates registered passes once per frame
     // after the body / edge / grid layer but before the gizmo overlay.

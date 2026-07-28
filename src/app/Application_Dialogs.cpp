@@ -170,12 +170,14 @@ void Application::renderSettings() {
 
                     ImGui::Spacing();
                     ImGui::SeparatorText("Session");
-                    if (ImGui::Checkbox("Open last project on launch", &m_autoOpenLastProject)) {
+                    if (ImGui::Checkbox("Reopen last session on launch", &m_autoOpenLastProject)) {
                         changed = true;
                     }
-                    ImGui::TextWrapped("If on, Materializr reopens the project you had open the last "
-                                       "time you quit. Using File → Close Project before quitting "
-                                       "makes the next launch start empty instead.");
+                    ImGui::TextWrapped("If on, Materializr reopens every project you had open when "
+                                       "you quit — one tab each — and skips the home screen. "
+                                       "Closing a project's tab before quitting leaves it out; "
+                                       "projects that have never been saved aren't restored here "
+                                       "(crash recovery offers those separately).");
 
                     ImGui::Spacing();
                     if (ImGui::Checkbox("Check for updates on launch", &m_checkForUpdatesOnLaunch)) {
@@ -4941,6 +4943,25 @@ void Application::cacheProjectThumbnail(const std::string& ref,
                    static_cast<std::streamsize>(png.size()));
 }
 
+// Is the cached PNG at least as new as the project it came from? Peeking a
+// thumbnail costs a full gunzip of the whole project (the section sits after
+// the body blocks), so the cache is the difference between "inflate 10
+// projects on every launch" and "inflate each one once, ever". An mtime
+// comparison is two stats and needs no format change; a re-saved project is
+// newer than its cache and gets peeked again.
+bool Application::thumbCacheFresh(const std::string& ref) const {
+    if (ref.rfind("content:", 0) == 0) return true;  // no cheap stat via SAF
+    const std::string path = thumbCacheFile(ref);
+    if (path.empty()) return false;
+    std::error_code ec;
+    if (!std::filesystem::exists(path, ec)) return false;
+    auto cached = std::filesystem::last_write_time(path, ec);
+    if (ec) return false;
+    auto src = std::filesystem::last_write_time(ref, ec);
+    if (ec) return true;   // project unreadable — a stale tile beats none
+    return cached >= src;
+}
+
 bool Application::readCachedThumbnail(const std::string& ref,
                                       std::vector<uint8_t>& png) {
     const std::string path = thumbCacheFile(ref);
@@ -4952,13 +4973,28 @@ bool Application::readCachedThumbnail(const std::string& ref,
     return !png.empty();
 }
 
+// Upload one decoded RGBA image as a GL texture. Main thread only.
+static GLuint uploadThumbTexture(const DecodedImage& img) {
+    GLuint tex = 0;
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, img.width, img.height,
+                 0, GL_RGBA, GL_UNSIGNED_BYTE, img.rgba.data());
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    return tex;
+}
+
 void Application::showLandingPage(bool fromStartup) {
     if (!m_landingPage) return;
     m_landingPage->setCanDismiss(!fromStartup);
-    // Rebuild the tiles fresh on every show: refs + names from the MRU,
-    // previews peeked from each file's embedded THUMB_PNG section. Legacy
-    // saves (pre-1.6) and content: URIs (no cheap read path through SAF)
-    // simply have no preview until their next save — placeholder tile.
+    // Tiles go up IMMEDIATELY: refs + names from the MRU, plus any preview the
+    // cache can serve straight away (a small PNG read). Anything that needs
+    // the project file itself is left blank and filled in by a worker — a peek
+    // gunzips the WHOLE project to read one line near the end of the body
+    // blocks, so doing ten of them inline froze startup for seconds on big
+    // projects, and again on every return to the home screen.
+    std::vector<std::string> misses;
     std::vector<LandingPage::Entry> entries;
     entries.reserve(m_recentProjects.size());
     for (const auto& rp : m_recentProjects) {
@@ -4966,26 +5002,88 @@ void Application::showLandingPage(bool fromStartup) {
         e.ref = rp.ref;
         e.name = rp.name.empty() ? rp.ref : rp.name;
         std::vector<uint8_t> png;
-        bool have = rp.ref.rfind("content:", 0) != 0 &&
-                    ProjectIO::peekThumbnail(rp.ref, png);
-        if (!have) have = readCachedThumbnail(rp.ref, png);
-        if (have) {
+        if (thumbCacheFresh(rp.ref) && readCachedThumbnail(rp.ref, png)) {
             DecodedImage img;
-            if (decodeImage(png.data(), png.size(), img)) {
-                GLuint tex = 0;
-                glGenTextures(1, &tex);
-                glBindTexture(GL_TEXTURE_2D, tex);
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, img.width, img.height,
-                             0, GL_RGBA, GL_UNSIGNED_BYTE, img.rgba.data());
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-                e.tex = tex;
+            if (decodeImage(png.data(), png.size(), img))
+                e.tex = uploadThumbTexture(img);
+        } else if (rp.ref.rfind("content:", 0) != 0) {
+            // Only filesystem refs can be peeked; a content: URI has no cheap
+            // read path through SAF, so it keeps whatever the cache holds
+            // (written when the project was last opened or saved).
+            misses.push_back(rp.ref);
+            if (readCachedThumbnail(rp.ref, png)) {   // stale, but better than
+                DecodedImage img;                     // an empty tile meanwhile
+                if (decodeImage(png.data(), png.size(), img))
+                    e.tex = uploadThumbTexture(img);
             }
         }
         entries.push_back(std::move(e));
     }
     m_landingPage->setEntries(std::move(entries));
     m_landingPage->setVisible(true);
+    startThumbnailPeeks(misses);
+}
+
+// Peek the projects the cache couldn't serve, off the UI thread. Results are
+// dropped in a shared queue and drained by drainThumbnailPeeks() on the main
+// thread, which owns the GL context. The job is shared_ptr-held and carries a
+// cancel flag, so a landing page that closes (or a second show) abandons the
+// old worker's results instead of racing them.
+void Application::startThumbnailPeeks(const std::vector<std::string>& refs) {
+    if (m_thumbJob) m_thumbJob->cancel = true;   // supersede any earlier show
+    m_thumbJob.reset();
+    if (refs.empty()) return;
+    auto job = std::make_shared<ThumbJob>();
+    m_thumbJob = job;
+    // DETACHED, deliberately not std::async: destroying the previous future
+    // would BLOCK the main thread until that worker finished, and the cancel
+    // flag can only be seen between files — mid-inflate of a 100MB project it
+    // would stall exactly the startup this exists to keep smooth. The job is
+    // shared_ptr-owned, so the thread never touches Application state.
+    std::thread([job, refs]() {
+        for (const auto& ref : refs) {
+            if (job->cancel) return;
+            std::vector<uint8_t> png;
+            if (!ProjectIO::peekThumbnail(ref, png)) continue;
+            // Cache it so this file is never inflated again (until re-saved).
+            // Temp-then-rename: this thread is detached, so process exit can
+            // kill it mid-write, and a torn PNG would be served as a real
+            // cache hit forever after.
+            const std::string path = thumbCacheFile(ref);
+            if (!path.empty()) {
+                const std::string tmp = path + ".tmp";
+                bool wrote = false;
+                {
+                    std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
+                    if (f) {
+                        f.write(reinterpret_cast<const char*>(png.data()),
+                                static_cast<std::streamsize>(png.size()));
+                        wrote = f.good();
+                    }
+                }
+                std::error_code ec;
+                if (wrote) std::filesystem::rename(tmp, path, ec);
+                else       std::filesystem::remove(tmp, ec);
+            }
+            DecodedImage img;
+            if (!decodeImage(png.data(), png.size(), img)) continue;
+            if (job->cancel) return;
+            std::lock_guard<std::mutex> lk(job->mutex);
+            job->done.push_back({ref, std::move(img)});
+        }
+    }).detach();
+}
+
+// Main thread: hand any finished peeks to the landing page as GL textures.
+void Application::drainThumbnailPeeks() {
+    if (!m_thumbJob || !m_landingPage) return;
+    std::vector<ThumbResult> batch;
+    {
+        std::lock_guard<std::mutex> lk(m_thumbJob->mutex);
+        batch.swap(m_thumbJob->done);
+    }
+    for (auto& r : batch)
+        m_landingPage->setEntryTexture(r.ref, uploadThumbTexture(r.img));
 }
 
 void Application::exportRecentProjectAs(const std::string& ref,
@@ -5275,6 +5373,9 @@ void Application::exportBodyToNewProject(int bodyId) {
 
 void Application::renderLandingPage() {
     if (!m_landingPage || !m_landingPage->isVisible()) return;
+    // Thumbnails peeked off-thread since the last frame become textures here,
+    // where the GL context lives; tiles fill in as they arrive.
+    drainThumbnailPeeks();
     // ImTextureID is an integer alias in this imgui config; the logo texture
     // is a plain GL name, so a value cast is exact.
     m_landingPage->setLogoTexture(

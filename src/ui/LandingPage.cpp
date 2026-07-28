@@ -38,6 +38,25 @@ void LandingPage::setEntries(std::vector<Entry> entries) {
     m_entries = std::move(entries);
 }
 
+void LandingPage::setEntryTexture(const std::string& ref, unsigned int tex) {
+    if (!tex) return;
+    for (auto& e : m_entries) {
+        if (e.ref != ref) continue;
+        // A stale-cache preview may already be showing; the freshly peeked
+        // one replaces it.
+        if (e.tex) {
+            GLuint old = e.tex;
+            glDeleteTextures(1, &old);
+        }
+        e.tex = tex;
+        return;
+    }
+    // The tile list changed under a peek that was already in flight — its
+    // texture has no home, so don't leak it.
+    GLuint orphan = tex;
+    glDeleteTextures(1, &orphan);
+}
+
 namespace {
 
 // Middle-of-nowhere ellipsis helper: trim `s` so it fits in maxW, appending

@@ -63,6 +63,12 @@ REGISTER_PLUGIN(ConstructionAxis, [](materializr::PluginContext& ctx) {
         [](const materializr::AxisChangedEvent&) {
             if (g_state) g_state->dirty = true;
         });
+    // Tab switch: this draw list belongs to the outgoing document (see the
+    // same subscription in ConstructionPlanePlugin).
+    ctx.events().subscribe<materializr::ActiveDocumentChangedEvent>(
+        [](const materializr::ActiveDocumentChangedEvent&) {
+            if (g_state) g_state->dirty = true;
+        });
 
     // Render pass — Application iterates registered passes once per frame.
     materializr::RenderPassContribution pass;

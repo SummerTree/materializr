@@ -84,6 +84,15 @@ struct AxisChangedEvent {
     int axisId = -1;
 };
 
+// The ACTIVE DOCUMENT was swapped underneath everything — a different tab is
+// now in front (or a project was loaded into this one). Anything holding
+// state DERIVED from the document must rebuild: unlike Plane/Axis/Body
+// events, nothing about the old document changed, so no other event fires.
+// Plugins that cache a draw list keyed on the document (construction planes
+// and axes, reference images) subscribe to this; without it they keep
+// drawing the previous tab's overlays over the new project.
+struct ActiveDocumentChangedEvent {};
+
 struct ShutdownEvent {};
 
 } // namespace materializr

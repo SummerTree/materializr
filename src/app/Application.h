@@ -4,12 +4,14 @@
 #include <memory>
 #include <atomic>
 #include <future>
+#include <mutex>
 #include <vector>
 #include <functional>
 #include <string>
 #include <set>
 #include <map>
 #include <glm/glm.hpp>
+#include "io/ImageDecode.h"   // DecodedImage — thumbnail peek results
 #include "ui/UpdateChecker.h"
 #include <TopoDS_Shape.hxx>
 #include <TopoDS_Face.hxx>
@@ -300,6 +302,11 @@ private:
     // etc.) the just-created session is cleaned up again. False = nothing
     // happened (the refusal already toasted).
     bool openNewTab();
+    // Reopen a previous session's projects, one per tab, and focus the tab
+    // that was in front. Runs from the deferred startup slot when "open last
+    // project on launch" is on. Missing projects are skipped, not fatal.
+    void restoreSessionTabs(const std::vector<std::string>& paths,
+                            size_t activeIndex);
     // The "+" button's dropdown, shared by all three layouts: New Project /
     // Open Project... / Open Recent — every flavor lands in its own new tab.
     void renderNewTabMenuBody();
@@ -335,6 +342,22 @@ private:
     void cacheProjectThumbnail(const std::string& ref,
                                const std::vector<uint8_t>& png);
     bool readCachedThumbnail(const std::string& ref, std::vector<uint8_t>& png);
+    // Cache entry at least as new as the project file it came from.
+    bool thumbCacheFresh(const std::string& ref) const;
+
+    // Off-thread thumbnail peeks for landing tiles the cache couldn't serve.
+    // ProjectIO::peekThumbnail gunzips an ENTIRE project to read one line, so
+    // a full recents list of these blocked startup for seconds; the worker
+    // decodes to RGBA and the main thread uploads (GL is not shareable here).
+    struct ThumbResult { std::string ref; DecodedImage img; };
+    struct ThumbJob {
+        std::mutex mutex;
+        std::vector<ThumbResult> done;
+        std::atomic<bool> cancel{false};
+    };
+    void startThumbnailPeeks(const std::vector<std::string>& refs);
+    void drainThumbnailPeeks();   // main thread, while the landing page is up
+    std::shared_ptr<ThumbJob> m_thumbJob;
 
     // Cross-project parts: scratch-load `ref` and open the "Import Parts"
     // modal listing its bodies + sketches. `intoNewProject` (landing-tile

@@ -40,6 +40,12 @@ std::string configBaseDir() {
 
 std::string recoveryDir() { return configBaseDir() + "/recovery"; }
 
+// Concurrent instances that get their own snapshot namespace, and tabs per
+// instance that get their own snapshot file. Both scans and the free-slot
+// search must agree on these bounds — a mismatch either hides orphans or
+// reclaims a slot that still holds live work.
+constexpr int kMaxSlots = 16;   // kMaxSessionsPerSlot lives in the header
+
 // Slot N's snapshot filename. Slot 0 keeps the legacy name so recovery files
 // written by older builds are still found (as slot-0 orphans) after updating.
 std::string slotSnapshotPath(int slot) {
@@ -95,6 +101,22 @@ void releaseLock(LockHandle h) {
 }
 #endif
 
+// True if slot N holds ANY session's leftover snapshot. Checking only the
+// session-0 (legacy) name is not enough: a slot can hold nothing but "-t<K>"
+// files — an instance that quit cleanly with an unsaved BACKGROUND tab leaves
+// exactly that, since clean exit deliberately preserves a dirty inactive tab's
+// snapshot while clearing the active one's. Treating such a slot as free let a
+// new instance claim it, which hid those orphans from the scan (it skips slots
+// whose lock it cannot take — and we would then hold that lock) and then
+// overwrote them with our own tabs. That is the only copy of that work.
+bool slotHasAnySnapshot(int slot) {
+    std::error_code ec;
+    for (int t = 0; t < kMaxSessionsPerSlot; ++t)
+        if (std::filesystem::exists(sessionSnapshotPath(slot, t), ec))
+            return true;
+    return false;
+}
+
 // Claim this instance's slot (first call only; the lock handle is deliberately
 // leaked so it lives exactly as long as the process).
 int claimedSlot() {
@@ -106,8 +128,8 @@ int claimedSlot() {
         // orphan scan treat the file as OURS (probe denied against our own
         // lock) and silently shadow the very recovery we should be offering.
         for (int pass = 0; pass < 2; ++pass) {
-            for (int n = 0; n < 16; ++n) {
-                if (pass == 0 && std::filesystem::exists(slotSnapshotPath(n), ec))
+            for (int n = 0; n < kMaxSlots; ++n) {
+                if (pass == 0 && slotHasAnySnapshot(n))
                     continue;
                 LockHandle h = tryLock(slotLockPath(n));
                 if (h != kBadLock) return n; // hold forever (kernel frees on exit)
@@ -193,7 +215,7 @@ bool hasProjectRecovery() {
     s_orphanCount = 0;
     std::error_code ec;
     std::filesystem::file_time_type bestTime{};
-    for (int n = 0; n < 16; ++n) {
+    for (int n = 0; n < kMaxSlots; ++n) {
         // Liveness probe once per slot: acquirable lock = the owning instance
         // is dead (or the files predate slot locks — same conclusion: nobody
         // owns them). A dead slot may hold SEVERAL per-session snapshots —
@@ -201,7 +223,7 @@ bool hasProjectRecovery() {
         LockHandle h = tryLock(slotLockPath(n));
         if (h == kBadLock) continue; // owner alive (possibly us) — not ours to offer
         releaseLock(h);
-        for (int t = 0; t < 16; ++t) {
+        for (int t = 0; t < kMaxSessionsPerSlot; ++t) {
             const std::string snap = sessionSnapshotPath(n, t);
             if (!std::filesystem::exists(snap, ec)) continue;
             ++s_orphanCount;

@@ -182,6 +182,18 @@ std::string mobileOpenUri(const std::string& uri) {
     return callStaticStringArg("nativeOpenUri", uri);
 }
 
+bool mobileLastOpenWasFallback() {
+    JNIEnv* env; jobject act; jclass cls;
+    if (!jniActivity(env, act, cls)) return false;
+    jboolean ok = JNI_FALSE;
+    jmethodID mid = env->GetStaticMethodID(cls, "nativeLastOpenWasFallback", "()Z");
+    if (mid) ok = env->CallStaticBooleanMethod(cls, mid);
+    if (env->ExceptionCheck()) env->ExceptionClear();
+    env->DeleteLocalRef(cls);
+    env->DeleteLocalRef(act);
+    return ok == JNI_TRUE;
+}
+
 void mobileShowTextInput() { callStaticVoidNoArg("nativeShowKeyboard"); }
 void mobileHideTextInput() { callStaticVoidNoArg("nativeHideKeyboard"); }
 

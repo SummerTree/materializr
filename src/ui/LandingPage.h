@@ -46,6 +46,13 @@ public:
     // (deleted on the next setEntries / destruction). GL context required.
     void setEntries(std::vector<Entry> entries);
 
+    // Attach a thumbnail to an already-shown tile — the tiles go up before
+    // their previews are read (peeking one costs a full project inflate, so
+    // it happens off-thread). Takes ownership of `tex`; a no-op ref, or a
+    // tile that already has a texture, deletes the incoming one instead of
+    // leaking it. GL context required.
+    void setEntryTexture(const std::string& ref, unsigned int tex);
+
     // Draw (when visible) and report what the user picked this frame. The
     // caller owns the consequences — this class never loads or creates
     // projects itself.

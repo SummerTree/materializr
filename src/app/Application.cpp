@@ -2,6 +2,7 @@
 #include "gl_common.h"
 #include <SDL.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <chrono>
 #include <filesystem>
@@ -395,6 +396,13 @@ void Application::wireDocumentConsumers() {
         m_pluginContext->_bind(m_document, m_history, m_selection,
                                m_eventBus.get(), &m_viewport->getCamera(),
                                &m_meshesDirty, &m_inSketchMode);
+    // Tell everything that caches DOCUMENT-DERIVED state to rebuild. The
+    // setters above only reach consumers Application knows by name; plugins
+    // own their render caches in file-local statics this function cannot
+    // see, and no Plane/Axis/Body event fires on a tab switch (nothing about
+    // either document changed — the ACTIVE one did). Publishing here means a
+    // future plugin gets the invalidation for free by subscribing.
+    if (m_eventBus) m_eventBus->publish(ActiveDocumentChangedEvent{});
 }
 
 void Application::stashActiveSessionState() {
@@ -442,16 +450,16 @@ void Application::adoptSession(size_t idx) {
 
 int Application::nextFreeRecoveryIndex() const {
     // Smallest index no open session uses. Recycling keeps every snapshot
-    // inside the startup scan's fixed 0..15 namespace — the bound that makes
-    // recovery files impossible to orphan by de-linking (Steve's concern,
-    // 2026-07-28). 16+ simultaneous tabs share the last index, best-effort.
-    for (int i = 0; i < 16; ++i) {
+    // inside the startup scan's namespace — the bound that makes recovery
+    // files impossible to orphan by de-linking (Steve's concern, 2026-07-28).
+    // Past that many simultaneous tabs the last index is shared, best-effort.
+    for (int i = 0; i < materializr::kMaxSessionsPerSlot; ++i) {
         bool used = false;
         for (const auto& s : m_sessions)
             if (s->recoveryIndex == i) { used = true; break; }
         if (!used) return i;
     }
-    return 15;
+    return materializr::kMaxSessionsPerSlot - 1;
 }
 
 size_t Application::createSession() {
@@ -786,6 +794,15 @@ void Application::initImGui() {
     io.IniFilename = iniPath;
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    // Ctrl+Tab belongs to the PROJECT TABS (see handleShortcuts). ImGui binds
+    // the same chord to its window-cycling overlay by default, so both fired
+    // on one press: the project switched AND the dock-window ring came up.
+    // Claim the key by clearing ImGui's binding rather than leaving two
+    // handlers racing — panel focus is a click away, project tabs are not.
+    if (ImGuiContext* gc = ImGui::GetCurrentContext()) {
+        gc->ConfigNavWindowingKeyNext = ImGuiKey_None;
+        gc->ConfigNavWindowingKeyPrev = ImGuiKey_None;
+    }
     // loadAppSettings() ran before the ImGui context existed, so its
     // applyAppSettings couldn't reach io yet — push the loaded double-click
     // window now that there's a context.
@@ -1459,11 +1476,18 @@ void Application::loadAppSettings() {
                               "have been revoked.");
                     return;
                 }
+                const bool viaFallback = materializr::mobileLastOpenWasFallback();
                 loadProjectWithProgress(tmp);
                 if (!m_currentProjectPath.empty()) {   // load succeeded
-                    m_currentProjectPath = p;
+                    // Backup copy (original gone/disowned): leave the project
+                    // unlinked so a save picks a destination instead of
+                    // truncating a document we never read. See openRecentProject.
+                    m_currentProjectPath = viaFallback ? std::string() : p;
                     std::string nm = materializr::mobileLastDocName();
                     if (!nm.empty()) m_currentProjectName = nm;
+                    if (viaFallback)
+                        showToast("Opened a local backup - the original is "
+                                  "gone. Save to keep it.");
                 }
                 return;
             }
@@ -1523,18 +1547,111 @@ void Application::loadAppSettings() {
     if (!m_supporter && !m_safeMode && !firstRun)
         m_welcomeScreen->setVisible(true);
 
-    // Landing page: the default start screen (New Project + recent-project
-    // thumbnails). Skipped only in safe mode (recovery owns the moment).
-    // It SUPERSEDES auto-open-last-project — the last project is the first
-    // tile (one click), and letting the deferred load run would load beneath
-    // the page and immediately hide it (loadProjectAt hides on success), a
-    // one-frame flash of the wrong screen. So the queued load is cancelled.
-    // Startup modals are popups and render above the page, so the dialog
-    // turn-taking above is unaffected.
+    // Landing page vs. session restore. "Open last project on launch" now means
+    // RESTORE MY TABS: with it on, every project that was open when you quit
+    // comes back in its own tab and the home screen is skipped entirely (Steve,
+    // 2026-07-28 — the setting had become dead weight once the landing page
+    // started superseding the old single-project auto-open, and a tab-aware
+    // resume is what it should have meant all along). With it off, the landing
+    // page is the start screen. Safe mode gets neither: recovery owns the
+    // moment, and the toggle was forced off above. Startup modals are popups
+    // and render above the page, so the dialog turn-taking above is unaffected.
     if (!m_safeMode) {
-        m_deferredHeavyTask = nullptr;   // cancel auto-open; tile 1 replaces it
-        showLandingPage(/*fromStartup=*/true);
+        std::vector<std::string> restore;
+        if (m_autoOpenLastProject) {
+            for (const auto& p : s.sessionPaths)
+                if (!p.empty()) restore.push_back(p);
+            // Settings written by a build that predates tabs have no
+            // sessionPaths — fall back to the single last project.
+            if (restore.empty() && !s.lastProjectPath.empty())
+                restore.push_back(s.lastProjectPath);
+        }
+        if (restore.empty()) {
+            m_deferredHeavyTask = nullptr;  // nothing to resume; home screen
+            showLandingPage(/*fromStartup=*/true);
+        } else {
+            // Replaces the single-project auto-open queued above; same deferred
+            // slot, so the loads run between frames with the window already up
+            // and the loading bar able to pump.
+            size_t active = static_cast<size_t>(s.sessionActive);
+            m_deferredHeavyTask = [this, restore, active]() {
+                restoreSessionTabs(restore, active);
+            };
+        }
     }
+}
+
+// Reopen a previous session's tabs. The FIRST project loads into the startup
+// session (there is always exactly one, empty); each later one gets a new tab.
+// A project that no longer exists is skipped with a toast rather than aborting
+// the whole restore — a moved file should cost you that tab, not the session.
+void Application::restoreSessionTabs(const std::vector<std::string>& paths,
+                                     size_t activeIndex) {
+    if (paths.empty()) return;
+    std::vector<size_t> opened;
+    int failed = 0;
+    for (size_t i = 0; i < paths.size(); ++i) {
+        if (i > 0) {
+            const size_t idx = createSession();
+            if (!switchToSession(idx)) { closeSession(idx); ++failed; continue; }
+        }
+        bool ok = false;
+#if defined(MZ_MOBILE)
+        // A persisted SAF document URI, not a filesystem path — resolve it
+        // through the grant first, then restore the URI as the live identity
+        // so quick-save still writes back to the real document. A backup copy
+        // (original gone) leaves the tab unlinked, same rule as Open Recent.
+        if (paths[i].rfind("content:", 0) == 0) {
+            const std::string tmp = materializr::mobileOpenUri(paths[i]);
+            const bool viaFallback = materializr::mobileLastOpenWasFallback();
+            if (!tmp.empty()) {
+                loadProjectWithProgress(tmp);
+                ok = !m_currentProjectPath.empty();
+                if (ok) {
+                    m_currentProjectPath = viaFallback ? std::string() : paths[i];
+                    std::string nm = materializr::mobileLastDocName();
+                    if (!nm.empty()) m_currentProjectName = nm;
+                }
+            }
+        } else
+#endif
+        {
+            loadProjectWithProgress(paths[i]);
+            // loadProject* leaves m_currentProjectPath empty on failure —
+            // that's the only signal it reports.
+            ok = !m_currentProjectPath.empty();
+        }
+        if (!ok) {
+            ++failed;
+            if (i > 0) closeSession(m_activeSession);
+            continue;
+        }
+        opened.push_back(m_activeSession);
+    }
+    // Restore focus to whichever tab was in front, by position among the tabs
+    // that actually came back. Indices stay valid through the loop above: it
+    // only ever appends, and the only closes are of the tab it just made.
+    if (!opened.empty()) {
+        size_t want = activeIndex < opened.size() ? activeIndex : 0;
+        switchToSession(opened[want]);
+        // The startup session is pre-existing and empty; if its project was
+        // the one that went missing, it would otherwise linger as a stray
+        // "Untitled" tab standing in for a file that no longer exists. Focus
+        // moved first, so this close only shifts the active index.
+        if (std::find(opened.begin(), opened.end(), size_t{0}) == opened.end() &&
+            m_sessions.size() > 1)
+            closeSession(0);
+    }
+    if (failed > 0)
+        showToast(failed == 1 ? "1 project from your last session is missing."
+                              : "Some projects from your last session are "
+                                "missing.");
+    // Everything failed: don't strand the user in an empty tab.
+    if (opened.empty()) showLandingPage(/*fromStartup=*/false);
+    // The per-project loads above each persisted settings MID-restore, so the
+    // file still describes the half-built tab list (including any tab that
+    // turned out to be missing). Rewrite it against the finished state.
+    saveAppSettings();
 }
 
 void Application::applyRenderingSettings() {
@@ -1604,6 +1721,15 @@ AppSettings Application::currentSettings() const {
     s.autoOpenLastProject = m_autoOpenLastProject;
     s.recentProjects = m_recentProjects;
     s.lastProjectPath = m_currentProjectPath; // empty after closeProject()
+    // Every open tab, in tab order, so "restore my session" can bring them all
+    // back. The ACTIVE tab's path lives in m_currentProjectPath (the session's
+    // own copy is only refreshed when it's stashed on the way out), so read it
+    // from there; unsaved tabs contribute "" and are skipped on restore.
+    s.sessionPaths.clear();
+    for (size_t i = 0; i < m_sessions.size(); ++i)
+        s.sessionPaths.push_back(i == m_activeSession ? m_currentProjectPath
+                                                      : m_sessions[i]->projectPath);
+    s.sessionActive = static_cast<int>(m_activeSession);
     s.lastFileDir = materializr::FileDialogs::getLastDir();
     s.checkForUpdatesOnLaunch = m_checkForUpdatesOnLaunch;
     s.includePrereleases = m_includePrereleases;
@@ -2534,8 +2660,12 @@ void Application::handleShortcuts() {
     if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_O)) {
         loadProject();
     }
-    // Ctrl+Tab cycles the open tabs (Shift reverses). No-op with one tab.
-    if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Tab) && m_sessions.size() > 1) {
+    // Ctrl+Tab cycles the open tabs (Shift reverses). No-op with one tab, and
+    // inert while the landing page owns the screen — switching the session
+    // behind a full-screen page changes nothing visible but leaves the next
+    // click acting on a tab the user can't see (Steve, 2026-07-28).
+    if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Tab) && m_sessions.size() > 1 &&
+        !landingPageUp()) {
         const size_t n = m_sessions.size();
         switchToSession(io.KeyShift ? (m_activeSession + n - 1) % n
                                     : (m_activeSession + 1) % n);
@@ -3828,6 +3958,12 @@ void Application::openRecentProject(const AppSettings::RecentProject& r) {
             removeRecentProject(ref);
             return;
         }
+        // A BACKUP copy, served because the document is gone or disowned —
+        // real content, but not what that URI holds now. Keeping the URI as
+        // the save target would let the next quick-save truncate a document
+        // we never read (or recreate one the user deliberately deleted), so
+        // the project comes back UNLINKED: saving prompts for a destination.
+        const bool viaFallback = materializr::mobileLastOpenWasFallback();
         if (loadProjectAt(tmp)) {
             addRecentProject(ref, name);  // bump to front
             // The resolved temp is peekable even though the content: ref is
@@ -3839,10 +3975,18 @@ void Application::openRecentProject(const AppSettings::RecentProject& r) {
                     cacheProjectThumbnail(ref, png);
             }
 #if defined(__ANDROID__)
-            // Track the DOCUMENT as the project identity so quick-save writes
-            // back to the real file (loadProjectAt stored the cache temp).
-            m_currentProjectPath = ref;
-            m_currentProjectName = name;
+            if (viaFallback) {
+                m_currentProjectPath.clear();   // Save → picker, not overwrite
+                m_currentProjectName = name;
+                showToast("Opened a local backup of \"" + name +
+                          "\" - the original is gone. Save to keep it.");
+            } else {
+                // Track the DOCUMENT as the project identity so quick-save
+                // writes back to the real file (loadProjectAt stored the
+                // cache temp).
+                m_currentProjectPath = ref;
+                m_currentProjectName = name;
+            }
             saveAppSettings();            // lastProjectPath -> the real ref
 #endif
         }

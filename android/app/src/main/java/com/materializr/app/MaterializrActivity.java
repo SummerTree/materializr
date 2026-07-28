@@ -4,9 +4,11 @@ import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
 import android.content.res.Configuration;
+import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.provider.DocumentsContract;
 import android.provider.OpenableColumns;
 import android.view.View;
 import android.view.inputmethod.InputMethodManager;
@@ -88,13 +90,17 @@ public class MaterializrActivity extends SDLActivity {
     public static boolean nativeCommitSaveToUri(String uriStr, String tempPath) {
         MaterializrActivity a = sInstance;
         if (a == null || uriStr == null || uriStr.isEmpty()) return false;
-        try (InputStream in = new FileInputStream(tempPath);
-             OutputStream out = a.getContentResolver()
-                                 .openOutputStream(Uri.parse(uriStr), "wt")) {
-            copy(in, out);
-            // Keep the recents fallback current: a save is the freshest
-            // possible copy of this document (named after the real doc, not
-            // the ".mz_qsave" temp the native side wrote).
+        try {
+            try (InputStream in = new FileInputStream(tempPath);
+                 OutputStream out = a.getContentResolver()
+                                     .openOutputStream(Uri.parse(uriStr), "wt")) {
+                copy(in, out);
+            }
+            // Only AFTER the stream closed cleanly. Cloud providers do the
+            // actual upload at close(), so a fallback written inside the
+            // try-with-resources would record content the document never
+            // received — leaving the backup copy newer than the real file
+            // after a save the user was told had failed.
             try {
                 File dir = new File(a.getCacheDir(), "import");
                 dir.mkdirs();
@@ -217,15 +223,63 @@ public class MaterializrActivity extends SDLActivity {
             // throws and every recent silently died here (the long-standing
             // "access may have been revoked" bug, diagnosed 2026-07-28).
             // Serve the app-private fallback copy from the last successful
-            // open/save instead; possibly stale if another app edited the
-            // document since, but a stale open beats a dead tile.
+            // open/save instead.
+            //
+            // But NOT when the document demonstrably still exists: that read
+            // failed for a transient reason (a cloud provider offline or a
+            // document it hasn't cached, storage unmounted, provider process
+            // restarting), and the write grant is very much alive. Opening a
+            // stale copy there and letting quick-save commit it is how you
+            // silently overwrite newer work with older work. Fail visibly
+            // instead — the user retries when they're back online.
             android.util.Log.w("Materializr",
                 "nativeOpenUri: resolver failed for " + uriString, e);
+            if (a.documentStillExists(uriString)) {
+                android.util.Log.w("Materializr",
+                    "nativeOpenUri: document exists but is unreachable — "
+                    + "refusing the stale fallback");
+                return "";
+            }
             String fb = a.readDocFallback(uriString);
-            if (!fb.isEmpty())
+            if (!fb.isEmpty()) {
+                // The caller must not treat this as the real document: the
+                // original is gone or unreachable, so quick-saving back to
+                // that URI could overwrite a file we never actually read.
+                // Native drops the save identity and says so (see
+                // mobileLastOpenWasFallback).
+                sLastOpenWasFallback = true;
                 android.util.Log.w("Materializr",
                     "nativeOpenUri: using fallback copy " + fb);
+            }
             return fb;
+        }
+    }
+
+    // True when the most recent nativeOpenUri() served an app-private fallback
+    // copy rather than the real document. Native reads this right after the
+    // open and unlinks the project from its content:// URI, so the next save
+    // goes through the picker instead of truncating a document whose current
+    // contents we never saw.
+    private static boolean sLastOpenWasFallback = false;
+    public static boolean nativeLastOpenWasFallback() { return sLastOpenWasFallback; }
+
+    // Does the provider still have this document? Distinguishes "unreachable
+    // right now" (row present -> the read failure was transient) from "gone or
+    // disowned" (no row, or the query itself is refused -> the grant/doc-id
+    // died, which is exactly what the fallback copies exist for). Note a
+    // deleted file and a churned Downloads document id look identical here —
+    // both come back as no row — so both take the fallback path, and the
+    // unlink above is what keeps the deleted-file case from writing back.
+    private boolean documentStillExists(String uriString) {
+        try {
+            Uri uri = Uri.parse(uriString);
+            try (Cursor c = getContentResolver().query(
+                     uri, new String[]{ DocumentsContract.Document.COLUMN_DOCUMENT_ID },
+                     null, null, null)) {
+                return c != null && c.moveToFirst();
+            }
+        } catch (Exception e) {
+            return false;   // refused or unqueryable — treat as gone
         }
     }
 

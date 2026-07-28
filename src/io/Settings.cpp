@@ -1,6 +1,7 @@
 #include "Settings.h"
 
 #include <cctype>
+#include <cstring>
 #include <cstdlib>
 #include <fstream>
 #include <map>
@@ -159,6 +160,20 @@ void applyKv(const std::map<std::string, std::string>& kv, AppSettings& s) {
         rp.name = (nit != kv.end() && !nit->second.empty()) ? nit->second : rp.ref;
         s.recentProjects.push_back(rp);
     }
+
+    // Open tabs at the last settings write: contiguous sessionN_path keys in
+    // tab order. Unsaved tabs wrote an empty placeholder so the indices stay
+    // aligned with sessionActive, hence the "" sentinel rather than a break on
+    // empty (unlike recents above).
+    s.sessionPaths.clear();
+    for (int i = 0; ; ++i) {
+        auto it = kv.find("session" + std::to_string(i) + "_path");
+        if (it == kv.end()) break;
+        s.sessionPaths.push_back(it->second);
+    }
+    readIntClamped(kv, "sessionActive", s.sessionActive, 0,
+                   s.sessionPaths.empty()
+                       ? 0 : static_cast<int>(s.sessionPaths.size()) - 1);
 }
 
 // Strip control characters from a string value before it's written to the
@@ -376,6 +391,9 @@ bool SettingsIO::save(const std::string& path, const AppSettings& s) {
         ofs << "recent" << i << "_ref = "  << sanitizeValue(s.recentProjects[i].ref)  << "\n";
         ofs << "recent" << i << "_name = " << sanitizeValue(s.recentProjects[i].name) << "\n";
     }
+    for (size_t i = 0; i < s.sessionPaths.size(); ++i)
+        ofs << "session" << i << "_path = " << sanitizeValue(s.sessionPaths[i]) << "\n";
+    ofs << "sessionActive = "       << s.sessionActive       << "\n";
     ofs << "checkForUpdatesOnLaunch = " << (s.checkForUpdatesOnLaunch ? "true" : "false") << "\n";
     ofs << "includePrereleases = "      << (s.includePrereleases ? "true" : "false") << "\n";
     ofs << "supporter = "               << (s.supporter ? "true" : "false") << "\n";
@@ -398,9 +416,23 @@ bool SettingsIO::save(const std::string& path, const AppSettings& s) {
             auto eq = line.find('=');
             if (eq != std::string::npos) written[trim(line.substr(0, eq))] = true;
         }
+        // Indexed LIST keys (recentN_*, sessionN_path) are rewritten whole on
+        // every save, so a key this build didn't emit means the list SHRANK.
+        // Preserving it resurrects the removed entry — a phantom tab on the
+        // next launch after closing one (found on the rig, 2026-07-28).
+        auto isIndexedListKey = [](const std::string& k) {
+            for (const char* p : {"recent", "session"}) {
+                const size_t n = std::strlen(p);
+                if (k.size() > n && k.compare(0, n, p) == 0 &&
+                    std::isdigit(static_cast<unsigned char>(k[n])))
+                    return true;
+            }
+            return false;
+        };
         bool first = true;
         for (const auto& kvp : oldKv) {
             if (written.count(kvp.first)) continue;
+            if (isIndexedListKey(kvp.first)) continue;
             if (first) {
                 ofs << "# preserved from another Materializr version\n";
                 first = false;
@@ -495,8 +527,10 @@ AppSettings SettingsIO::importJson(const std::string& path, bool* ok) {
     // becomes a silent save target, a lastFileDir, or fabricated recents).
     kv.erase("lastProjectPath");
     kv.erase("lastFileDir");
+    kv.erase("sessionActive");
     for (auto it = kv.begin(); it != kv.end(); ) {
-        if (it->first.rfind("recent", 0) == 0) it = kv.erase(it);
+        if (it->first.rfind("recent", 0) == 0 ||
+            it->first.rfind("session", 0) == 0) it = kv.erase(it);
         else ++it;
     }
 

@@ -113,13 +113,25 @@ struct AppSettings {
     bool  showFps           = true;   // small FPS readout (im-touch layout, top-centre)
 
     // --- Session ---
-    bool  autoOpenLastProject = false;     // re-open the most recent project on launch
+    // Restore the previous session on launch: every project that was open in a
+    // TAB comes back, instead of the home screen. (Named for its single-project
+    // past — the key is kept so users who had it on keep it on.)
+    bool  autoOpenLastProject = false;
     // Path of the project currently open. Updated on save / load; cleared on
     // File → Close Project. On launch (with autoOpenLastProject on) this is
     // read and the file is loaded if it still exists — so "I closed the
     // project before quitting" produces an empty launch next time, and
-    // "I just quit while working" reopens where you left off.
+    // "I just quit while working" reopens where you left off. Kept as the
+    // single-tab case of sessionPaths below, and as the fallback when a build
+    // that predates tabs wrote the settings file.
     std::string lastProjectPath;
+    // Every open tab's project ref, in tab order, as of the last settings
+    // write; `sessionActive` is the index that was in front. Unsaved tabs
+    // contribute an empty entry and are skipped on restore — their work lives
+    // in the recovery snapshots, which have their own prompt. Machine-local
+    // (omitted from JSON import/export). Serialized as indexed sessionN_path.
+    std::vector<std::string> sessionPaths;
+    int sessionActive = 0;
     // Directory the file picker last landed in (open OR save). Reused as
     // pfd's default_path on the next open / save so the user doesn't have
     // to re-navigate to their projects folder every time. Machine-local

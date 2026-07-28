@@ -74,6 +74,7 @@ add_library(materializr_core STATIC
     ${CMAKE_SOURCE_DIR}/src/modeling/GenerationLedger.cpp
     ${CMAKE_SOURCE_DIR}/src/io/ProjectIO.cpp
     ${CMAKE_SOURCE_DIR}/src/io/ImageDecode.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/ImageEncode.cpp
     ${CMAKE_SOURCE_DIR}/src/modeling/FaceLineage.cpp
     ${CMAKE_SOURCE_DIR}/src/io/BrepIO.cpp
     ${CMAKE_SOURCE_DIR}/src/io/IgesIO.cpp
@@ -495,3 +496,12 @@ add_test(NAME test_sketch_dimension COMMAND test_sketch_dimension)
 add_executable(test_project_thumbnail test_project_thumbnail.cpp)
 target_link_libraries(test_project_thumbnail PRIVATE materializr_core gtest gtest_main)
 add_test(NAME test_project_thumbnail COMMAND test_project_thumbnail)
+
+# test_settings_sessions — tab-list persistence + the indexed-list SHRINK trap
+# (the writer preserves keys it didn't emit, which resurrected closed tabs).
+# Settings.cpp is not in materializr_core — compiled in directly, same as
+# test_audit_hardening does.
+add_executable(test_settings_sessions test_settings_sessions.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/Settings.cpp)
+target_link_libraries(test_settings_sessions PRIVATE materializr_core gtest gtest_main)
+add_test(NAME test_settings_sessions COMMAND test_settings_sessions)

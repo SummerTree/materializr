@@ -61,6 +61,12 @@ REGISTER_PLUGIN(RefImage, [](materializr::PluginContext& ctx) {
         [](const materializr::PlaneChangedEvent&) {
             if (g_state) g_state->dirty = true;
         });
+    // Tab switch: these textured quads belong to the outgoing document (see
+    // the same subscription in ConstructionPlanePlugin).
+    ctx.events().subscribe<materializr::ActiveDocumentChangedEvent>(
+        [](const materializr::ActiveDocumentChangedEvent&) {
+            if (g_state) g_state->dirty = true;
+        });
 
     materializr::RenderPassContribution pass;
     pass.name = "ReferenceImages";

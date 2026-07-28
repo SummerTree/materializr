@@ -40,6 +40,12 @@ struct ProjectRecoveryMeta {
 // at tab-deactivation (they cannot change while inactive).
 std::string projectRecoveryPath(int sessionIndex = 0);
 
+// Tabs per instance that get their own snapshot file. Session indices are
+// RECYCLED within 0..kMaxSessionsPerSlot-1 so every snapshot stays inside the
+// startup scan's namespace — a session index past this bound would write a
+// file no scan ever looks at.
+constexpr int kMaxSessionsPerSlot = 16;
+
 // Snapshot the document (+ optional history) to the recovery sidecar, written to
 // a temp file then atomically renamed so a crash mid-write never leaves a
 // truncated snapshot. `projectPath` is the project's own save path ("" if

@@ -50,6 +50,12 @@ void mobileShareFile(const std::string& path, const std::string& mime);
 std::string mobileLastDocUri();
 std::string mobileLastDocName();
 std::string mobileOpenUri(const std::string& uri);
+// True when the last mobileOpenUri() served an app-private BACKUP copy because
+// the real document was gone or disowned. The returned file is real content,
+// but it is NOT what that URI currently holds — so the caller must not keep the
+// URI as a quick-save target, or a later save would truncate a document whose
+// contents were never read. Callers unlink the project and tell the user.
+bool mobileLastOpenWasFallback();
 
 // Raise / dismiss the system soft keyboard. On Android this bypasses
 // SDL_StartTextInput's SDL_GetFocusWindow()==NULL gate (null in the immersive
@@ -69,6 +75,7 @@ inline void mobileShareFile(const std::string&, const std::string&) {}
 inline std::string mobileLastDocUri() { return {}; }
 inline std::string mobileLastDocName() { return {}; }
 inline std::string mobileOpenUri(const std::string&) { return {}; }
+inline bool mobileLastOpenWasFallback() { return false; }
 inline void mobileShowTextInput() {}
 inline void mobileHideTextInput() {}
 
