@@ -967,6 +967,7 @@ std::unique_ptr<ThreadOp> Application::makeThreadOpFromState() const {
     op->setRightHanded(m_threadRightHanded);
     op->setProfile(static_cast<ThreadProfile>(m_threadProfile));
     op->setClearance(static_cast<double>(m_threadClearance));
+    op->setStarts(m_threadStarts);
     op->setTargetFaceRef(m_threadFaceRef);
     return op;
 }

@@ -452,6 +452,13 @@ TopoDS_Shape ThreadOp::buildResult(const TopoDS_Shape& body) const {
     // than fail — the UI clamps too, but reloaded files / old params must
     // never produce garbage solids.
     const double depth = std::min({m_depth, 0.65 * m_pitch, 0.45 * m_radius});
+    // Multi-start: each of the N interleaved helixes advances N·P per turn
+    // (the LEAD) while the groove FORM and the crest spacing stay keyed to
+    // the user's pitch P. At any fixed angle the grooves still pass every P
+    // axially — which is why the crest probes, the per-P volume windows and
+    // the whole-P glue boundaries all hold unchanged for any N. Only the
+    // helix PHASE formulas below use the lead.
+    const double lead = m_pitch * std::max(1, m_starts);
     if (depth <= 0.0) return {};
 
     // Boolean groove-cutter cross-section for this profile (Standard = the
@@ -705,10 +712,10 @@ TopoDS_Shape ThreadOp::buildResult(const TopoDS_Shape& body) const {
                             double uSign, double vRef, double lo, double hi,
                             double offLo, double offUp, int nSeg, double tlLo,
                             double tlHi) -> TopoDS_Wire {
-            double kTurn = std::floor((lo - vRef) / m_pitch + 1e-9);
+            double kTurn = std::floor((lo - vRef) / lead + 1e-9);
             auto onHelix = [&](double v) {
                 return gp_Pnt2d(
-                    uSign * 2.0 * M_PI * ((v - vRef) / m_pitch - kTurn), v);
+                    uSign * 2.0 * M_PI * ((v - vRef) / lead - kTurn), v);
             };
             auto offHelix = [&](double v, double dv) {
                 gp_Pnt2d p = onHelix(v);
@@ -758,10 +765,10 @@ TopoDS_Shape ThreadOp::buildResult(const TopoDS_Shape& body) const {
         // between a turn's tool and the surfaces the previous turn's cut
         // created, which is what makes the kernel misclassify. `nSeg` is the
         // chunk count of the long runs; one chunk PER TURN, exactly.
-        auto buildCutterEx = [&](double lo, double hi, double vRef,
-                                 double outClear, double wFac, double dJit,
-                                 int nSeg, double tlLo,
-                                 double tlHi) -> TopoDS_Shape {
+        auto buildCutterOneStart = [&](double lo, double hi, double vRef,
+                                       double outClear, double wFac, double dJit,
+                                       int nSeg, double tlLo,
+                                       double tlHi) -> TopoDS_Shape {
             try {
                 double uSignH = m_rightHanded ? 1.0 : -1.0;
                 // ROPE/KNUCKLE cutter for Rounded: sweep a CIRCLE along the
@@ -777,13 +784,13 @@ TopoDS_Shape ThreadOp::buildResult(const TopoDS_Shape& body) const {
                     if (rG <= 1e-4) return {};
                     Handle(Geom_CylindricalSurface) cyl =
                         new Geom_CylindricalSurface(ax3, m_radius);
-                    double u0 = uSignH * 2.0 * M_PI * (lo - vRef) / m_pitch;
+                    double u0 = uSignH * 2.0 * M_PI * (lo - vRef) / lead;
                     Handle(Geom2d_Line) l2d = new Geom2d_Line(
                         gp_Pnt2d(u0, lo),
-                        gp_Dir2d(uSignH * 2.0 * M_PI, m_pitch));
+                        gp_Dir2d(uSignH * 2.0 * M_PI, lead));
                     double segLen = std::sqrt(4.0 * M_PI * M_PI +
-                                              m_pitch * m_pitch) *
-                                    ((hi - lo) / m_pitch);
+                                              lead * lead) *
+                                    ((hi - lo) / lead);
                     TopoDS_Edge eHelix =
                         BRepBuilderAPI_MakeEdge(l2d, cyl, 0.0, segLen).Edge();
                     BRepLib::BuildCurves3d(eHelix);
@@ -880,10 +887,37 @@ TopoDS_Shape ThreadOp::buildResult(const TopoDS_Shape& body) const {
                 return toolShape;
             } catch (...) { return {}; }
         };
+        // N-start wrapper: the same tool built once per start, phase-shifted
+        // one PITCH of vRef each (with the helix lead = N·P, +P in vRef is
+        // exactly +2π/N of phase). The starts' grooves share the crest land
+        // a single-start P-thread would have, so they never touch — a
+        // lightweight COMPOUND (no fuse) feeds the boolean as one tool.
+        // Single start returns the shipped tool bit-identically.
+        auto buildCutterEx = [&](double lo, double hi, double vRef,
+                                 double outClear, double wFac, double dJit,
+                                 int nSeg, double tlLo,
+                                 double tlHi) -> TopoDS_Shape {
+            const int nStarts = std::max(1, m_starts);
+            if (nStarts == 1)
+                return buildCutterOneStart(lo, hi, vRef, outClear, wFac, dJit,
+                                           nSeg, tlLo, tlHi);
+            TopoDS_Compound comp;
+            BRep_Builder bb;
+            bb.MakeCompound(comp);
+            for (int s = 0; s < nStarts; ++s) {
+                TopoDS_Shape one = buildCutterOneStart(
+                    lo, hi, vRef + s * m_pitch, outClear, wFac, dJit, nSeg,
+                    tlLo, tlHi);
+                if (one.IsNull()) return {};
+                bb.Add(comp, one);
+            }
+            return comp;
+        };
         // The historical compound-tool builder (full-cylinder fast path) —
-        // parameters bit-identical to every shipped release.
+        // parameters bit-identical to every shipped release. Chunks are one
+        // per HELIX turn, so the lead sets the count.
         auto buildCutter = [&](double lo, double hi) -> TopoDS_Shape {
-            double t = (hi - lo) / m_pitch;
+            double t = (hi - lo) / lead;
             int nSeg = std::max(4, static_cast<int>(std::ceil(t)));
             return buildCutterEx(lo, hi, lo, 0.10, 1.0, 0.0, nSeg,
                                  0.5 * m_pitch, 0.5 * m_pitch);
@@ -977,7 +1011,10 @@ TopoDS_Shape ThreadOp::buildResult(const TopoDS_Shape& body) const {
                 if (vG < vLo + 0.75 * m_pitch || vG > vHi - 0.75 * m_pitch)
                     continue; // taper/runout — groove intentionally shallow
                 double vC = vG + 0.5 * m_pitch;
-                double th = uSign * 2.0 * M_PI * (vG - vLo) / m_pitch;
+                // Phase follows start 0's helix (lead-pitched); the crest
+                // offset vC and the width probes stay P-form — at a fixed
+                // angle, grooves pass every P for any start count.
+                double th = uSign * 2.0 * M_PI * (vG - vLo) / lead;
                 gp_Pnt pg = cylPt(rG, th, vG), pc = cylPt(rC, th, vC);
                 if (!isIn(pre, pg) || !isIn(pre, pc)) continue;
                 ++sc.considered;
@@ -1114,7 +1151,7 @@ TopoDS_Shape ThreadOp::buildResult(const TopoDS_Shape& body) const {
                 double hi = lastSeg  ? vHi : zEnd;
                 double tlLo = firstSeg ? 0.5 * m_pitch : 0.0;
                 double tlHi = lastSeg  ? 0.5 * m_pitch : 0.0;
-                int ns = std::max(4, (int)std::ceil((hi - lo) / m_pitch));
+                int ns = std::max(4, (int)std::ceil((hi - lo) / lead));
                 TopoDS_Shape tool =
                     buildCutterEx(lo, hi, vLo, 0.10, 1.0, 0.0, ns, tlLo, tlHi);
                 if (tool.IsNull()) return {};

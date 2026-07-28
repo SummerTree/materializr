@@ -1383,6 +1383,7 @@ private:
     bool   m_threadRightHanded = true;
     int    m_threadProfile = 0;      // ThreadProfile enum (0 = Standard V)
     float  m_threadClearance = 0.0f; // radial fit gap for printed threads (mm)
+    int    m_threadStarts = 1;       // interleaved helix count (bottle caps: 3-4)
     char   m_threadPitchBuf[32] = "1.0";
     char   m_threadDepthBuf[32] = "0.6";
     // Apply runs the helical sweep + boolean on a worker thread (it takes

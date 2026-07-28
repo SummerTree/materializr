@@ -85,3 +85,57 @@ TEST(ThreadProfiles, ClearanceThinsExternalThread) {
     EXPECT_LT(vol(cleared), vol(exact))
         << "clearance should remove more material (thinner thread)";
 }
+
+TEST(ThreadProfiles, MultiStartExternalValid) {
+    // Bottle-cap style: 3 interleaved helixes, crest spacing = pitch, each
+    // helix advancing 3 x pitch per turn. Same groove density per axial mm
+    // as a single start (at any fixed angle a groove passes every pitch), so
+    // the removed volume lands near the single-start figure — but the shape
+    // must genuinely DIFFER (steeper helixes), which the asymmetric cut
+    // check asserts.
+    const double R = 10.0, L = 9.0;
+    TopoDS_Shape cyl = BRepPrimAPI_MakeCylinder(R, L).Shape();
+    auto build = [&](ThreadProfile p, int starts) {
+        ThreadOp t;
+        configure(t, R, L, p, 0.0);
+        t.setIsHole(false);
+        t.setStarts(starts);
+        return t.buildResult(cyl);
+    };
+    for (ThreadProfile p : {ThreadProfile::Trapezoidal, ThreadProfile::Rounded}) {
+        TopoDS_Shape one = build(p, 1);
+        TopoDS_Shape three = build(p, 3);
+        ASSERT_FALSE(one.IsNull()) << "profile " << (int)p;
+        ASSERT_FALSE(three.IsNull()) << "3-start profile " << (int)p;
+        EXPECT_TRUE(BRepCheck_Analyzer(three).IsValid())
+            << "3-start profile " << (int)p;
+        const double v1 = vol(one), v3 = vol(three), vc = vol(cyl);
+        // Same crest density -> comparable removal (loose band).
+        EXPECT_LT(v3, vc + 1e-3) << "3-start grew the body";
+        EXPECT_GT(v3, 0.5 * vc) << "3-start gutted the body";
+        EXPECT_NEAR(v3, v1, 0.35 * (vc - v1) + 1e-3)
+            << "3-start removal wildly off the single-start figure";
+        // The shapes must differ: material present in the single-start rod
+        // but absent from the 3-start rod exists (steeper groove walls).
+        TopoDS_Shape diff = BRepAlgoAPI_Cut(one, three).Shape();
+        ASSERT_FALSE(diff.IsNull());
+        EXPECT_GT(vol(diff), 1e-2)
+            << "3-start result identical to single start — starts ignored?";
+    }
+}
+
+TEST(ThreadProfiles, MultiStartInternalValid) {
+    // 2-start internal (nut side of a fast-acting pair).
+    const double R = 10.0, L = 9.0;
+    TopoDS_Shape t8 = tube(16.0, R, L);
+    ASSERT_FALSE(t8.IsNull());
+    ThreadOp t;
+    configure(t, R, L, ThreadProfile::Trapezoidal, 0.0);
+    t.setIsHole(true);
+    t.setStarts(2);
+    TopoDS_Shape res = t.buildResult(t8);
+    ASSERT_FALSE(res.IsNull()) << "2-start internal built nothing";
+    EXPECT_TRUE(BRepCheck_Analyzer(res).IsValid());
+    // An internal thread carves the bore wider: volume strictly shrinks.
+    EXPECT_LT(vol(res), vol(t8) + 1e-3);
+}

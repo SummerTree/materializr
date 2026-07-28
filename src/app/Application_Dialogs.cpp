@@ -1795,6 +1795,20 @@ void Application::renderThreadPanel() {
 
     ImGui::Checkbox("Right-handed", &m_threadRightHanded);
 
+    // Multi-start: N interleaved helixes; crest spacing stays = pitch, each
+    // helix advances N x pitch per turn (a quarter-turn bottle cap = 3-4
+    // starts with a coarse pitch).
+    ImGui::Text("Starts"); ImGui::SameLine();
+    ImGui::SetNextItemWidth(uiSz(120, 0).x);
+    ImGui::SliderInt("##thrStarts", &m_threadStarts, 1, 6);
+    if (m_threadStarts > 1) {
+        ImGui::SetItemTooltip("Multi-start thread: %d interleaved helixes. "
+                              "One full seat = 1/%d turn.",
+                              m_threadStarts, m_threadStarts);
+        ImGui::TextDisabled("lead %.2f mm/turn", m_threadStarts *
+                            std::max(0.1f, m_threadPitch));
+    }
+
     double turns = m_threadLength / std::max(0.1f, m_threadPitch);
     ImGui::TextDisabled("%.0f turns over the face", turns);
     if (turns > 300.0) {
