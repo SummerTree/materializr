@@ -397,22 +397,19 @@ void Application::wireDocumentConsumers() {
                                &m_meshesDirty, &m_inSketchMode);
 }
 
-void Application::adoptSession(size_t idx) {
-    if (idx >= m_sessions.size()) return;
-    // Snapshot the outgoing project's recovery file while its state is still
-    // live in the mirrors — inactive tabs don't tick the debounced writer.
-    if (idx != m_activeSession) writeSessionRecoveryNow();
-    // Stash the outgoing session's working state. The mirrors themselves
-    // (m_document & co) need no stashing — they already point into it.
-    if (m_activeSession < m_sessions.size()) {
-        ProjectSession& out = *m_sessions[m_activeSession];
-        out.projectPath = m_currentProjectPath;
-        out.projectName = m_currentProjectName;
-        out.savedAtHistoryStep = m_savedAtHistoryStep;
-        out.unsavedNonHistoryChanges = m_unsavedNonHistoryChanges;
-        if (m_viewport) out.camera = m_viewport->getCamera();
-    }
+void Application::stashActiveSessionState() {
+    // The mirrors themselves (m_document & co) need no stashing — they
+    // already point into the active session; only the working copies do.
+    if (m_activeSession >= m_sessions.size()) return;
+    ProjectSession& out = *m_sessions[m_activeSession];
+    out.projectPath = m_currentProjectPath;
+    out.projectName = m_currentProjectName;
+    out.savedAtHistoryStep = m_savedAtHistoryStep;
+    out.unsavedNonHistoryChanges = m_unsavedNonHistoryChanges;
+    if (m_viewport) out.camera = m_viewport->getCamera();
+}
 
+void Application::applySessionState(size_t idx) {
     m_activeSession = idx;
     ProjectSession& in = *m_sessions[idx];
     m_document = in.document.get();
@@ -423,8 +420,103 @@ void Application::adoptSession(size_t idx) {
     m_savedAtHistoryStep = in.savedAtHistoryStep;
     m_unsavedNonHistoryChanges = in.unsavedNonHistoryChanges;
     if (m_viewport) m_viewport->getCamera() = in.camera;
-
     wireDocumentConsumers();
+}
+
+void Application::adoptSession(size_t idx) {
+    if (idx >= m_sessions.size()) return;
+    // Snapshot the outgoing project's recovery file while its state is still
+    // live in the mirrors — inactive tabs don't tick the debounced writer.
+    if (idx != m_activeSession) writeSessionRecoveryNow();
+    stashActiveSessionState();
+    applySessionState(idx);
+}
+
+int Application::nextFreeRecoveryIndex() const {
+    // Smallest index no open session uses. Recycling keeps every snapshot
+    // inside the startup scan's fixed 0..15 namespace — the bound that makes
+    // recovery files impossible to orphan by de-linking (Steve's concern,
+    // 2026-07-28). 16+ simultaneous tabs share the last index, best-effort.
+    for (int i = 0; i < 16; ++i) {
+        bool used = false;
+        for (const auto& s : m_sessions)
+            if (s->recoveryIndex == i) { used = true; break; }
+        if (!used) return i;
+    }
+    return 15;
+}
+
+size_t Application::createSession() {
+    auto s = std::make_unique<ProjectSession>();
+    s->recoveryIndex = nextFreeRecoveryIndex();
+    m_sessions.push_back(std::move(s));
+    return m_sessions.size() - 1;
+}
+
+bool Application::switchToSession(size_t idx) {
+    if (idx >= m_sessions.size()) return false;
+    if (idx == m_activeSession) return true;
+    // Mid-gesture state doesn't survive a document swap. A half-drawn sketch
+    // is the user's call to resolve — refuse loudly rather than silently
+    // committing or dropping it. A thread re-cut owns its body until it
+    // lands; blocking on it here would freeze the switch for seconds.
+    if (m_inSketchMode) {
+        showToast("Finish or cancel the sketch before switching tabs.");
+        return false;
+    }
+    if (!m_threadRecuts.empty()) {
+        showToast("Wait for the thread re-cut to finish before switching tabs.");
+        return false;
+    }
+    cancelAllInteractivePreviews();
+    // The section cut is view state aimed at the OUTGOING project's geometry;
+    // carried across it would carve the wrong model. Off on every switch.
+    m_sectionEnabled = false;
+    m_sectionDirty = true;
+
+    adoptSession(idx);
+
+    // Shelve the outgoing tab's GPU meshes on EVERY platform (uniform by
+    // design — an invisible tab holds no GPU memory) and queue the incoming
+    // tab's full rebuild for the next frame. Same discipline as project load.
+    if (m_shapeRenderer) m_shapeRenderer->clear();
+    if (m_edgeRenderer) m_edgeRenderer->clear();
+    if (m_selectionHighlight) m_selectionHighlight->clearCaches();
+    if (m_sketchRenderer) m_sketchRenderer->clearCache();
+    m_dirtyBodyIds.clear();
+    m_meshesDirty = true;
+    return true;
+}
+
+void Application::closeSession(size_t idx) {
+    if (idx >= m_sessions.size()) return;
+    // The closing tab's snapshot is no longer unfinished work, and its
+    // recovery index returns to the pool by virtue of the session vanishing.
+    materializr::clearProjectRecovery(m_sessions[idx]->recoveryIndex);
+    const bool wasActive = (idx == m_activeSession);
+    m_sessions.erase(m_sessions.begin() + static_cast<long>(idx));
+    if (m_sessions.empty()) {
+        // Always at least one tab: a fresh empty workspace takes its place.
+        m_sessions.push_back(std::make_unique<ProjectSession>());
+    }
+    if (wasActive) {
+        // No stash — the outgoing session is gone. Apply a neighbor and run
+        // the same GPU-shelving discipline as a normal switch.
+        cancelAllInteractivePreviews();
+        m_sectionEnabled = false;
+        m_sectionDirty = true;
+        applySessionState(std::min(idx, m_sessions.size() - 1));
+        if (m_shapeRenderer) m_shapeRenderer->clear();
+        if (m_edgeRenderer) m_edgeRenderer->clear();
+        if (m_selectionHighlight) m_selectionHighlight->clearCaches();
+        if (m_sketchRenderer) m_sketchRenderer->clearCache();
+        m_dirtyBodyIds.clear();
+        m_meshesDirty = true;
+    } else if (m_activeSession > idx) {
+        // The vector shifted under the active index; the session object (and
+        // the mirrors into it) are untouched.
+        --m_activeSession;
+    }
 }
 
 Application::~Application() {
@@ -2426,6 +2518,12 @@ void Application::handleShortcuts() {
     }
     if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_O)) {
         loadProject();
+    }
+    // Ctrl+Tab cycles the open tabs (Shift reverses). No-op with one tab.
+    if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Tab) && m_sessions.size() > 1) {
+        const size_t n = m_sessions.size();
+        switchToSession(io.KeyShift ? (m_activeSession + n - 1) % n
+                                    : (m_activeSession + 1) % n);
     }
     // Plain D — Dimension tool in sketch mode (Onshape-style). Ctrl+D stays
     // Duplicate (handled below); text-input focus swallows the key.
@@ -6479,6 +6577,15 @@ void Application::run() {
                 static bool s_frozenRound = false;
                 static bool s_selSketchAttached = false;
                 static bool s_selFacePlanar = false;
+                // Tab switches swap in a DIFFERENT SelectionManager/History
+                // whose revision counters can coincide with the memoized ones
+                // (they all start at 0) — key the memo on the session too.
+                static size_t s_memoSession = ~size_t(0);
+                if (s_memoSession != m_activeSession) {
+                    s_memoSession = m_activeSession;
+                    s_selRev = ~0u;
+                    s_histRev = ~0u;
+                }
                 const unsigned selRev  = m_selection->revision();
                 const unsigned histRev = m_history->revision();
                 if (selRev != s_selRev || histRev != s_histRev ||
@@ -6910,11 +7017,22 @@ void Application::run() {
 
     // Persist preferences on a clean exit (in addition to saving on each change).
     saveAppSettings();
-    // Clean exit → the crash-recovery snapshots are no longer "unfinished
-    // work" — clear EVERY session's file, not just the active tab's. A
-    // snapshot surviving to the next launch therefore means a crash/hang/kill.
-    for (const auto& s : m_sessions)
+    // Clean exit → clear the recovery snapshots, with one deliberate
+    // exception: a DIRTY INACTIVE tab keeps its file. The quit prompt only
+    // covers the active project, so an unsaved background tab was never
+    // offered a save — deleting its snapshot here would silently destroy its
+    // only copy. It is offered back on the next launch instead. (The active
+    // session always clears: if it was dirty, the user answered the prompt.)
+    for (size_t i = 0; i < m_sessions.size(); ++i) {
+        const auto& s = m_sessions[i];
+        if (i != m_activeSession) {
+            const bool dirty =
+                (s->history && s->history->currentStep() != s->savedAtHistoryStep) ||
+                s->unsavedNonHistoryChanges;
+            if (dirty) continue;
+        }
         materializr::clearProjectRecovery(s->recoveryIndex);
+    }
 }
 
 } // namespace materializr

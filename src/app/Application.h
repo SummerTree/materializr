@@ -259,10 +259,31 @@ private:
     // m_history / m_selection mirrors, restore the incoming session's state
     // and rewire every consumer that caches document pointers.
     void adoptSession(size_t idx);
+    // The two halves of adoptSession. stash writes the working copies back
+    // into the active session; apply repoints the mirrors at m_sessions[idx],
+    // restores its state and rewires consumers. closeSession uses apply alone
+    // (the outgoing session is being destroyed — nothing to stash into).
+    void stashActiveSessionState();
+    void applySessionState(size_t idx);
     // Forced (undebounced) recovery snapshot of the active session; called
     // right before a tab deactivates so inactive tabs always have an exact
     // crash-recovery file.
     void writeSessionRecoveryNow();
+
+    // ── Tab lifecycle (UI lands in phase 3; menu + Ctrl+Tab already wired) ──
+    // Fresh empty session; does NOT switch to it. Recovery indices recycle
+    // (smallest unused, capped at the scanner's 0..15 namespace) so a closed
+    // tab's snapshot file can never fall outside the startup scan.
+    size_t createSession();
+    int nextFreeRecoveryIndex() const;
+    // Full user-visible switch: refuses mid-sketch and mid-thread-recut
+    // (toast explains), cancels live previews, shelves the outgoing tab's GPU
+    // meshes (all platforms), swaps state, queues the incoming rebuild.
+    bool switchToSession(size_t idx);
+    // Tear down a session: recovery file cleared, session destroyed; the last
+    // tab is replaced by a fresh empty one (there is always >= 1). Unsaved-
+    // changes prompting is the CALLER's job (route through guardedOpen).
+    void closeSession(size_t idx);
     // (Re)apply the current mirrors to everything that holds a Document /
     // History / SelectionManager pointer: panels, event-bus binds, plugin
     // context, per-History callbacks. Called from the ctor and every adopt.

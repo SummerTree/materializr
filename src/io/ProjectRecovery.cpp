@@ -132,6 +132,21 @@ int s_orphanCount = 0;
 } // namespace
 
 std::string projectRecoveryPath(int sessionIndex) {
+    static bool s_sweptTmp = [] {
+        // Hygiene: a crash exactly mid-write can leave an *.tmp beside the
+        // snapshots. It's superseded the moment its slot/index is reused, but
+        // sweep day-old ones anyway so they can't accumulate across installs.
+        std::error_code ec;
+        for (auto& e : std::filesystem::directory_iterator(recoveryDir(), ec)) {
+            if (e.path().extension() != ".tmp") continue;
+            auto t = std::filesystem::last_write_time(e.path(), ec);
+            if (ec) continue;
+            const auto age = std::filesystem::file_time_type::clock::now() - t;
+            if (age > std::chrono::hours(24)) std::filesystem::remove(e.path(), ec);
+        }
+        return true;
+    }();
+    (void)s_sweptTmp;
     return sessionSnapshotPath(claimedSlot(), sessionIndex);
 }
 

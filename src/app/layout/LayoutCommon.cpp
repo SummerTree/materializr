@@ -17,6 +17,7 @@
 #include "plugin/PluginContext.h"
 #include "plugin/PluginRegistry.h"
 #include "io/FileDialogs.h"   // Import → From Project… picker
+#include "app/ProjectSession.h" // Tabs submenu reads session names
 #include <filesystem>
 #include "ui/AboutDialog.h"
 #include "ui/HelpPanel.h"
@@ -198,6 +199,34 @@ void Application::renderFileMenuItems(bool withSettings) {
     if (ImGui::MenuItem("Save Project", "Ctrl+S")) saveProjectQuick();
     if (ImGui::MenuItem("Save Project As...")) saveProject();
     if (ImGui::MenuItem("New Project")) closeProject();
+    ImGui::Separator();
+    // Tabs: full strip UI comes with the per-layout chrome (phase 3); the
+    // menu + Ctrl+Tab already drive the real session machinery.
+    if (ImGui::MenuItem("New Tab")) switchToSession(createSession());
+    if (ImGui::BeginMenu("Tabs", m_sessions.size() > 1)) {
+        for (size_t i = 0; i < m_sessions.size(); ++i) {
+            ImGui::PushID(static_cast<int>(i));
+            // Same fallback chain as projectDisplayName(): explicit name →
+            // file basename → Untitled. The active tab reads the LIVE working
+            // copies; inactive tabs read their stashed ones.
+            std::string name = (i == m_activeSession) ? m_currentProjectName
+                                                      : m_sessions[i]->projectName;
+            std::string path = (i == m_activeSession) ? m_currentProjectPath
+                                                      : m_sessions[i]->projectPath;
+            std::string label = !name.empty() ? name
+                : !path.empty() ? std::filesystem::path(path).filename().string()
+                                : std::string("Untitled");
+            if (ImGui::MenuItem(label.c_str(), i == m_activeSession ? "(current)" : nullptr,
+                                i == m_activeSession))
+                switchToSession(i);
+            ImGui::PopID();
+        }
+        ImGui::EndMenu();
+    }
+    if (ImGui::MenuItem("Close Tab")) {
+        // Same prompt-then-act path as every destructive project action.
+        guardedOpen([this]() { closeSession(m_activeSession); });
+    }
     ImGui::Separator();
 
     // Build Import submenu from IOFormat contributions
