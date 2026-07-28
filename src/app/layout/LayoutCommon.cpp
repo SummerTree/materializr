@@ -217,6 +217,36 @@ void Application::renderTabMenuItems(size_t i) {
     }
 }
 
+bool Application::openNewTab() {
+    const size_t idx = createSession();
+    if (switchToSession(idx)) return true;
+    closeSession(idx);   // refused switch: drop the orphan background tab
+    return false;
+}
+
+void Application::renderNewTabMenuBody() {
+    if (ImGui::MenuItem("New Tab")) openNewTab();
+    // The open flavors land IN the new tab. Cancelling the picker leaves an
+    // empty tab behind (browser-style about:blank) — one click to close.
+    if (ImGui::MenuItem("Open Project...")) {
+        if (openNewTab()) loadProject();
+    }
+    if (ImGui::BeginMenu("Open Recent", !m_recentProjects.empty())) {
+        // Snapshot: openRecentProject() mutates m_recentProjects.
+        std::vector<AppSettings::RecentProject> snapshot = m_recentProjects;
+        for (size_t i = 0; i < snapshot.size(); ++i) {
+            ImGui::PushID(static_cast<int>(i));
+            if (ImGui::MenuItem(snapshot[i].name.c_str())) {
+                if (openNewTab()) openRecentProject(snapshot[i]);
+            }
+            if (ImGui::IsItemHovered() && !snapshot[i].ref.empty())
+                ImGui::SetTooltip("%s", snapshot[i].ref.c_str());
+            ImGui::PopID();
+        }
+        ImGui::EndMenu();
+    }
+}
+
 void Application::renderViewportTabBar() {
     // Classic only: the strip lives INSIDE the Viewport window, above the 3D
     // image, styled like the dock tab bars — but it is a plain ImGui tab bar,
@@ -263,7 +293,11 @@ void Application::renderViewportTabBar() {
     if (!closedOne &&
         ImGui::TabItemButton("+", ImGuiTabItemFlags_Trailing |
                                       ImGuiTabItemFlags_NoTooltip))
-        switchToSession(createSession());
+        ImGui::OpenPopup("##newTabMenu");
+    if (ImGui::BeginPopup("##newTabMenu")) {
+        renderNewTabMenuBody();
+        ImGui::EndPopup();
+    }
     ImGui::EndTabBar();
 }
 
@@ -292,7 +326,8 @@ void Application::renderTouchTabsSheet() {
         ImGui::PopID();
     }
     ImGui::Separator();
-    if (ImGui::MenuItem("+  New Tab")) switchToSession(createSession());
+    // Same trio the desktop "+" offers — opens land in the new tab.
+    renderNewTabMenuBody();
     ImGui::EndPopup();
 }
 

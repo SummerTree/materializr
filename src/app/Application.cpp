@@ -496,9 +496,11 @@ void Application::closeSession(size_t idx) {
     materializr::clearProjectRecovery(m_sessions[idx]->recoveryIndex);
     const bool wasActive = (idx == m_activeSession);
     m_sessions.erase(m_sessions.begin() + static_cast<long>(idx));
+    bool closedLast = false;
     if (m_sessions.empty()) {
         // Always at least one tab: a fresh empty workspace takes its place.
         m_sessions.push_back(std::make_unique<ProjectSession>());
+        closedLast = true;
     }
     if (wasActive) {
         // No stash — the outgoing session is gone. Apply a neighbor and run
@@ -513,6 +515,11 @@ void Application::closeSession(size_t idx) {
         if (m_sketchRenderer) m_sketchRenderer->clearCache();
         m_dirtyBodyIds.clear();
         m_meshesDirty = true;
+        // An intentional close — clean, or dirty-and-discarded through the
+        // prompt — with no other project open lands on the HOME PAGE, not in
+        // a bare untitled workspace (Steve, 2026-07-28). With other tabs
+        // still open, the neighbor takes over instead, browser-style.
+        if (closedLast) showLandingPage(/*fromStartup=*/true);
     } else if (m_activeSession > idx) {
         // The vector shifted under the active index; the session object (and
         // the mirrors into it) are untouched.

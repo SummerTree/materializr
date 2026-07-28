@@ -296,6 +296,13 @@ private:
     bool activateTabFor(size_t i);
     // Shared per-tab dropdown body: Save / Save As / Close Tab.
     void renderTabMenuItems(size_t i);
+    // Create a fresh tab AND make it active; on a refused switch (mid-sketch
+    // etc.) the just-created session is cleaned up again. False = nothing
+    // happened (the refusal already toasted).
+    bool openNewTab();
+    // The "+" button's dropdown, shared by all three layouts: New Tab /
+    // Open Project... / Open Recent — the open flavors land IN the new tab.
+    void renderNewTabMenuBody();
     // Classic: dock-style tab bar pinned to the top of the Viewport window —
     // deliberately NOT a dock node, so tabs can't be dragged into the panel
     // docks (Steve: "only bound to the viewport to keep it from getting

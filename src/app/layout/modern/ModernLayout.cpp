@@ -133,8 +133,12 @@ void Application::renderModernLayout() {
                 ImGui::PopID();
             }
             if (touchui::iconButton("newtab", MZ_ICON_ADD, pillH))
-                switchToSession(createSession());
-            tip("New tab");
+                ImGui::OpenPopup("##newTabMenu");
+            tip("New tab: empty, open a file, or a recent project");
+            if (ImGui::BeginPopup("##newTabMenu")) {
+                renderNewTabMenuBody();
+                ImGui::EndPopup();
+            }
         }
 
         // Right-aligned controls: [Finish, Discard,] Undo, Redo,
