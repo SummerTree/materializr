@@ -16,6 +16,8 @@
 #include "modeling/SketchTransformOp.h"
 #include "plugin/PluginContext.h"
 #include "plugin/PluginRegistry.h"
+#include "io/FileDialogs.h"   // Import → From Project… picker
+#include <filesystem>
 #include "ui/AboutDialog.h"
 #include "ui/HelpPanel.h"
 #include "ui/LogoTexture.h"
@@ -172,6 +174,7 @@ void Application::touchUndo() {
 // The four menu bodies, shared by classic's menu bar and the modern/im-touch
 // overflow popup — one item list each, so the layouts cannot drift.
 void Application::renderFileMenuItems(bool withSettings) {
+    if (ImGui::MenuItem("Home Screen")) goToHomeScreen();
     if (ImGui::MenuItem("Open Project...", "Ctrl+O")) loadProject();
     // Open Recent — persisted, most-recent-first. Greyed when empty.
     if (ImGui::BeginMenu("Open Recent", !m_recentProjects.empty())) {
@@ -211,6 +214,19 @@ void Application::renderFileMenuItems(bool withSettings) {
                 fmt.importFn(*m_pluginContext, "");
             }
             ImGui::PopID();
+        }
+        ImGui::Separator();
+        // Cross-project parts: pick another project file, then choose which
+        // of its bodies/sketches to copy in (baked, non-parametric).
+        if (ImGui::MenuItem("From Project...")) {
+            FileDialogs::openFile("Import from Project",
+                {{"Materializr Projects", "*.mzr *.materializr"}},
+                [this](const std::string& p) {
+                    if (p.empty()) return;
+                    openPartsPicker(p,
+                        std::filesystem::path(p).filename().string(),
+                        /*intoNewProject=*/false);
+                });
         }
         ImGui::EndMenu();
     }

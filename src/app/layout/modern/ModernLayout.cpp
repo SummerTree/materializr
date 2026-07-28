@@ -26,6 +26,8 @@
 #include "ui/TouchIcons.h"
 #include "ui/TouchTheme.h"
 #include "ui/TouchWidgets.h"
+#include "ui/LandingPage.h"   // edge tabs stand down while the landing page is up
+#include <imgui_internal.h>   // GetTopMostPopupModal: edge tabs yield to modals
 #include "touch_mode.h"
 #include "ui_scale.h"
 
@@ -621,6 +623,12 @@ void Application::renderModernLayout() {
 // Geometry comes from m_touchVp* (the panel/viewport boundaries), set by
 // renderModernLayout earlier this frame.
 void Application::renderModernEdgeTabs() {
+    // The tabs belong to the panel edges — when the landing page covers the
+    // shell there are no edges to pop, and while a modal is up the dim layer
+    // owns the screen. Both input and visual skip entirely (long-standing
+    // bug: the old foreground-drawn chevrons floated over everything).
+    if (m_landingPage && m_landingPage->isVisible()) return;
+    if (ImGui::GetTopMostPopupModal() != nullptr) return;
     const float s = uiScale();
     const float tabW = 16.0f * s, tabH = 72.0f * s;
     const float midY = m_touchVpY + m_touchVpH * 0.5f;
@@ -681,10 +689,14 @@ void Application::renderModernEdgeTabs() {
                 *dragged = false;
             }
 
-            // Foreground draw list: always renders on top of ALL windows
-            // (incl. the viewport), so the chevron can never be hidden behind
-            // a window even if the z-order is off.
-            ImDrawList* dl = ImGui::GetForegroundDrawList();
+            // The tab window's OWN draw list — it already rises above the
+            // viewport on creation (see the flags note above), and unlike the
+            // foreground list it lets dialogs/panels opened later stack above
+            // the chevron naturally. (The foreground list made the wedges
+            // float over every dialog — the bug this replaces. If "no
+            // chevrons on cold start" ever returns on the tablet, the window
+            // z-order fix regressed — fix THAT, don't move this back.)
+            ImDrawList* dl = ImGui::GetWindowDrawList();
             const float cx = side < 0 ? p.x : p.x + tabW;
             const ImVec2 c(cx, p.y + tabH * 0.5f);
             const float pi = 3.1415926f;

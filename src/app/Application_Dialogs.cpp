@@ -44,6 +44,11 @@
 #include "ui/HelpPanel.h"
 #include "ui/UpdateChecker.h"
 #include "ui/WelcomeScreen.h"
+#include "ui/LandingPage.h"
+#include "app/layout/LayoutCommon.h"  // layoutui::logoTexture for the landing header
+#include "mobile_files.h"             // mobileOpenUri (content: refs on mobile)
+#include <SDL.h>                      // SDL_GetPrefPath: thumbnail cache dir
+#include <cstring>
 #include "modeling/Sketch.h"
 #include "modeling/SketchSolver.h"
 #include "modeling/SketchTool.h"
@@ -4840,6 +4845,424 @@ void Application::renderUnfoldDialog() {
     if (ImGui::Button("Close", ImVec2(90, 0))) m_unfoldDialogActive = false;
 
     ImGui::End();
+}
+
+// ─── Landing page ────────────────────────────────────────────────────────────
+
+namespace {
+// thumbs/<fnv1a64(ref)>.png under the SDL pref path. The hash keys content://
+// URIs and filesystem paths alike; collisions are astronomically unlikely and
+// cost only a wrong tile picture.
+std::string thumbCacheFile(const std::string& ref) {
+    char* base = SDL_GetPrefPath("Materializr", "Materializr");
+    if (!base) return {};
+    std::string dir = std::string(base) + "thumbs";
+    SDL_free(base);
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    uint64_t h = 1469598103934665603ull;
+    for (unsigned char c : ref) { h ^= c; h *= 1099511628211ull; }
+    char name[24];
+    std::snprintf(name, sizeof(name), "%016llx", static_cast<unsigned long long>(h));
+    return dir + "/" + name + ".png";
+}
+} // namespace
+
+void Application::cacheProjectThumbnail(const std::string& ref,
+                                        const std::vector<uint8_t>& png) {
+    if (ref.empty() || png.empty()) return;
+    const std::string path = thumbCacheFile(ref);
+    if (path.empty()) return;
+    std::ofstream f(path, std::ios::binary | std::ios::trunc);
+    if (f) f.write(reinterpret_cast<const char*>(png.data()),
+                   static_cast<std::streamsize>(png.size()));
+}
+
+bool Application::readCachedThumbnail(const std::string& ref,
+                                      std::vector<uint8_t>& png) {
+    const std::string path = thumbCacheFile(ref);
+    if (path.empty()) return false;
+    std::ifstream f(path, std::ios::binary);
+    if (!f) return false;
+    png.assign(std::istreambuf_iterator<char>(f),
+               std::istreambuf_iterator<char>());
+    return !png.empty();
+}
+
+void Application::showLandingPage(bool fromStartup) {
+    if (!m_landingPage) return;
+    m_landingPage->setCanDismiss(!fromStartup);
+    // Rebuild the tiles fresh on every show: refs + names from the MRU,
+    // previews peeked from each file's embedded THUMB_PNG section. Legacy
+    // saves (pre-1.6) and content: URIs (no cheap read path through SAF)
+    // simply have no preview until their next save — placeholder tile.
+    std::vector<LandingPage::Entry> entries;
+    entries.reserve(m_recentProjects.size());
+    for (const auto& rp : m_recentProjects) {
+        LandingPage::Entry e;
+        e.ref = rp.ref;
+        e.name = rp.name.empty() ? rp.ref : rp.name;
+        std::vector<uint8_t> png;
+        bool have = rp.ref.rfind("content:", 0) != 0 &&
+                    ProjectIO::peekThumbnail(rp.ref, png);
+        if (!have) have = readCachedThumbnail(rp.ref, png);
+        if (have) {
+            DecodedImage img;
+            if (decodeImage(png.data(), png.size(), img)) {
+                GLuint tex = 0;
+                glGenTextures(1, &tex);
+                glBindTexture(GL_TEXTURE_2D, tex);
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, img.width, img.height,
+                             0, GL_RGBA, GL_UNSIGNED_BYTE, img.rgba.data());
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                e.tex = tex;
+            }
+        }
+        entries.push_back(std::move(e));
+    }
+    m_landingPage->setEntries(std::move(entries));
+    m_landingPage->setVisible(true);
+}
+
+void Application::exportRecentProjectAs(const std::string& ref,
+                                        const std::string& name, bool asStl) {
+    // The deliberate CHEAP export model (Steve, 2026-07-27): read the file's
+    // baked final bodies into a scratch Document and hand them to the normal
+    // exporters. Nothing parametric crosses a file boundary.
+    std::string path = ref;
+#if defined(MZ_MOBILE)
+    if (ref.rfind("content:", 0) == 0) {
+        path = materializr::mobileOpenUri(ref);
+        if (path.empty()) {
+            showToast("Couldn't read \"" + name + "\" - access may have been revoked.");
+            return;
+        }
+    }
+#endif
+    // shared_ptr: the save dialog's callback runs frames later; the scratch
+    // document must outlive this function.
+    auto doc = std::make_shared<Document>();
+    auto res = ProjectIO::load(path, *doc);
+    if (!res.success) {
+        showToast("Couldn't read \"" + name + "\" for export.");
+        return;
+    }
+    if (doc->getAllBodyIds().empty()) {
+        showToast("\"" + name + "\" has no bodies to export.");
+        return;
+    }
+    // Default filename = the project's name minus its extension, with the
+    // same character sanitising the body-STL export applies.
+    std::string base = std::filesystem::path(name).stem().string();
+    if (base.empty()) base = "export";
+    for (char& c : base)
+        if (std::strchr("\\/:*?\"<>|", c)) c = '_';
+
+    if (asStl) {
+        FileDialogs::saveFile("Export STL", base + ".stl",
+            {{"STL Files", "*.stl"}},
+            [this, doc](const std::string& p) {
+                if (p.empty()) return;
+                std::string out = p;
+                if (std::filesystem::path(out).extension() != ".stl") out += ".stl";
+                auto r = StlExport::exportFile(out, *doc);
+                showToast(r.success ? "Exported " +
+                              std::filesystem::path(out).filename().string()
+                                    : "Export failed - see log");
+                if (!r.success)
+                    std::fprintf(stderr, "Export failed: %s\n",
+                                 r.errorMessage.c_str());
+            });
+    } else {
+        FileDialogs::saveFile("Export STEP", base + ".step",
+            {{"STEP Files", "*.step *.stp"}},
+            [this, doc](const std::string& p) {
+                if (p.empty()) return;
+                std::string out = p;
+                std::string ext = std::filesystem::path(out).extension().string();
+                if (ext != ".step" && ext != ".stp") out += ".step";
+                auto r = StepIO::exportFile(out, *doc);
+                showToast(r.success ? "Exported " +
+                              std::filesystem::path(out).filename().string()
+                                    : "Export failed - see log");
+                if (!r.success)
+                    std::fprintf(stderr, "Export failed: %s\n",
+                                 r.errorMessage.c_str());
+            });
+    }
+}
+
+bool Application::landingPageUp() const {
+    return m_landingPage && m_landingPage->isVisible();
+}
+
+void Application::goToHomeScreen() {
+    // Same prompt-then-act path every project open uses: dirty → the
+    // save/discard/cancel dialog resolves first (cancel = stay put); clean →
+    // straight through. The project always closes on the way out, so nothing
+    // sits behind the page and New Project from home never prompts again —
+    // the decision was already made here.
+    guardedOpen([this]() {
+        doCloseProject();
+        showLandingPage(/*fromStartup=*/true);   // no session behind → no ×
+    });
+}
+
+// ─── Cross-project parts (picker + per-body export) ─────────────────────────
+
+void Application::openPartsPicker(const std::string& ref,
+                                  const std::string& name,
+                                  bool intoNewProject) {
+    std::string path = ref;
+#if defined(MZ_MOBILE)
+    if (ref.rfind("content:", 0) == 0) {
+        path = materializr::mobileOpenUri(ref);
+        if (path.empty()) {
+            showToast("Couldn't read \"" + name + "\" - access may have been revoked.");
+            return;
+        }
+    }
+#endif
+    auto doc = std::make_shared<Document>();
+    auto res = ProjectIO::load(path, *doc);
+    if (!res.success) {
+        showToast("Couldn't read \"" + name + "\".");
+        return;
+    }
+    m_partsPickerBodies.clear();
+    m_partsPickerSketches.clear();
+    for (int id : doc->getAllBodyIds())
+        m_partsPickerBodies.emplace_back(id, true);
+    for (int id : doc->getAllSketchIds())
+        m_partsPickerSketches.emplace_back(id, true);
+    if (m_partsPickerBodies.empty() && m_partsPickerSketches.empty()) {
+        showToast("\"" + name + "\" has no parts to import.");
+        return;
+    }
+    m_partsPickerDoc = std::move(doc);
+    m_partsPickerSource = name;
+    m_partsPickerIntoNew = intoNewProject;
+    m_partsPickerOpen = true;
+}
+
+void Application::renderPartsPickerDialog() {
+    if (!m_partsPickerOpen || !m_partsPickerDoc) return;
+    // Guarded reopen (see the Welcome render site): a raw OpenPopup every
+    // frame stomps any other popup at the same stack level.
+    if (!ImGui::IsPopupOpen("Import Parts")) ImGui::OpenPopup("Import Parts");
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSizeConstraints(uiSz(360, 0), uiSz(520, 560));
+    if (!ImGui::BeginPopupModal("Import Parts", &m_partsPickerOpen,
+                                ImGuiWindowFlags_AlwaysAutoResize)) {
+        if (!m_partsPickerOpen) m_partsPickerDoc.reset();   // closed via ×
+        return;
+    }
+
+    ImGui::TextColored(dimText(), "From %s", m_partsPickerSource.c_str());
+    ImGui::TextColored(dimText(), m_partsPickerIntoNew
+                                      ? "Parts are copied into a new project."
+                                      : "Parts are copied into the current project.");
+    ImGui::Separator();
+
+    auto checkList = [&](const char* title,
+                         std::vector<std::pair<int, bool>>& items,
+                         const char* prefix, auto nameOf) {
+        if (items.empty()) return;
+        ImGui::TextColored(accentText(), "%s", title);
+        for (auto& [id, on] : items) {
+            ImGui::PushID(prefix);
+            ImGui::PushID(id);
+            std::string label = nameOf(id);
+            if (label.empty()) label = std::string(prefix) + " " + std::to_string(id);
+            ImGui::Checkbox(label.c_str(), &on);
+            ImGui::PopID();
+            ImGui::PopID();
+        }
+        ImGui::Spacing();
+    };
+    checkList("Bodies", m_partsPickerBodies, "Body",
+              [&](int id) { return m_partsPickerDoc->getBodyName(id); });
+    checkList("Sketches", m_partsPickerSketches, "Sketch",
+              [&](int id) { return m_partsPickerDoc->getSketchName(id); });
+
+    if (ImGui::SmallButton("Select all")) {
+        for (auto& [id, on] : m_partsPickerBodies) on = true;
+        for (auto& [id, on] : m_partsPickerSketches) on = true;
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Select none")) {
+        for (auto& [id, on] : m_partsPickerBodies) on = false;
+        for (auto& [id, on] : m_partsPickerSketches) on = false;
+    }
+    ImGui::Separator();
+
+    int nSel = 0;
+    for (auto& [id, on] : m_partsPickerBodies) nSel += on ? 1 : 0;
+    for (auto& [id, on] : m_partsPickerSketches) nSel += on ? 1 : 0;
+
+    ImGui::BeginDisabled(nSel == 0);
+    std::string importLbl = "Import " + std::to_string(nSel) +
+                            (nSel == 1 ? " part" : " parts");
+    bool doImport = ImGui::Button(importLbl.c_str(), uiSz(160, 0));
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    bool doCancel = ImGui::Button("Cancel", uiSz(90, 0));
+
+    if (doImport) {
+        bool proceed = true;
+        if (m_partsPickerIntoNew) {
+            if (isDirty()) {
+                // Clearing the workspace under an async save-prompt would
+                // race it; make the user resolve the open project first.
+                showToast("Save or close the open project first.");
+                proceed = false;
+            } else {
+                doCloseProject();
+            }
+        }
+        if (proceed) {
+            int n = 0;
+            for (auto& [id, on] : m_partsPickerBodies) {
+                if (!on) continue;
+                try {
+                    const TopoDS_Shape& s = m_partsPickerDoc->getBody(id);
+                    if (s.IsNull()) continue;
+                    int nid = m_document->addBody(s, m_partsPickerDoc->getBodyName(id));
+                    m_document->setBodyColor(nid, m_partsPickerDoc->getBodyColor(id));
+                    ++n;
+                } catch (...) {}
+            }
+            for (auto& [id, on] : m_partsPickerSketches) {
+                if (!on) continue;
+                auto src = m_partsPickerDoc->getSketch(id);
+                if (!src) continue;
+                auto cp = std::make_shared<Sketch>(*src);
+                // Sever the source-body/face link (the DuplicateSketchOp
+                // lesson): the copy must never drive or re-bind a body from
+                // ANOTHER project — it builds its region from its own loops.
+                cp->setSourceBody(-1);
+                cp->setSourceFace(TopoDS_Face());
+                cp->setDetachedFromBody(false);
+                int nid = m_document->addSketch(cp, m_partsPickerDoc->getSketchName(id));
+                m_document->setSketchVisible(nid, true);
+                ++n;
+            }
+            m_meshesDirty = true;
+            markDirty();
+            // Frame the arrivals like a project open does (home orientation +
+            // zoom-fit) — otherwise the camera stays wherever it was and the
+            // imported parts can fill the screen or sit out of view.
+            handleViewCubeAction(static_cast<int>(ViewCubeAction::FrontTopRight));
+            if (m_landingPage) m_landingPage->setVisible(false);
+            showToast("Imported " + std::to_string(n) +
+                      (n == 1 ? " part from " : " parts from ") + m_partsPickerSource);
+            m_partsPickerOpen = false;
+        }
+    }
+    if (doCancel) m_partsPickerOpen = false;
+    if (!m_partsPickerOpen) {
+        m_partsPickerDoc.reset();
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+}
+
+void Application::exportBodyToNewProject(int bodyId) {
+    if (!m_document) return;
+    TopoDS_Shape shape;
+    try { shape = m_document->getBody(bodyId); } catch (...) {}
+    if (shape.IsNull()) {
+        showToast("This body has no geometry to export.");
+        return;
+    }
+    // Snapshot everything now — the save dialog's callback runs frames later
+    // and the body could be deleted (or the project closed) in between.
+    std::string bodyName = m_document->getBodyName(bodyId);
+    glm::vec3 color = m_document->getBodyColor(bodyId);
+    std::string base = bodyName.empty() ? "part" : bodyName;
+    for (char& c : base)
+        if (std::strchr("\\/:*?\"<>|", c)) c = '_';
+
+    FileDialogs::saveFile("Export to New Project", base + ".mzr",
+        {{"Materializr Projects", "*.mzr *.materializr"}},
+        [this, shape, bodyName, color](const std::string& p) {
+            if (p.empty()) return;
+            std::string out = p;
+            const auto ext = std::filesystem::path(out).extension();
+            if (ext != ".mzr" && ext != ".materializr") out += ".mzr";
+            Document scratch;
+            int nid = scratch.addBody(shape, bodyName);
+            scratch.setBodyColor(nid, color);
+            auto r = ProjectIO::save(out, scratch);
+            if (r.success) {
+                std::string fname = std::filesystem::path(out).filename().string();
+                // Onto the landing page it goes (placeholder tile until that
+                // project is opened + saved once — no GL-safe way to render
+                // a body that isn't the current scene here).
+                addRecentProject(out, fname);
+                showToast("Exported to " + fname);
+            } else {
+                showToast("Export failed - see log");
+                std::fprintf(stderr, "Export failed: %s\n", r.errorMessage.c_str());
+            }
+        });
+}
+
+void Application::renderLandingPage() {
+    if (!m_landingPage || !m_landingPage->isVisible()) return;
+    // ImTextureID is an integer alias in this imgui config; the logo texture
+    // is a plain GL name, so a value cast is exact.
+    m_landingPage->setLogoTexture(
+        static_cast<unsigned int>(layoutui::logoTexture()));
+    const LandingPage::Action act = m_landingPage->render();
+    using AT = LandingPage::ActionType;
+    switch (act.type) {
+    case AT::NewProject:
+        m_landingPage->setVisible(false);
+        // Same semantics as File → New Project: prompts to save first when
+        // the (File → Home Screen case) current project has unsaved work.
+        closeProject();
+        break;
+    case AT::OpenEntry: {
+        m_landingPage->setVisible(false);
+        AppSettings::RecentProject rp;
+        rp.ref = act.ref;
+        rp.name = act.name;
+        openRecentProject(rp);   // resolves URIs, bumps the MRU, toasts failures
+        break;
+    }
+    case AT::OpenFileDialog:
+        m_landingPage->setVisible(false);
+        loadProject();
+        break;
+    case AT::ExportStep:
+        exportRecentProjectAs(act.ref, act.name, /*asStl=*/false);
+        break;   // page stays up — export is a side errand, not a departure
+    case AT::ExportStl:
+        exportRecentProjectAs(act.ref, act.name, /*asStl=*/true);
+        break;
+    case AT::ImportParts:
+        // Page stays up; the modal draws above it and, on import, the page
+        // hides itself (see renderPartsPickerDialog).
+        openPartsPicker(act.ref, act.name, /*intoNewProject=*/true);
+        break;
+    case AT::OpenSettings:
+        // Same staging as the File menu item: the dialog can Cancel cleanly.
+        m_settingsOrbitButton = m_orbitButton;
+        m_settingsPanButton = m_panButton;
+        m_showSettings = true;
+        break;   // page stays up beneath the settings window
+    case AT::OpenHelp:
+        if (m_helpPanel) m_helpPanel->setVisible(true);
+        break;   // page stays up beneath the help window
+    case AT::Dismiss:
+        m_landingPage->setVisible(false);
+        break;
+    case AT::None:
+        break;
+    }
 }
 
 } // namespace materializr

@@ -312,10 +312,12 @@ add_executable(materializr
     src/ui/ShortcutsPanel.cpp
     src/ui/AboutDialog.cpp
     src/ui/WelcomeScreen.cpp
+    src/ui/LandingPage.cpp
     src/ui/UpdateChecker.cpp
     src/ui/HelpPanel.cpp
     src/io/ProjectIO.cpp
     src/io/ImageDecode.cpp
+    src/io/ImageEncode.cpp
     src/io/SketchRecovery.cpp
     src/io/ProjectRecovery.cpp
     src/io/Settings.cpp

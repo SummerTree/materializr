@@ -755,6 +755,13 @@ bool ItemsPanel::renderBodyRow(int id, bool& colorChanged) {
         if (!deleted && m_exportStl && ImGui::MenuItem("Export STL…")) {
             m_exportStl(id);
         }
+        // Baked copy of this body into a fresh project file — the "use this
+        // part elsewhere" flow (the new file lands in Open Recent / the
+        // landing page, ready for Import Parts from another project).
+        if (!deleted && m_exportToProject &&
+            ImGui::MenuItem("Export to New Project…")) {
+            m_exportToProject(id);
+        }
         // Move-to-folder submenu. If the right-clicked body is part of a
         // multi-selection, the action moves EVERY selected body at once;
         // otherwise it just moves this one. Lists existing folders + a "(root)"

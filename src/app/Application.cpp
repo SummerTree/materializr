@@ -63,6 +63,7 @@ inline void resetFpuForOcct() {
 #include "ui/PropertiesPanel.h"
 #include "ui/AboutDialog.h"
 #include "ui/WelcomeScreen.h"
+#include "ui/LandingPage.h"
 #include "ui_layout_bridge.h"
 #include <fstream>
 #include "ios_storekit.h"
@@ -242,6 +243,7 @@ Application::Application(bool safeMode, float uiScaleOverride)
     m_propertiesPanel = std::make_unique<PropertiesPanel>();
     m_aboutDialog = std::make_unique<AboutDialog>();
     m_welcomeScreen = std::make_unique<WelcomeScreen>();
+    m_landingPage = std::make_unique<LandingPage>();
 #if defined(MZ_IOS)
     // StoreKit observer must attach at launch (Apple requirement) so a
     // Supporter purchase interrupted in a previous run is redelivered; the
@@ -294,6 +296,8 @@ Application::Application(bool safeMode, float uiScaleOverride)
     m_itemsPanel->setHistory(m_history.get());
     m_itemsPanel->setDirtyCallback([this]() { markDirty(); });
     m_itemsPanel->setExportStlCallback([this](int bodyId) { exportBodyAsStl(bodyId); });
+    m_itemsPanel->setExportToProjectCallback(
+        [this](int bodyId) { exportBodyToNewProject(bodyId); });
     m_itemsPanel->setEditSketchCallback([this](int sketchId) { editSketch(sketchId); });
     m_itemsPanel->setExportSketchSvgCallback([this](int sketchId) { exportSketchAsSvg(sketchId); });
     m_itemsPanel->setExportSketchDxfCallback([this](int sketchId) { exportSketchAsDxf(sketchId); });
@@ -1347,6 +1351,19 @@ void Application::loadAppSettings() {
     }();
     if (!m_supporter && !m_safeMode && !firstRun)
         m_welcomeScreen->setVisible(true);
+
+    // Landing page: the default start screen (New Project + recent-project
+    // thumbnails). Skipped only in safe mode (recovery owns the moment).
+    // It SUPERSEDES auto-open-last-project — the last project is the first
+    // tile (one click), and letting the deferred load run would load beneath
+    // the page and immediately hide it (loadProjectAt hides on success), a
+    // one-frame flash of the wrong screen. So the queued load is cancelled.
+    // Startup modals are popups and render above the page, so the dialog
+    // turn-taking above is unaffected.
+    if (!m_safeMode) {
+        m_deferredHeavyTask = nullptr;   // cancel auto-open; tile 1 replaces it
+        showLandingPage(/*fromStartup=*/true);
+    }
 }
 
 void Application::applyRenderingSettings() {
@@ -2946,7 +2963,10 @@ void Application::saveProject() {
             }
 #endif
             ProjectHistory hist = captureProjectHistory();
-            auto result = ProjectIO::save(path, *m_document, &hist);
+            std::vector<uint8_t> thumb;
+            captureProjectThumbnailPNG(thumb);
+            auto result = ProjectIO::save(path, *m_document, &hist,
+                                          thumb.empty() ? nullptr : &thumb);
             if (result.success) {
                 m_currentProjectPath = path;
                 m_currentProjectName =
@@ -2980,6 +3000,10 @@ void Application::saveProject() {
 #endif
                     if (name.empty()) name = std::filesystem::path(path).filename().string();
                     addRecentProject(ref, name);
+                    // Keyed by the SAME ref the recents list uses, so the
+                    // landing tile finds it (matters on Android, where the
+                    // identity is the content: URI, not the temp path).
+                    cacheProjectThumbnail(ref, thumb);
                 }
                 std::fprintf(stdout, "Project saved to %s\n", path.c_str());
                 if (m_closeAfterSave) {
@@ -3018,11 +3042,15 @@ void Application::saveProjectQuick() {
         const char* home = std::getenv("HOME");
         std::string tmp = std::string(home ? home : ".") + "/.mz_qsave.materializr";
         ProjectHistory hist = captureProjectHistory();
-        auto result = ProjectIO::save(tmp, *m_document, &hist);
+        std::vector<uint8_t> thumb;
+        captureProjectThumbnailPNG(thumb);
+        auto result = ProjectIO::save(tmp, *m_document, &hist,
+                                      thumb.empty() ? nullptr : &thumb);
         if (result.success &&
             materializr::mobileCommitSaveToRef(m_currentProjectPath, tmp)) {
             markSaved();
             saveAppSettings();
+            cacheProjectThumbnail(m_currentProjectPath, thumb);
             showToast("Saved " + projectDisplayName());
         } else if (!result.success) {
             std::fprintf(stderr, "Save failed: %s\n", result.errorMessage.c_str());
@@ -3037,10 +3065,14 @@ void Application::saveProjectQuick() {
         return;
     }
     ProjectHistory hist = captureProjectHistory();
-    auto result = ProjectIO::save(m_currentProjectPath, *m_document, &hist);
+    std::vector<uint8_t> thumb;
+    captureProjectThumbnailPNG(thumb);
+    auto result = ProjectIO::save(m_currentProjectPath, *m_document, &hist,
+                                  thumb.empty() ? nullptr : &thumb);
     if (result.success) {
         markSaved();
         saveAppSettings(); // persist lastProjectPath for auto-open
+        cacheProjectThumbnail(m_currentProjectPath, thumb);
         std::fprintf(stdout, "Project saved to %s\n", m_currentProjectPath.c_str());
         if (m_closeAfterSave) {
             if (m_postSaveAction == PostSaveAction::CloseProject) {
@@ -3539,6 +3571,8 @@ bool Application::loadProjectAt(const std::string& path) {
     // history replay above.)
     // Persist as the last-open project so the next launch can auto-reopen it.
     saveAppSettings();
+    // A project is on screen now — the landing page's job is done.
+    if (m_landingPage) m_landingPage->setVisible(false);
     return true;
 }
 
@@ -3619,6 +3653,14 @@ void Application::openRecentProject(const AppSettings::RecentProject& r) {
         }
         if (loadProjectAt(tmp)) {
             addRecentProject(ref, name);  // bump to front
+            // The resolved temp is peekable even though the content: ref is
+            // not — harvest the embedded thumbnail into the cache so this
+            // project's landing tile fills in from the next show onward.
+            {
+                std::vector<uint8_t> png;
+                if (ProjectIO::peekThumbnail(tmp, png))
+                    cacheProjectThumbnail(ref, png);
+            }
 #if defined(__ANDROID__)
             // Track the DOCUMENT as the project identity so quick-save writes
             // back to the real file (loadProjectAt stored the cache temp).
@@ -6300,11 +6342,18 @@ void Application::run() {
         renderDockspace();
         // Per-layout chrome (src/app/layout/<name>/). A new layout gets a case
         // here; everything below this dispatch is layout-agnostic or gated on
-        // the layout helpers.
+        // the layout helpers. While the landing page is up the modern and
+        // im-touch shells stand down completely (their floating chrome would
+        // draw over the page); classic keeps its menu bar — the one piece of
+        // chrome that is useful above the page — and drops the rest below.
         switch (m_uiLayout) {
             case UiLayout::Classic: renderMenuBar();        break;
-            case UiLayout::Modern:  renderModernLayout();   break;
-            case UiLayout::ImTouch: renderImTouchLayout();  break;
+            case UiLayout::Modern:
+                if (!landingPageUp()) renderModernLayout();
+                break;
+            case UiLayout::ImTouch:
+                if (!landingPageUp()) renderImTouchLayout();
+                break;
         }
         renderSmallScreenWarning();
 
@@ -6457,7 +6506,8 @@ void Application::run() {
             // left edge handle (or Hide Panels). All the setters above are
             // harmless no-ops on an unsubmitted window.
             ToolAction action = ToolAction::None;
-            if (classicLayout() && !m_leftPanelHidden && m_showTools) {
+            if (classicLayout() && !landingPageUp() && !m_leftPanelHidden &&
+                m_showTools) {
                 action = m_toolbar->render();
                 m_sketchGridStep = m_toolbar->getGridStep();
                 m_snapToGrid = m_toolbar->getSnapToGrid();
@@ -6520,7 +6570,8 @@ void Application::run() {
 
             // The Interactions reference is docked in the RIGHT column (above
             // Items), so it collapses with the right edge handle too.
-            if (classicLayout() && !m_rightPanelHidden && m_showInteractions)
+            if (classicLayout() && !landingPageUp() && !m_rightPanelHidden &&
+                m_showInteractions)
                 renderInteractionsPanel();
             renderSettings();
             renderMirrorPopup();
@@ -6592,6 +6643,8 @@ void Application::run() {
             // iPad "second launch locks up" bug). Welcome goes FIRST; sketch
             // recovery and the small-screen notice hold off while it is up
             // (they check m_welcomeScreen->isVisible()).
+            renderLandingPage();   // full work-area cover; modals draw above
+            renderPartsPickerDialog();
             if (m_welcomeScreen->render() == WelcomeScreen::Action::MarkSupporter) {
                 m_supporter = true;
                 saveAppSettings();
@@ -6670,24 +6723,27 @@ void Application::run() {
                     }
                     m_historyPanel->setHighlightStep(hl);
                 }
-                if (classicLayout() && m_showHistory && m_historyPanel->render()) {
+                if (classicLayout() && !landingPageUp() && m_showHistory &&
+                    m_historyPanel->render()) {
                     m_meshesDirty = true;
                 }
 
-                if (classicLayout() && m_showItems && m_itemsPanel->render()) {
+                if (classicLayout() && !landingPageUp() && m_showItems &&
+                    m_itemsPanel->render()) {
                     m_hoveredBodyId = -1;
                     m_meshesDirty = true;
                 }
                 m_propertiesPanel->setSketchContext(
                     m_inSketchMode, m_activeSketch.get(), m_activeSketchId,
                     m_sketchTool.get());
-                if (classicLayout() && m_showProperties && m_propertiesPanel->render()) {
+                if (classicLayout() && !landingPageUp() && m_showProperties &&
+                    m_propertiesPanel->render()) {
                     m_meshesDirty = true;
                 }
             }
             // Touch edge tabs to collapse/restore each side column (drawn on top
             // of the panels, and still visible when a side is collapsed).
-            if (classicLayout()) renderPanelCollapseHandles();
+            if (classicLayout() && !landingPageUp()) renderPanelCollapseHandles();
 
             // Plugin overlays — free-floating per-frame ImGui windows (e.g. the
             // Tutorial). Drawn after the panels so they float on top; non-modal,
@@ -6722,7 +6778,7 @@ void Application::run() {
             } else {
                 m_statusBar->setMessage("");
             }
-            if (classicLayout()) m_statusBar->render();
+            if (classicLayout() && !landingPageUp()) m_statusBar->render();
             renderTransientToast();
             FileDialogs::render();
             renderSavePrompt();

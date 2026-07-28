@@ -60,6 +60,7 @@ class ItemsPanel;
 class StatusBar;
 class ThemeManager;
 class PropertiesPanel;
+class LandingPage;
 class Sketch;
 class SketchSolver;
 class SketchTool;
@@ -226,6 +227,54 @@ private:
     void saveProject();
     std::string projectDisplayName() const;    // name or basename or "New project"         // Save dialog (Save As behavior)
     void saveProjectQuick();    // Save to current path if known, else falls through to saveProject
+    // Render the "home view" of the project (visible bodies only — no
+    // sketches, planes, axes, grid or overlays; reset isometric camera,
+    // zoom-fit) into an offscreen 512px square and PNG-encode it. Embedded
+    // in the save file as the landing-page tile. False when there is nothing
+    // to show (no visible bodies) — the save then simply carries no thumbnail.
+    // Main thread only (needs the GL context).
+    bool captureProjectThumbnailPNG(std::vector<uint8_t>& pngOut);
+    // Landing page: rebuild the tile list from m_recentProjects (peeking each
+    // file's embedded thumbnail into a GL texture) and show it. Rendered by
+    // renderLandingPage() each frame; actions (new/open/dismiss) are handled
+    // there. The page hides itself whenever a project load succeeds.
+    // `fromStartup` hides the header's close button: at startup there is no
+    // session behind the page to go back to (closing would equal New Project).
+    void showLandingPage(bool fromStartup = false);
+    // File → Home Screen. Leaving for the home screen IS leaving the project:
+    // the save/discard prompt fires HERE (not later when a tile is clicked),
+    // the project closes, and the page shows over an empty workspace.
+    void goToHomeScreen();
+    void renderLandingPage();
+    // True while the landing page owns the screen. Layout chrome (panels,
+    // toolbars, shells, edge tabs, status bar) checks this and stands down —
+    // relying on z-order alone is fragile because any later focus event can
+    // lift a chrome window above the page.
+    bool landingPageUp() const;
+    // Landing-page tile context menu: load a recent project's BAKED bodies
+    // into a scratch Document and export them as STEP/STL. Deliberately not
+    // parametric — final shapes only.
+    void exportRecentProjectAs(const std::string& ref, const std::string& name,
+                               bool asStl);
+    // Thumbnail side-cache (SDL pref path /thumbs, keyed by hash of the
+    // recent ref). Exists for refs the landing page can't peek directly —
+    // Android content:// documents — and doubles as a fallback everywhere.
+    // Written on every successful save and on mobile recent-opens.
+    void cacheProjectThumbnail(const std::string& ref,
+                               const std::vector<uint8_t>& png);
+    bool readCachedThumbnail(const std::string& ref, std::vector<uint8_t>& png);
+
+    // Cross-project parts: scratch-load `ref` and open the "Import Parts"
+    // modal listing its bodies + sketches. `intoNewProject` (landing-tile
+    // flow) clears the workspace first; otherwise parts land in the current
+    // document. Copies are BAKED (bodies) / independent (sketches severed
+    // from their source body) — nothing parametric crosses files.
+    void openPartsPicker(const std::string& ref, const std::string& name,
+                         bool intoNewProject);
+    void renderPartsPickerDialog();
+    // Items-panel body context menu: write one body into a fresh project
+    // file (and add it to Open Recent so it shows on the landing page).
+    void exportBodyToNewProject(int bodyId);
     void loadProject();         // File dialog → loadProjectAt
     // Load a project file directly by path. Used by loadProject() and by the
     // "auto-open last project on launch" path.
@@ -536,6 +585,15 @@ private:
     std::unique_ptr<PropertiesPanel> m_propertiesPanel;
     std::unique_ptr<AboutDialog> m_aboutDialog;
     std::unique_ptr<WelcomeScreen> m_welcomeScreen;
+    std::unique_ptr<LandingPage> m_landingPage;
+    // Parts-picker modal state (see openPartsPicker). The scratch document
+    // pins the source shapes alive until the modal resolves.
+    std::shared_ptr<Document> m_partsPickerDoc;
+    std::string m_partsPickerSource;              // display name
+    bool m_partsPickerOpen = false;
+    bool m_partsPickerIntoNew = false;
+    std::vector<std::pair<int, bool>> m_partsPickerBodies;   // id, checked
+    std::vector<std::pair<int, bool>> m_partsPickerSketches; // id, checked
     std::unique_ptr<ShortcutsPanel> m_shortcutsPanel;
     std::unique_ptr<HelpPanel> m_helpPanel;
     std::unique_ptr<MeasureTool> m_measureTool;

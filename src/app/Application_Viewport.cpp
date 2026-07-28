@@ -27,6 +27,9 @@
 #include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
 #include <TopTools_ListOfShape.hxx>
+#include <Bnd_Box.hxx>
+#include <BRepBndLib.hxx>
+#include "io/ImageEncode.h"
 #include "viewport/Gizmo.h"
 #include "viewport/SelectionHighlight.h"
 #include "ui/TouchIcons.h"   // im-touch circle-confirm bubble ✗/✓ glyphs
@@ -8127,6 +8130,134 @@ void Application::renderViewport() {
 
     ImGui::End();
     ImGui::PopStyleVar();
+}
+
+bool Application::captureProjectThumbnailPNG(std::vector<uint8_t>& pngOut) {
+    if (!m_viewport || !m_shapeRenderer || !m_edgeRenderer ||
+        !m_backgroundRenderer || !m_document)
+        return false;
+
+    // Bounding box over the visible bodies (the same set ShapeRenderer holds
+    // meshes for). Nothing visible → no thumbnail; the save just omits the
+    // section and the landing tile shows its placeholder.
+    Bnd_Box bb;
+    for (int id : m_document->getAllBodyIds()) {
+        if (!m_document->isBodyVisible(id)) continue;
+        try {
+            const TopoDS_Shape& s = m_document->getBody(id);
+            if (!s.IsNull())
+                BRepBndLib::AddOptimal(s, bb, Standard_False, Standard_False);
+        } catch (...) {}
+    }
+    if (bb.IsVoid()) return false;
+
+    // Meshes can be stale when a save lands between frames (deferred slot).
+    if (m_meshesDirty || !m_dirtyBodyIds.empty()) {
+        rebuildMeshes();
+        m_meshesDirty = false;
+    }
+
+    // Dedicated one-shot FBO — deliberately NOT the live viewport FBO, whose
+    // texture ImGui may already have referenced this frame (destroying it
+    // mid-frame leaves the draw list pointing at a dead texture). Rendered at
+    // 2x and box-downscaled below: cheap antialiasing without MSAA plumbing.
+    const int kThumbPx = 512;
+    const int kRenderPx = kThumbPx * 2;
+    GLuint fbo = 0, colorTex = 0, depthRb = 0;
+    glGenFramebuffers(1, &fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    glGenTextures(1, &colorTex);
+    glBindTexture(GL_TEXTURE_2D, colorTex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, kRenderPx, kRenderPx, 0,
+                 GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                           GL_TEXTURE_2D, colorTex, 0);
+    glGenRenderbuffers(1, &depthRb);
+    glBindRenderbuffer(GL_RENDERBUFFER, depthRb);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8,
+                          kRenderPx, kRenderPx);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT,
+                              GL_RENDERBUFFER, depthRb);
+    auto cleanup = [&]() {
+        glBindFramebuffer(GL_FRAMEBUFFER, g_windowFramebuffer);
+        if (colorTex) glDeleteTextures(1, &colorTex);
+        if (depthRb) glDeleteRenderbuffers(1, &depthRb);
+        if (fbo) glDeleteFramebuffers(1, &fbo);
+    };
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+        cleanup();
+        return false;
+    }
+    glViewport(0, 0, kRenderPx, kRenderPx);
+
+    // The camera is shared with the live viewport — restored by copy below.
+    // Section planes and background colours are re-asserted by renderViewport()
+    // every frame, so this pass may set them freely.
+    Camera saved = m_viewport->getCamera();
+    Camera& cam = m_viewport->getCamera();
+    cam.reset();                       // home orientation (default isometric)
+    cam.setAspect(1.0f);
+    Standard_Real x0, y0, z0, x1, y1, z1;
+    bb.Get(x0, y0, z0, x1, y1, z1);
+    cam.zoomToFit(glm::vec3((float)x0, (float)y0, (float)z0),
+                  glm::vec3((float)x1, (float)y1, (float)z1));
+
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+    glDisable(GL_SCISSOR_TEST);
+    const bool lightBg = m_themeManager &&
+                         m_themeManager->getTheme() == Theme::Light;
+    if (lightBg) {
+        m_backgroundRenderer->setTopColor(glm::vec3(0.92f, 0.93f, 0.96f));
+        m_backgroundRenderer->setBottomColor(glm::vec3(0.78f, 0.80f, 0.85f));
+    } else {
+        m_backgroundRenderer->setTopColor(glm::vec3(0.22f, 0.22f, 0.28f));
+        m_backgroundRenderer->setBottomColor(glm::vec3(0.12f, 0.12f, 0.15f));
+    }
+    m_backgroundRenderer->render();
+    glEnable(GL_DEPTH_TEST);
+
+    // A live section cut would carve the thumbnail too — always off here.
+    m_shapeRenderer->setSectionPlane(false, glm::vec3(0.0f),
+                                     glm::vec3(0.0f, 1.0f, 0.0f));
+    m_edgeRenderer->setSectionPlane(false, glm::vec3(0.0f),
+                                    glm::vec3(0.0f, 1.0f, 0.0f));
+
+    glm::mat4 view = cam.getViewMatrix();
+    glm::mat4 proj = cam.getProjectionMatrix();
+    m_shapeRenderer->render(view, proj, cam.getPosition());
+    m_edgeRenderer->render(view, proj);
+    m_viewport->getCamera() = saved;
+
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    std::vector<uint8_t> raw(static_cast<size_t>(kRenderPx) * kRenderPx * 4);
+    glReadPixels(0, 0, kRenderPx, kRenderPx, GL_RGBA, GL_UNSIGNED_BYTE,
+                 raw.data());
+    cleanup();
+
+    // 2x2 box downscale + vertical flip (GL reads bottom-up) in one pass.
+    std::vector<uint8_t> rgba(static_cast<size_t>(kThumbPx) * kThumbPx * 4);
+    for (int y = 0; y < kThumbPx; ++y) {
+        // Destination row y (top-down) samples source rows counted from the top,
+        // which sit at (kRenderPx-1 - srcY) in GL's bottom-up buffer.
+        const int sy0 = kRenderPx - 1 - (y * 2);
+        const int sy1 = sy0 - 1;
+        for (int x = 0; x < kThumbPx; ++x) {
+            const int sx = x * 2;
+            for (int c = 0; c < 4; ++c) {
+                const unsigned sum =
+                    raw[(static_cast<size_t>(sy0) * kRenderPx + sx) * 4 + c] +
+                    raw[(static_cast<size_t>(sy0) * kRenderPx + sx + 1) * 4 + c] +
+                    raw[(static_cast<size_t>(sy1) * kRenderPx + sx) * 4 + c] +
+                    raw[(static_cast<size_t>(sy1) * kRenderPx + sx + 1) * 4 + c];
+                rgba[(static_cast<size_t>(y) * kThumbPx + x) * 4 + c] =
+                    static_cast<uint8_t>(sum / 4);
+            }
+        }
+    }
+    return materializr::encodePng(rgba.data(), kThumbPx, kThumbPx, pngOut);
 }
 
 } // namespace materializr

@@ -30,6 +30,12 @@ public:
     // ItemsPanel doesn't own STL I/O, so the Application wires this up to
     // route the click into its own per-body export flow.
     void setExportStlCallback(std::function<void(int)> cb) { m_exportStl = std::move(cb); }
+    // "Export to New Project…" on a body's context menu — routes to
+    // Application::exportBodyToNewProject (writes a fresh .mzr with a baked
+    // copy of the body).
+    void setExportToProjectCallback(std::function<void(int)> cb) {
+        m_exportToProject = std::move(cb);
+    }
     // Called when the user picks "Edit Sketch" from a sketch's right-click
     // menu. Routes to Application::editSketch which enters sketch mode on
     // that sketch — the only way to re-enter a sketch that was created in
@@ -66,6 +72,7 @@ private:
     History* m_history = nullptr;
     std::function<void()> m_markDirty;
     std::function<void(int)> m_exportStl;
+    std::function<void(int)> m_exportToProject;
     std::function<void(int)> m_editSketch;
     std::function<void(int)> m_exportSketchSvg;
     std::function<void(int)> m_exportSketchDxf;
