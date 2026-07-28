@@ -8144,25 +8144,31 @@ bool Application::captureProjectThumbnailPNG(std::vector<uint8_t>& pngOut) {
         !m_backgroundRenderer || !m_document)
         return false;
 
+    // Meshes can be stale when a save lands between frames (deferred slot).
+    // Done BEFORE the bounding box so the box can ride on the triangulation.
+    if (m_meshesDirty || !m_dirtyBodyIds.empty()) {
+        rebuildMeshes();
+        m_meshesDirty = false;
+    }
+
     // Bounding box over the visible bodies (the same set ShapeRenderer holds
     // meshes for). Nothing visible → no thumbnail; the save just omits the
     // section and the landing tile shows its placeholder.
+    //
+    // Add-with-triangulation, NOT AddOptimal: this box only frames a 512px
+    // preview, so a slightly loose fit costs nothing visible, while
+    // AddOptimal's exact geometry pass is expensive on precisely the surfaces
+    // this app produces — thread helicoids and lofted B-splines — and it ran
+    // on EVERY Ctrl+S.
     Bnd_Box bb;
     for (int id : m_document->getAllBodyIds()) {
         if (!m_document->isBodyVisible(id)) continue;
         try {
             const TopoDS_Shape& s = m_document->getBody(id);
-            if (!s.IsNull())
-                BRepBndLib::AddOptimal(s, bb, Standard_False, Standard_False);
+            if (!s.IsNull()) BRepBndLib::Add(s, bb, Standard_True);
         } catch (...) {}
     }
     if (bb.IsVoid()) return false;
-
-    // Meshes can be stale when a save lands between frames (deferred slot).
-    if (m_meshesDirty || !m_dirtyBodyIds.empty()) {
-        rebuildMeshes();
-        m_meshesDirty = false;
-    }
 
     // Dedicated one-shot FBO — deliberately NOT the live viewport FBO, whose
     // texture ImGui may already have referenced this frame (destroying it

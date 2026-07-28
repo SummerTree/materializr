@@ -6377,10 +6377,12 @@ void Application::run() {
     // A whole-project recovery snapshot surviving means the last session ended
     // unexpectedly with unsaved work — offer to restore that too.
     m_pendingProjectRecovery = materializr::hasProjectRecovery();
-    std::fprintf(stderr, "[Recovery] startup scan: pending=%d orphans=%d path=%s\n",
-                 m_pendingProjectRecovery ? 1 : 0,
-                 materializr::projectRecoveryOrphanCount(),
-                 materializr::projectRecoveryRestorePath().c_str());
+    if (materializr::isVerbose())
+        std::fprintf(stderr,
+                     "[Recovery] startup scan: pending=%d orphans=%d path=%s\n",
+                     m_pendingProjectRecovery ? 1 : 0,
+                     materializr::projectRecoveryOrphanCount(),
+                     materializr::projectRecoveryRestorePath().c_str());
 
     // Opt-in perf instrumentation (MZR_PERF=1): once a second, report how many
     // frames we actually RENDERED vs how many loop iterations ran, plus which

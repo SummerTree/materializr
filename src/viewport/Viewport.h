@@ -38,13 +38,9 @@ public:
     /// session's default), and resize()'s same-size early-return would never
     /// correct it, leaving the scene stretched until a real resize happens.
     void syncCameraAspect() {
-        if (m_width > 0 && m_height > 0) {
-            std::fprintf(stderr, "[Viewport] syncCameraAspect %dx%d -> %.3f\n",
-                         m_width, m_height,
-                         static_cast<float>(m_width) / static_cast<float>(m_height));
+        if (m_width > 0 && m_height > 0)
             m_camera.setAspect(static_cast<float>(m_width) /
                                static_cast<float>(m_height));
-        }
     }
 
     /// Access the camera.
