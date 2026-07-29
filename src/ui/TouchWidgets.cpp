@@ -428,10 +428,10 @@ bool timelineBox(const char* id, const char* icon, bool current, bool editing,
     return pressed;
 }
 
-float numberPadWidth(float keySide) {
+float numberPadWidth(float keyW) {
     const float s = uiScale();
-    if (keySide <= 0.0f) keySide = 52.0f * s;
-    return 3.0f * keySide + 2.0f * 6.0f * s;
+    if (keyW <= 0.0f) keyW = 68.0f * s;
+    return 3.0f * keyW + 2.0f * 6.0f * s;
 }
 
 void valueReadout(const char* id, const char* text, bool dim, float width) {
@@ -457,10 +457,11 @@ void valueReadout(const char* id, const char* text, bool dim, float width) {
     ImGui::PopID();
 }
 
-bool numberPad(const char* id, char* buf, size_t bufSize, float keySide,
-               bool allowSign) {
+bool numberPad(const char* id, char* buf, size_t bufSize, float keyW,
+               float keyH, bool allowSign) {
     const float s = uiScale();
-    if (keySide <= 0.0f) keySide = 52.0f * s;
+    if (keyW <= 0.0f) keyW = 68.0f * s;
+    if (keyH <= 0.0f) keyH = 42.0f * s;
     bool changed = false;
     ImGui::PushID(id);
     static const char kRows[4][4] = {"789", "456", "123", ".0<"};
@@ -472,7 +473,7 @@ bool numberPad(const char* id, char* buf, size_t bufSize, float keySide,
             if (key == '<') std::snprintf(lbl, sizeof(lbl), "%s", ICON_IC_ERASE);
             else { lbl[0] = key; lbl[1] = '\0'; }
             ImGui::PushID(r * 3 + c);
-            if (ImGui::Button(lbl, ImVec2(keySide, keySide))) {
+            if (ImGui::Button(lbl, ImVec2(keyW, keyH))) {
                 size_t len = std::strlen(buf);
                 if (key == '<') {
                     if (len > 0) { buf[len - 1] = '\0'; changed = true; }
@@ -489,7 +490,7 @@ bool numberPad(const char* id, char* buf, size_t bufSize, float keySide,
     }
     if (allowSign) {
         // Full-width ± toggling a leading minus (push/pull: negative = cut).
-        if (ImGui::Button("+ / -", ImVec2(numberPadWidth(keySide), keySide))) {
+        if (ImGui::Button("+ / -", ImVec2(numberPadWidth(keyW), keyH))) {
             const size_t len = std::strlen(buf);
             if (buf[0] == '-') {
                 std::memmove(buf, buf + 1, len);   // includes the NUL
@@ -544,81 +545,89 @@ bool numberField(const char* id, const char* label, double* v, const char* fmt) 
     const float s = uiScale();
     bool committed = false;
 
-    // Per-field entry buffer. Keyed by ImGui id so two fields on screen keep
-    // separate half-typed values, and so a field that is scrolled away and
-    // back doesn't inherit the other one's digits.
+    // Per-field entry buffer, keyed by ImGui id so a field scrolled away and
+    // back doesn't inherit another field's half-typed digits. s_open is the
+    // ONE unfolded field: opening a second collapses the first, which keeps
+    // the panel from growing by a pad per field.
     struct Entry { char buf[32]; };
     static std::map<ImGuiID, Entry> s_entries;
+    static ImGuiID s_open = 0;
 
     ImGui::PushID(id);
     const ImGuiID key = ImGui::GetID("##numfield");
 
-    if (label && *label) {
-        ImGui::TextUnformatted(label);
-    }
+    if (label && *label) ImGui::TextUnformatted(label);
 
     char shown[32];
     std::snprintf(shown, sizeof(shown), fmt ? fmt : "%g", *v);
 
-    // The well. A plain button, so the popup opens on an explicit tap and
-    // NOTHING else — the previous keyboard's habit of appearing whenever a
-    // dialog opened is the specific behaviour this must not repeat.
+    // Fit the pad to the panel rather than the other way round. A fixed key
+    // width wider than the host panel doesn't just overflow — the well is
+    // sized to match it, and ImGui centres a button's label, so the label
+    // lands outside the clip rect and the field renders BLANK. Deriving the
+    // key width from the space actually available keeps the keys as wide as
+    // they can be (the point) and makes that impossible.
+    const float gap   = 6.0f * s;     // numberPad's inter-key spacing
+    const float avail = ImGui::GetContentRegionAvail().x;
+    const float keyW  = std::min(std::max((avail - 2.0f * gap) / 3.0f, 40.0f * s),
+                                 96.0f * s);
+    const float keyH  = 42.0f * s;    // shorter than wide: height is scarce here
+    const float padW  = numberPadWidth(keyW);
+
+    // The well. A plain button, so the pad unfolds on an explicit tap and
+    // NOTHING else — the old keyboard's habit of appearing whenever a dialog
+    // opened is the specific behaviour this must not repeat.
+    const bool openHere = (s_open == key);
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(10.0f * s, 10.0f * s));
-    const float wellW = std::max(ImGui::GetContentRegionAvail().x,
-                                 numberPadWidth(44.0f * s));
-    if (ImGui::Button(shown, ImVec2(wellW, 0.0f))) {
-        Entry e{};
-        std::snprintf(e.buf, sizeof(e.buf), fmt ? fmt : "%g", *v);
-        s_entries[key] = e;
-        ImGui::OpenPopup("##numpad");
+    if (ImGui::Button(shown, ImVec2(avail, 0.0f))) {
+        if (openHere) {
+            s_open = 0;               // tapping the open field folds it again
+        } else {
+            Entry e{};
+            std::snprintf(e.buf, sizeof(e.buf), fmt ? fmt : "%g", *v);
+            s_entries[key] = e;
+            s_open = key;
+        }
     }
     ImGui::PopStyleVar();
 
-    // Anchor under the well, then clamp so a field low in a scrolling panel
-    // doesn't push the pad off the bottom or the right of the screen.
-    const float keySide = 44.0f * s;
-    const float padW = numberPadWidth(keySide) + 2.0f * 8.0f * s;
-    const float padH = 6.0f * keySide + 90.0f * s;
-    ImVec2 anchor = ImGui::GetItemRectMin();
-    anchor.y = ImGui::GetItemRectMax().y + 4.0f * s;
-    const ImGuiViewport* vp = ImGui::GetMainViewport();
-    const float maxX = vp->Pos.x + vp->Size.x - padW - 8.0f * s;
-    const float maxY = vp->Pos.y + vp->Size.y - padH - 8.0f * s;
-    if (anchor.x > maxX) anchor.x = maxX;
-    if (anchor.x < vp->Pos.x + 8.0f * s) anchor.x = vp->Pos.x + 8.0f * s;
-    if (anchor.y > maxY) anchor.y = maxY;
-    if (anchor.y < vp->Pos.y + 8.0f * s) anchor.y = vp->Pos.y + 8.0f * s;
-    ImGui::SetNextWindowPos(anchor, ImGuiCond_Always);
-
-    if (ImGui::BeginPopup("##numpad")) {
+    if (s_open == key) {
         Entry& e = s_entries[key];
 
-        // Header: what is being edited, and the dismiss ✗ hard right.
-        if (label && *label) {
-            ImGui::TextUnformatted(label);
-            ImGui::SameLine();
-        }
-        const float xW = 32.0f * s;
-        ImGui::SetCursorPosX(ImGui::GetCursorPosX() +
-                             std::max(0.0f, ImGui::GetContentRegionAvail().x - xW));
-        if (ImGui::Button(MZ_ICON_CLOSE, ImVec2(xW, xW))) {
-            ImGui::CloseCurrentPopup();   // dismiss: *v untouched
-        }
+        valueReadout("##ro", e.buf[0] ? e.buf : "0", e.buf[0] == '\0', padW);
+        // allowSign=false: the pad's own sign key is a full-width row, and a
+        // separate Enter row under it made the block taller than the panel had
+        // room for. The three share one row instead.
+        numberPad("##pad", e.buf, sizeof(e.buf), keyW, keyH, /*allowSign=*/false);
 
-        valueReadout("##ro", e.buf[0] ? e.buf : "0", e.buf[0] == '\0',
-                     numberPadWidth(keySide));
-        numberPad("##pad", e.buf, sizeof(e.buf), keySide, /*allowSign=*/true);
-
-        // Enter commits. Parsing here (not per keystroke) is what makes the
-        // caller see one change instead of one per digit — a history-step
-        // editor rebuilds once on commit rather than on every tap.
-        if (ImGui::Button("Enter", ImVec2(numberPadWidth(keySide), keySide))) {
+        const float thirdW = (padW - 2.0f * gap) / 3.0f;
+        if (ImGui::Button("+ / -", ImVec2(thirdW, keyH))) {
+            const size_t len = std::strlen(e.buf);
+            if (e.buf[0] == '-') {
+                std::memmove(e.buf, e.buf + 1, len);       // includes the NUL
+            } else if (len + 1 < sizeof(e.buf)) {
+                std::memmove(e.buf + 1, e.buf, len + 1);
+                e.buf[0] = '-';
+            }
+        }
+        ImGui::SameLine(0.0f, gap);
+        if (ImGui::Button(MZ_ICON_CLOSE, ImVec2(thirdW, keyH))) {
+            s_open = 0;               // fold, *v untouched
+        }
+        ImGui::SameLine(0.0f, gap);
+        // Enter commits. Parsing here rather than per keystroke is what makes
+        // the caller see one change instead of one per digit — a history-step
+        // editor rebuilds once on commit, not on every tap.
+        if (ImGui::Button("Enter", ImVec2(thirdW, keyH))) {
             char* end = nullptr;
             const double parsed = std::strtod(e.buf, &end);
             if (end != e.buf) { *v = parsed; committed = true; }
-            ImGui::CloseCurrentPopup();
+            s_open = 0;
         }
-        ImGui::EndPopup();
+        // Keep the freshly unfolded pad in view: the host panel is a scrolling
+        // child, and a field near its bottom would otherwise unfold off the
+        // end of it.
+        if (ImGui::IsItemVisible() == false) ImGui::SetScrollHereY(1.0f);
     }
 
     ImGui::PopID();

@@ -10,6 +10,7 @@
 
 #include "app/Application.h"
 #include "app/layout/LayoutCommon.h"
+#include <algorithm>   // std::min — viewport-capped popup height
 #include "core/Document.h"
 #include "core/History.h"
 #include "core/Operation.h"
@@ -1076,8 +1077,19 @@ void Application::renderImTouchLayout() {
             s_seenRev = m_history->revision();
 
             if (wantOpen) ImGui::OpenPopup("##LiteStepProps");
-            ImGui::SetNextWindowSizeConstraints(ImVec2(360.0f * s, 0),
-                                                ImVec2(360.0f * s, 460.0f * s));
+            // Sized to host an UNFOLDED number pad (TouchWidgets numberField),
+            // not just a column of one-line fields: at the old 360x460 the pad
+            // had to be a popup of its own to fit, which is what put a popup
+            // inside this popup.
+            //
+            // Capped against the VIEWPORT, not a bare constant: a fixed height
+            // that happens to exceed the screen just hides the bottom of the
+            // dialog, which is how the pad's Enter key went missing the first
+            // time. Screen height wins whenever it's the smaller of the two.
+            const float vpH = ImGui::GetMainViewport()->Size.y;
+            const float maxPopupH = std::min(760.0f * s, vpH * 0.88f);
+            ImGui::SetNextWindowSizeConstraints(ImVec2(420.0f * s, 0),
+                                                ImVec2(420.0f * s, maxPopupH));
             if (ImGui::BeginPopup("##LiteStepProps")) {
                 const Operation* op =
                     (m_imTouchHistoryEdit >= 0 && m_imTouchHistoryEdit < steps)
@@ -1114,8 +1126,18 @@ void Application::renderImTouchLayout() {
                     } else {
                         // The op's own parameter editor — identical widgets to
                         // the desktop History panel's Properties section.
-                        ImGui::BeginChild("##props", ImVec2(0.0f, 200.0f * s),
-                                          true);
+                        // An EXPLICIT height, derived from the popup's own cap.
+                        // A fill height (-footerH) reads better but is circular
+                        // here: BeginPopup implies AlwaysAutoResize, so the
+                        // popup sizes to the child while the child sizes to the
+                        // popup, and the result was a short popup anchored
+                        // halfway down the screen with its lower half off it.
+                        const float footerH = 44.0f * s +
+                                              ImGui::GetStyle().ItemSpacing.y * 2.0f;
+                        const float headerH = 80.0f * s;   // title + separator
+                        const float childH =
+                            std::max(200.0f * s, maxPopupH - footerH - headerH);
+                        ImGui::BeginChild("##props", ImVec2(0.0f, childH), true);
                         ImGui::PushItemWidth(
                             ImGui::CalcTextSize("0000000").x +
                             2.0f * (ImGui::GetFrameHeight() +
