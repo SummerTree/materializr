@@ -6547,7 +6547,30 @@ void Application::run() {
     // even if the WM is slow to hand the new window focus. See foreground below.
     const uint32_t runStartMs = SDL_GetTicks();
 
-    while (true) {
+    // FRAME-LEVEL EXCEPTION FIREWALL.
+    //
+    // main() wraps app.run() in a catch that returns 1. On desktop that reads
+    // as a crash; on Android it is far worse and far more confusing: SDL_main
+    // returning makes SDLActivity finish itself, so the window simply vanishes
+    // with NO signal, NO tombstone and NO ANR — Android logs it as
+    // "app-request". It looks exactly like a crash and is impossible to
+    // diagnose from the outside. One real instance: tapping Apply Changes on a
+    // recovery-restored project let a std::runtime_error("Body not found: 1")
+    // out of a stale body lookup, and the app quietly exited with the user's
+    // unsaved work.
+    //
+    // Document::getBody and friends throw on a missing id, and stale ids
+    // outlive a replay in more places than can be audited once and trusted
+    // (refreshAllEdgeOpFaces already carries a comment about this same throw
+    // aborting the app on load). So: one escaped exception costs a FRAME, not
+    // the session. The loop re-enters and the user gets a toast.
+    //
+    // The catch is not a licence to ignore these — it logs to stderr (logcat on
+    // Android), which is how the caller gets found. Anything appearing here is
+    // a bug to fix at its source.
+    for (;;) {
+      try {
+        while (true) {
         // Main-loop stall watchdog: a gap of seconds between iterations IS
         // the "not responding" freeze — print it so the journal names the
         // stall instead of us guessing which subsystem blocked.
@@ -7325,6 +7348,29 @@ void Application::run() {
             const Uint32 spent = SDL_GetTicks() - frameLoopStartMs;
             if (spent < kMinFrameMs) SDL_Delay(kMinFrameMs - spent);
         }
+        }
+        break;   // the inner loop's own break/exit conditions reached: done
+      } catch (const std::exception& e) {
+        // Close the half-built ImGui frame before going round again. The throw
+        // almost certainly happened between NewFrame() and Render(), leaving
+        // windows on the stack; re-entering NewFrame() in that state is its own
+        // crash. EndFrame() unwinds what was open.
+        if (ImGuiContext* g = ImGui::GetCurrentContext()) {
+            if (g->WithinFrameScope) {
+                try { ImGui::EndFrame(); } catch (...) {}
+            }
+        }
+        std::fprintf(stderr,
+                     "[Recovered] exception escaped a frame: %s\n"
+                     "[Recovered]   this is a BUG — the frame was abandoned and "
+                     "the session kept alive; fix it at the throw site.\n",
+                     e.what());
+        showToast("Something went wrong in that step - it was skipped. "
+                  "Your project is intact; save a copy if it looks wrong.");
+        // Previews/tools may be half-applied; drop the ones that hold geometry
+        // so the next frame draws from the document rather than a dead handle.
+        m_meshesDirty = true;
+      }
     }
 
     // Persist preferences on a clean exit (in addition to saving on each change).
