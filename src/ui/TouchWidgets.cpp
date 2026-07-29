@@ -548,37 +548,53 @@ bool numberField(const char* id, const char* label, double* v, const char* fmt) 
     // Per-field entry buffer, keyed by ImGui id so a field scrolled away and
     // back doesn't inherit another field's half-typed digits. s_open is the
     // ONE unfolded field: opening a second collapses the first, which keeps
-    // the panel from growing by a pad per field.
+    // the panel from growing by a pad per field. s_justOpened defers the
+    // scroll-into-view by a frame, so it runs once the pad has a real height.
     struct Entry { char buf[32]; };
     static std::map<ImGuiID, Entry> s_entries;
     static ImGuiID s_open = 0;
+    static ImGuiID s_justOpened = 0;
 
     ImGui::PushID(id);
     const ImGuiID key = ImGui::GetID("##numfield");
+    const bool openHere = (s_open == key);
 
     if (label && *label) ImGui::TextUnformatted(label);
 
+    // The well doubles as the readout: while unfolded it shows the LIVE typed
+    // buffer, not the stored value. A separate calculator-style readout above
+    // the keys cost ~50*s of height and pushed the digits being typed out of
+    // view whenever the panel had to scroll to reach the keys — the field
+    // itself is the obvious place to show them, and it's already on screen.
     char shown[32];
-    std::snprintf(shown, sizeof(shown), fmt ? fmt : "%g", *v);
+    if (openHere) {
+        const Entry& e = s_entries[key];
+        std::snprintf(shown, sizeof(shown), "%s", e.buf[0] ? e.buf : "0");
+    } else {
+        std::snprintf(shown, sizeof(shown), fmt ? fmt : "%g", *v);
+    }
 
     // Fit the pad to the panel rather than the other way round. A fixed key
     // width wider than the host panel doesn't just overflow — the well is
     // sized to match it, and ImGui centres a button's label, so the label
-    // lands outside the clip rect and the field renders BLANK. Deriving the
-    // key width from the space actually available keeps the keys as wide as
-    // they can be (the point) and makes that impossible.
-    const float gap   = 6.0f * s;     // numberPad's inter-key spacing
+    // lands outside the clip rect and the field renders BLANK.
+    //
+    // Sizes are deliberately modest: the pad lives inside a scrolling
+    // properties panel UNDER as many as six other fields, so every row it
+    // spends is a row the caller has to scroll past.
+    const float gap   = 6.0f * s;
     const float avail = ImGui::GetContentRegionAvail().x;
-    const float keyW  = std::min(std::max((avail - 2.0f * gap) / 3.0f, 40.0f * s),
-                                 96.0f * s);
-    const float keyH  = 42.0f * s;    // shorter than wide: height is scarce here
+    const float keyW  = std::min(std::max((avail - 2.0f * gap) / 3.0f, 38.0f * s),
+                                 78.0f * s);
+    const float keyH  = 32.0f * s;    // wider than tall: height is the scarce axis
     const float padW  = numberPadWidth(keyW);
 
-    // The well. A plain button, so the pad unfolds on an explicit tap and
-    // NOTHING else — the old keyboard's habit of appearing whenever a dialog
-    // opened is the specific behaviour this must not repeat.
-    const bool openHere = (s_open == key);
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(10.0f * s, 10.0f * s));
+    // A plain button, so the pad unfolds on an explicit tap and NOTHING else —
+    // the old keyboard's habit of appearing whenever a dialog opened is the
+    // specific behaviour this must not repeat.
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(8.0f * s, 8.0f * s));
+    if (openHere)
+        ImGui::PushStyleColor(ImGuiCol_Text, accentFill());
     if (ImGui::Button(shown, ImVec2(avail, 0.0f))) {
         if (openHere) {
             s_open = 0;               // tapping the open field folds it again
@@ -587,14 +603,24 @@ bool numberField(const char* id, const char* label, double* v, const char* fmt) 
             std::snprintf(e.buf, sizeof(e.buf), fmt ? fmt : "%g", *v);
             s_entries[key] = e;
             s_open = key;
+            s_justOpened = key;
         }
     }
+    if (openHere) ImGui::PopStyleColor();
     ImGui::PopStyleVar();
 
-    if (s_open == key) {
+    // Park the well at the TOP of the view on the frame after it unfolds, so
+    // the whole pad has the panel's height below it. Scrolling the pad's
+    // BOTTOM into view instead (the obvious reading of "keep it visible")
+    // pushes the well — and so the digits being typed — off the top.
+    if (openHere && s_justOpened == key) {
+        ImGui::SetScrollHereY(0.0f);
+        s_justOpened = 0;
+    }
+
+    if (openHere) {
         Entry& e = s_entries[key];
 
-        valueReadout("##ro", e.buf[0] ? e.buf : "0", e.buf[0] == '\0', padW);
         // allowSign=false: the pad's own sign key is a full-width row, and a
         // separate Enter row under it made the block taller than the panel had
         // room for. The three share one row instead.
@@ -624,10 +650,6 @@ bool numberField(const char* id, const char* label, double* v, const char* fmt) 
             if (end != e.buf) { *v = parsed; committed = true; }
             s_open = 0;
         }
-        // Keep the freshly unfolded pad in view: the host panel is a scrolling
-        // child, and a field near its bottom would otherwise unfold off the
-        // end of it.
-        if (ImGui::IsItemVisible() == false) ImGui::SetScrollHereY(1.0f);
     }
 
     ImGui::PopID();
