@@ -7404,20 +7404,17 @@ void Application::renderViewport() {
 
     // Gizmo hint
     if (m_gizmo->isVisible()) {
-        ImGui::SetCursorPos(ImVec2(10, 30));
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.7f, 0.7f, 0.7f, 1.0f));
-        ImGui::Text("Arrows: Move | Rings: Rotate | Cubes: Scale");
-        ImGui::PopStyleColor();
+        materializr::viewportBanner(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+                                    "Arrows: Move | Rings: Rotate | Cubes: Scale");
     }
 
     // Interactive extrude UI
     if (m_extruding) {
-        ImGui::SetCursorPos(ImVec2(10, 30));
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.8f, 0.2f, 1.0f));
-        ImGui::Text(materializr::touchMode()
-                    ? "EXTRUDE - Drag in viewport or type distance, then Confirm / Cancel."
-                    : "EXTRUDE - Drag in viewport or type distance. Enter to confirm, Escape to cancel.");
-        ImGui::PopStyleColor();
+        materializr::viewportBanner(
+            ImVec4(1.0f, 0.8f, 0.2f, 1.0f),
+            materializr::touchMode()
+                ? "EXTRUDE - Drag in viewport or type distance, then Confirm / Cancel."
+                : "EXTRUDE - Drag in viewport or type distance. Enter to confirm, Escape to cancel.");
 
         // Floating distance input panel. im-touch: anchored just off the
         // extrude arrow's tip, like the sketch bubbles; other layouts (or a
@@ -7524,12 +7521,11 @@ void Application::renderViewport() {
 
     // Interactive Push/Pull UI
     if (m_pushPullActive) {
-        ImGui::SetCursorPos(ImVec2(10, 30));
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.3f, 0.85f, 1.0f, 1.0f));
-        ImGui::Text(materializr::touchMode()
-                    ? "PUSH/PULL - Positive = extrude, Negative = cut. Drag the arrow, then Confirm / Cancel."
-                    : "PUSH/PULL - Positive = extrude, Negative = cut. Enter to confirm, Escape to cancel.");
-        ImGui::PopStyleColor();
+        materializr::viewportBanner(
+            ImVec4(0.3f, 0.85f, 1.0f, 1.0f),
+            materializr::touchMode()
+                ? "PUSH/PULL - Positive = extrude, Negative = cut. Drag the arrow, then Confirm / Cancel."
+                : "PUSH/PULL - Positive = extrude, Negative = cut. Enter to confirm, Escape to cancel.");
 
         // im-touch: anchor the well just off the push/pull arrow's tip,
         // like the sketch bubbles; other layouts (or a tip behind the
@@ -7669,12 +7665,11 @@ void Application::renderViewport() {
         const char* opName = m_edgeOpType == EdgeOpType::Fillet ? "FILLET" : "CHAMFER";
         const char* label = m_edgeOpType == EdgeOpType::Fillet ? "Radius (mm)" : "Distance (mm)";
 
-        ImGui::SetCursorPos(ImVec2(10, 30));
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.2f, 1.0f, 0.5f, 1.0f));
-        ImGui::Text(materializr::touchMode()
-                    ? "%s - Type value or use slider, then Confirm / Cancel."
-                    : "%s - Type value or use slider. Enter to confirm, Escape to cancel.", opName);
-        ImGui::PopStyleColor();
+        materializr::viewportBanner(
+            ImVec4(0.2f, 1.0f, 0.5f, 1.0f),
+            materializr::touchMode()
+                ? "%s - Type value or use slider, then Confirm / Cancel."
+                : "%s - Type value or use slider. Enter to confirm, Escape to cancel.", opName);
 
         // im-touch: anchor the well next to the edge being rounded/cut
         // (latched midpoint — static while values change, same rule as the
@@ -7838,15 +7833,14 @@ void Application::renderViewport() {
     if (m_moveFaceActive) {
         const bool isRot = m_faceXformKind == FaceXform::Rotate;
         const bool isScl = m_faceXformKind == FaceXform::Scale;
-        ImGui::SetCursorPos(ImVec2(10, 30));
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.2f, 1.0f, 0.5f, 1.0f));
-        ImGui::Text(materializr::touchMode()
-                        ? "%s - drag a handle, then Confirm / Cancel."
-                        : "%s - drag a handle. Enter to confirm, Escape to cancel.",
-                    isRot ? "TILT / TWIST FACE (rings about its centre)"
-                          : isScl ? "SCALE FACE (about its centre)"
-                                  : "MOVE FACE (slide in plane)");
-        ImGui::PopStyleColor();
+        materializr::viewportBanner(
+            ImVec4(0.2f, 1.0f, 0.5f, 1.0f),
+            materializr::touchMode()
+                ? "%s - drag a handle, then Confirm / Cancel."
+                : "%s - drag a handle. Enter to confirm, Escape to cancel.",
+            isRot ? "TILT / TWIST FACE (rings about its centre)"
+                  : isScl ? "SCALE FACE (about its centre)"
+                          : "MOVE FACE (slide in plane)");
 
         ImGui::SetNextWindowPos(ImVec2(ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - 250.0f * uiScale(),
                                        ImGui::GetWindowPos().y + 50), ImGuiCond_Appearing);
@@ -7991,12 +7985,11 @@ void Application::renderViewport() {
 
     // Sketch mode indicator
     if (m_inSketchMode) {
-        ImGui::SetCursorPos(ImVec2(10, 30));
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.2f, 1.0f, 0.4f, 1.0f));
-        ImGui::Text(materializr::touchMode()
-                    ? "SKETCH MODE - Finish Sketch applies, Exit Sketch discards"
-                    : "SKETCH MODE - Press Escape to finish");
-        ImGui::PopStyleColor();
+        materializr::viewportBanner(
+            ImVec4(0.2f, 1.0f, 0.4f, 1.0f),
+            materializr::touchMode()
+                ? "SKETCH MODE - Finish Sketch applies, Exit Sketch discards"
+                : "SKETCH MODE - Press Escape to finish");
     }
 
     // Inline dimension input while placing a sketch shape. Suppressed while

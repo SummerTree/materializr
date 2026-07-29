@@ -2115,9 +2115,14 @@ void ThreadOp::renderProperties() {
     double maxDepth =
         std::min((ropeCap ? 0.45 : 0.65) * m_pitch, 0.45 * m_radius);
     if (m_depth > maxDepth) m_depth = maxDepth;
-    ImGui::TextDisabled(ropeCap
+    // WRAPPED: this renders inside the history panel's inline editor, the
+    // narrowest column in the app — unwrapped it ran off the panel edge.
+    // (TextDisabled has no wrapping variant, hence the explicit colour push.)
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+    ImGui::TextWrapped("%s", ropeCap
         ? "Depth caps at 0.45 \xC3\x97 pitch (multi-start rounded)."
         : "Depth caps at 0.65 \xC3\x97 pitch (ISO is 0.61).");
+    ImGui::PopStyleColor();
     // Cross-section profile. Standard is the fast, shipped V-thread; the rest
     // are the maker/printing set (clean but slower — a boolean cut per turn).
     const char* kProfiles[] = {"Standard (V)", "Trapezoidal (ACME)",

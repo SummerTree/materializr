@@ -700,8 +700,11 @@ void ResizeCylindricalOp::renderProperties() {
         }
     }
     ImGui::Text("Length: %.2f mm", m_height);
-    ImGui::TextDisabled("Clicking the circular edge / face in the viewport "
-                        "also re-edits.");
+    // WRAPPED: inline history-panel editor — see ThreadOp for the same note.
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+    ImGui::TextWrapped("Clicking the circular edge / face in the viewport "
+                       "also re-edits.");
+    ImGui::PopStyleColor();
 }
 
 std::string ResizeCylindricalOp::description() const {

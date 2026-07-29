@@ -78,10 +78,10 @@ void AboutDialog::render() {
                            "Built with OpenCASCADE, Dear ImGui, SDL2, GLM, libcurl.");
         // GPLv3 since 0.9.8 (the old "MIT" line survived the relicense);
         // section-7 additional permissions live in LICENSE-EXCEPTIONS.md.
-        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
-                           "License: GNU GPLv3, with additional permissions");
-        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
-                           "(see LICENSE and LICENSE-EXCEPTIONS.md in the source repository)");
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.7f, 0.7f, 0.7f, 1.0f));
+        ImGui::TextWrapped("License: GNU GPLv3, with additional permissions");
+        ImGui::TextWrapped("(see LICENSE and LICENSE-EXCEPTIONS.md in the source repository)");
+        ImGui::PopStyleColor();
 
         ImGui::Spacing();
         ImGui::Separator();

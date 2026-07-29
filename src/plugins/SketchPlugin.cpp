@@ -94,8 +94,6 @@ public:
     }
 
     void renderOverlay(PluginContext& ctx) override {
-        ImGui::SetCursorPos(ImVec2(10, 30));
-        ImGui::PushStyleColor(ImGuiCol_Text, materializr::accentText());
         if (m_sketchTool->getMode() == SketchToolMode::Dimension) {
             const char* msg = "DIMENSION - Click an entity to dimension.";
             switch (m_sketchTool->getDimPhase()) {
@@ -107,13 +105,14 @@ public:
                     break;
                 default: break;
             }
-            ImGui::Text("%s", msg);
+            materializr::viewportBanner(materializr::accentText(), "%s", msg);
         } else {
-            ImGui::Text(materializr::touchMode()
-                ? "SKETCH MODE - Draw shapes. Finish Sketch applies, Exit Sketch discards."
-                : "SKETCH MODE - Draw shapes. Enter to finish, Escape to cancel.");
+            materializr::viewportBanner(
+                materializr::accentText(),
+                materializr::touchMode()
+                    ? "SKETCH MODE - Draw shapes. Finish Sketch applies, Exit Sketch discards."
+                    : "SKETCH MODE - Draw shapes. Enter to finish, Escape to cancel.");
         }
-        ImGui::PopStyleColor();
 
         // Dimension input when placing
         if (m_sketchTool->hasPreview()) {
