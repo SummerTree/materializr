@@ -7107,11 +7107,37 @@ void Application::renderViewport() {
                 m_meshesDirty = true;
                 m_contextMenuFace.Nullify();
             }
-            if (ImGui::MenuItem("Export Body to STL…")) {
-                // Per-body STL dump — file-menu Export STL writes every visible
-                // body to one file; this pulls a single part out on its own.
-                exportBodyAsStl(bid);
-                m_contextMenuFace.Nullify();
+            // Export ▸ — the same submenu the Items panel offers, from the
+            // same registry, acting on the whole body selection when this
+            // body is part of one. Two menus for the same action have to
+            // stay in step: the Items panel grew the format list and this
+            // one kept a lone STL item, which read as the feature not
+            // working at all (Steve, 2026-07-28).
+            {
+                std::vector<std::string> fmts;
+                for (const auto& f : PluginRegistry::instance().ioFormats())
+                    if (f.canExport && f.exportDocFn) fmts.push_back(f.name);
+                if (!fmts.empty() && ImGui::BeginMenu("Export")) {
+                    std::vector<int> targets;
+                    if (m_selection) {
+                        for (const auto& e : m_selection->getSelection())
+                            if (e.type == SelectionType::Body && e.bodyId >= 0)
+                                targets.push_back(e.bodyId);
+                    }
+                    const bool multi =
+                        targets.size() > 1 &&
+                        std::find(targets.begin(), targets.end(), bid) != targets.end();
+                    if (!multi) { targets.clear(); targets.push_back(bid); }
+                    if (multi)
+                        ImGui::TextDisabled("%zu selected bodies", targets.size());
+                    for (const auto& fmt : fmts) {
+                        if (ImGui::MenuItem((fmt + "…").c_str())) {
+                            exportBodiesAs(targets, fmt);
+                            m_contextMenuFace.Nullify();
+                        }
+                    }
+                    ImGui::EndMenu();
+                }
             }
             // Separate: only when the body actually holds more than one
             // disconnected solid (air-gapped lumps fused into one body).
