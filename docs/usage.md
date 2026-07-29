@@ -123,19 +123,32 @@ tag and tells you whether you're up to date. If a newer release exists, the
 |----------|--------|
 | Ctrl+Z | Undo |
 | Ctrl+Y | Redo |
-| Ctrl+S | Save Project |
+| Ctrl+S | Save (asks for a name only the first time) |
 | Ctrl+O | Open Project |
 | Ctrl+I | Import STEP |
 | Ctrl+E | Export STEP |
-| Ctrl+C | Copy |
-| Ctrl+D | Duplicate |
+| Ctrl+D | Duplicate the selection in place |
+| Ctrl+A | Select all — sketch geometry, all edges/faces of the selected body, or every visible body |
+| Ctrl+Tab / Ctrl+Shift+Tab | Next / previous project tab |
 | Delete | Delete Selected |
 | Escape | Cancel / revert in-progress drag / exit sketch |
 | Enter | Confirm Push&nbsp;Pull / Extrude / Fillet / Chamfer |
 | Home | Reset Camera |
+| F | Frame the selection (or everything, if nothing is selected) |
+| F9 | Hide / restore the side panels |
 | W | Gizmo: Translate mode |
 | E | Gizmo: Rotate mode |
 | R | Gizmo: Scale mode |
+
+In a sketch: **D** switches to the Dimension tool, and **Backspace** removes
+the last spline point or text/SVG stamp. The drawing tools themselves (Line,
+Circle, Rectangle, Arc, Spline, Polygon, Trim) are toolbar-only — they have no
+key bindings.
+
+There is **no clipboard** — no Ctrl+C / Ctrl+V. `Ctrl+D` (duplicate in place)
+is the nearest equivalent.
+
+On a tablet, a **two-finger tap is undo** and a **three-finger tap is redo**.
 
 ## Troubleshooting
 
