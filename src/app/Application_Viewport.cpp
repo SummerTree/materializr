@@ -7139,6 +7139,24 @@ void Application::renderViewport() {
                     ImGui::EndMenu();
                 }
             }
+            // Baked copy of this body into a fresh project — the "use this
+            // part elsewhere" flow. Single body by design (it names the new
+            // file after the part), so it stays out of the Export submenu.
+            if (ImGui::MenuItem("Export to New Project")) {
+                std::vector<int> targets;
+                if (m_selection) {
+                    for (const auto& e : m_selection->getSelection())
+                        if (e.type == SelectionType::Body && e.bodyId >= 0)
+                            targets.push_back(e.bodyId);
+                }
+                if (std::find(targets.begin(), targets.end(), bid) == targets.end() ||
+                    targets.size() <= 1) {
+                    targets.clear();
+                    targets.push_back(bid);
+                }
+                exportBodiesToNewProject(targets);
+                m_contextMenuFace.Nullify();
+            }
             // Separate: only when the body actually holds more than one
             // disconnected solid (air-gapped lumps fused into one body).
             // Mirrors the Items-panel entry — splits them into individual

@@ -5357,45 +5357,48 @@ void Application::renderPartsPickerDialog() {
     ImGui::EndPopup();
 }
 
-void Application::exportBodyToNewProject(int bodyId) {
-    if (!m_document) return;
-    TopoDS_Shape shape;
-    try { shape = m_document->getBody(bodyId); } catch (...) {}
-    if (shape.IsNull()) {
-        showToast("This body has no geometry to export.");
+void Application::exportBodiesToNewProject(const std::vector<int>& bodyIds) {
+    if (!m_document || bodyIds.empty()) return;
+    // Snapshot BEFORE opening the tab: openNewTab repoints m_document at the
+    // new session, so anything read afterwards would come from the empty one.
+    struct Part { TopoDS_Shape shape; std::string name; glm::vec3 color; };
+    std::vector<Part> parts;
+    for (int id : bodyIds) {
+        TopoDS_Shape s;
+        try { s = m_document->getBody(id); } catch (...) {}
+        if (s.IsNull()) continue;
+        parts.push_back({s, m_document->getBodyName(id),
+                         m_document->getBodyColor(id)});
+    }
+    if (parts.empty()) {
+        showToast("Those bodies have no geometry.");
         return;
     }
-    // Snapshot everything now — the save dialog's callback runs frames later
-    // and the body could be deleted (or the project closed) in between.
-    std::string bodyName = m_document->getBodyName(bodyId);
-    glm::vec3 color = m_document->getBodyColor(bodyId);
-    std::string base = bodyName.empty() ? "part" : bodyName;
-    for (char& c : base)
-        if (std::strchr("\\/:*?\"<>|", c)) c = '_';
+    // A NEW TAB rather than a save dialog (Steve, 2026-07-29): the parts land
+    // in a workspace you can look at and keep working on, and saving is a
+    // normal Ctrl+S afterwards if you want a file at all. Writing the file
+    // first forced a naming decision before you could see what you'd got.
+    if (!openNewTab()) return;   // refused (mid-sketch etc.) — already toasted
 
-    FileDialogs::saveFile("Export to New Project", base + ".mzr",
-        {{"Materializr Projects", "*.mzr *.materializr"}},
-        [this, shape, bodyName, color](const std::string& p) {
-            if (p.empty()) return;
-            std::string out = p;
-            const auto ext = std::filesystem::path(out).extension();
-            if (ext != ".mzr" && ext != ".materializr") out += ".mzr";
-            Document scratch;
-            int nid = scratch.addBody(shape, bodyName);
-            scratch.setBodyColor(nid, color);
-            auto r = ProjectIO::save(out, scratch);
-            if (r.success) {
-                std::string fname = std::filesystem::path(out).filename().string();
-                // Onto the landing page it goes (placeholder tile until that
-                // project is opened + saved once — no GL-safe way to render
-                // a body that isn't the current scene here).
-                addRecentProject(out, fname);
-                showToast("Exported to " + fname);
-            } else {
-                showToast("Export failed - see log");
-                std::fprintf(stderr, "Export failed: %s\n", r.errorMessage.c_str());
-            }
-        });
+    for (const auto& p : parts) {
+        const int nid = m_document->addBody(p.shape, p.name);
+        m_document->setBodyColor(nid, p.color);
+    }
+    // Name the tab after the part (single) — it is still UNSAVED, so the path
+    // stays empty and Save goes through the picker.
+    m_currentProjectName = parts.size() == 1 && !parts.front().name.empty()
+                               ? parts.front().name
+                               : std::string();
+    m_currentProjectPath.clear();
+    m_meshesDirty = true;
+    markDirty();
+    // Frame the arrivals the way a project open does — otherwise the camera
+    // sits wherever the source project left it.
+    handleViewCubeAction(static_cast<int>(ViewCubeAction::FrontTopRight));
+    showToast(parts.size() == 1
+                  ? "Opened in a new tab — unsaved."
+                  : std::to_string(parts.size()) +
+                        " parts opened in a new tab — unsaved.");
 }
 
 void Application::renderLandingPage() {

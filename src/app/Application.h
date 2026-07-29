@@ -378,7 +378,10 @@ private:
     void renderPartsPickerDialog();
     // Items-panel body context menu: write one body into a fresh project
     // file (and add it to Open Recent so it shows on the landing page).
-    void exportBodyToNewProject(int bodyId);
+    // Open the given bodies in a NEW TAB as an unsaved project — the "use
+    // this part elsewhere" flow. Not a file write: you see what you got
+    // first, and save it (or not) like any other project.
+    void exportBodiesToNewProject(const std::vector<int>& bodyIds);
     void loadProject();         // File dialog → loadProjectAt
     // Load a project file directly by path. Used by loadProject() and by the
     // "auto-open last project on launch" path.

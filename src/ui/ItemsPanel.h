@@ -7,6 +7,7 @@
 class Document;
 class SelectionManager;
 class History;
+struct SelectionEntry;   // global namespace, like SelectionManager itself
 
 namespace materializr {
 
@@ -45,10 +46,12 @@ public:
         std::function<void(const std::vector<int>&, const std::string&)> cb) {
         m_exportBodies = std::move(cb);
     }
-    // "Export to New Project…" on a body's context menu — routes to
-    // Application::exportBodyToNewProject (writes a fresh .mzr with a baked
-    // copy of the body).
-    void setExportToProjectCallback(std::function<void(int)> cb) {
+    // "Export to New Project" on a body's context menu — routes to
+    // Application::exportBodiesToNewProject, which opens the parts in a new
+    // tab as an unsaved project. Takes the whole body selection, same rule
+    // as the Export submenu.
+    void setExportToProjectCallback(
+        std::function<void(const std::vector<int>&)> cb) {
         m_exportToProject = std::move(cb);
     }
     // Called when the user picks "Edit Sketch" from a sketch's right-click
@@ -87,7 +90,7 @@ private:
     History* m_history = nullptr;
     std::function<void()> m_markDirty;
     std::function<void(int)> m_exportStl;
-    std::function<void(int)> m_exportToProject;
+    std::function<void(const std::vector<int>&)> m_exportToProject;
     std::function<std::vector<std::string>()> m_exportFormats;
     std::function<void(const std::vector<int>&, const std::string&)> m_exportBodies;
     std::function<void(int)> m_editSketch;
@@ -124,6 +127,15 @@ private:
     // Bodies to move into the newly-created folder once its name is confirmed.
     // Empty = create the folder empty (e.g. "+ Folder" header button).
     std::vector<int> m_newFolderForBodyIds;
+
+    // Click behaviour for the sketch / plane / axis rows: a plain click
+    // selects just this item, Ctrl+click toggles it in or out of whatever is
+    // already selected. Body rows keep their own version because they also
+    // support Shift range-select. Without this the non-body rows always
+    // REPLACED the selection, so Ctrl+clicking a sketch silently dropped the
+    // bodies you had picked — while Ctrl+clicking a body afterwards did
+    // extend, which is what made the behaviour look arbitrary.
+    void applyRowClick(const SelectionEntry& entry);
 
     // Renders one body row (visibility + name + colour + context menu).
     // Pulled out of render() so it can be called both at the root level and

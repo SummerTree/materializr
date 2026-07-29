@@ -30,6 +30,12 @@ void ItemsPanel::setHistory(History* hist) {
     m_history = hist;
 }
 
+void ItemsPanel::applyRowClick(const SelectionEntry& entry) {
+    if (!m_selection) return;
+    if (ImGui::GetIO().KeyCtrl) m_selection->toggleSelection(entry);
+    else                        m_selection->select(entry);
+}
+
 bool ItemsPanel::render() {
     ImGui::Begin("Items", nullptr, ImGuiWindowFlags_NoCollapse);
     const bool changed = renderContent();
@@ -329,7 +335,7 @@ bool ItemsPanel::renderContent() {
                         SelectionEntry entry;
                         entry.type = SelectionType::Sketch;
                         entry.sketchId = id;
-                        m_selection->select(entry);
+                        applyRowClick(entry);
                     }
                 }
 
@@ -443,7 +449,7 @@ bool ItemsPanel::renderContent() {
                         SelectionEntry entry;
                         entry.type = SelectionType::Plane;
                         entry.planeId = id;
-                        m_selection->select(entry);
+                        applyRowClick(entry);
                     }
                 }
 
@@ -534,7 +540,7 @@ bool ItemsPanel::renderContent() {
                         SelectionEntry entry;
                         entry.type = SelectionType::Axis;
                         entry.axisId = id;
-                        m_selection->select(entry);
+                        applyRowClick(entry);
                     }
                 }
 
@@ -786,8 +792,22 @@ bool ItemsPanel::renderBodyRow(int id, bool& colorChanged) {
         // part elsewhere" flow (the new file lands in Open Recent / the
         // landing page, ready for Import Parts from another project).
         if (!deleted && m_exportToProject &&
-            ImGui::MenuItem("Export to New Project…")) {
-            m_exportToProject(id);
+            ImGui::MenuItem("Export to New Project")) {
+            // Same selection rule as Export above: the whole selection when
+            // this body is part of one. No ellipsis — it opens a tab now
+            // rather than asking for a filename.
+            std::vector<int> targets;
+            if (m_selection) {
+                for (const auto& e : m_selection->getSelection())
+                    if (e.type == SelectionType::Body && e.bodyId >= 0)
+                        targets.push_back(e.bodyId);
+            }
+            if (std::find(targets.begin(), targets.end(), id) == targets.end() ||
+                targets.size() <= 1) {
+                targets.clear();
+                targets.push_back(id);
+            }
+            m_exportToProject(targets);
         }
         // Move-to-folder submenu. If the right-clicked body is part of a
         // multi-selection, the action moves EVERY selected body at once;

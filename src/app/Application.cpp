@@ -309,7 +309,7 @@ Application::Application(bool safeMode, float uiScaleOverride)
             exportBodiesAs(ids, fmt);
         });
     m_itemsPanel->setExportToProjectCallback(
-        [this](int bodyId) { exportBodyToNewProject(bodyId); });
+        [this](const std::vector<int>& ids) { exportBodiesToNewProject(ids); });
     m_itemsPanel->setEditSketchCallback([this](int sketchId) { editSketch(sketchId); });
     m_itemsPanel->setExportSketchSvgCallback([this](int sketchId) { exportSketchAsSvg(sketchId); });
     m_itemsPanel->setExportSketchDxfCallback([this](int sketchId) { exportSketchAsDxf(sketchId); });
