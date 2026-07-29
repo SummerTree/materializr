@@ -88,6 +88,11 @@ add_library(materializr_core STATIC
     ${CMAKE_SOURCE_DIR}/src/core/Verbose.cpp
     ${CMAKE_SOURCE_DIR}/src/modeling/Unfold.cpp
     ${CMAKE_SOURCE_DIR}/src/viewport/SectionCap.cpp
+    # Op editors call materializr::inputNumber (ui/NumField.h), whose touch
+    # branch lands in touchui::numberField. Tests never take that branch —
+    # touchMode() is off — but the symbol still has to resolve at link time,
+    # and this list is separate from the app's, so it does not inherit it.
+    ${CMAKE_SOURCE_DIR}/src/ui/TouchWidgets.cpp
 )
 
 target_include_directories(materializr_core PUBLIC

@@ -9,6 +9,7 @@
 #include <gp_Ax2.hxx>
 #include <gp_Dir.hxx>
 #include <imgui.h>
+#include "../ui/NumField.h"
 
 #include <cstdio>
 #include <sstream>
@@ -134,32 +135,32 @@ void PrimitiveOp::renderProperties() {
     ImGui::Separator();
     switch (m_kind) {
         case Kind::Box:
-            ImGui::InputDouble("Width (X)",  &m_x, 0.1, 1.0, "%g");
-            ImGui::InputDouble("Depth (Y)",  &m_y, 0.1, 1.0, "%g");
-            ImGui::InputDouble("Height (Z)", &m_z, 0.1, 1.0, "%g");
+            materializr::inputNumber("Width (X)",  &m_x, 0.1, 1.0, "%g");
+            materializr::inputNumber("Depth (Y)",  &m_y, 0.1, 1.0, "%g");
+            materializr::inputNumber("Height (Z)", &m_z, 0.1, 1.0, "%g");
             break;
         case Kind::Cylinder:
-            ImGui::InputDouble("Radius",     &m_radius, 0.1, 1.0, "%g");
-            ImGui::InputDouble("Height",     &m_height, 0.1, 1.0, "%g");
+            materializr::inputNumber("Radius",     &m_radius, 0.1, 1.0, "%g");
+            materializr::inputNumber("Height",     &m_height, 0.1, 1.0, "%g");
             break;
         case Kind::Sphere:
-            ImGui::InputDouble("Radius",     &m_radius, 0.1, 1.0, "%g");
+            materializr::inputNumber("Radius",     &m_radius, 0.1, 1.0, "%g");
             break;
         case Kind::Cone:
-            ImGui::InputDouble("Bottom radius", &m_radius,    0.1, 1.0, "%g");
-            ImGui::InputDouble("Top radius",    &m_topRadius, 0.1, 1.0, "%g");
-            ImGui::InputDouble("Height",        &m_height,    0.1, 1.0, "%g");
+            materializr::inputNumber("Bottom radius", &m_radius,    0.1, 1.0, "%g");
+            materializr::inputNumber("Top radius",    &m_topRadius, 0.1, 1.0, "%g");
+            materializr::inputNumber("Height",        &m_height,    0.1, 1.0, "%g");
             break;
         case Kind::Torus:
-            ImGui::InputDouble("Major radius",  &m_radius,      0.1, 1.0, "%g");
-            ImGui::InputDouble("Minor radius",  &m_minorRadius, 0.1, 1.0, "%g");
+            materializr::inputNumber("Major radius",  &m_radius,      0.1, 1.0, "%g");
+            materializr::inputNumber("Minor radius",  &m_minorRadius, 0.1, 1.0, "%g");
             break;
     }
     ImGui::Spacing();
     ImGui::Text("Origin");
-    ImGui::InputDouble("X", &m_ox, 0.1, 1.0, "%g");
-    ImGui::InputDouble("Y", &m_oy, 0.1, 1.0, "%g");
-    ImGui::InputDouble("Z", &m_oz, 0.1, 1.0, "%g");
+    materializr::inputNumber("X", &m_ox, 0.1, 1.0, "%g");
+    materializr::inputNumber("Y", &m_oy, 0.1, 1.0, "%g");
+    materializr::inputNumber("Z", &m_oz, 0.1, 1.0, "%g");
     ImGui::Text("Body ID: %d", m_createdBodyId);
 
     // Same validation feedback the create popup shows — Apply Changes runs

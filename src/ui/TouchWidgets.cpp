@@ -9,7 +9,9 @@
 #include <algorithm>
 #include <cfloat>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <map>
 
 namespace materializr {
 namespace touchui {
@@ -536,6 +538,91 @@ bool amountField(const char* id, const char* label, double* v,
     ImGui::PopID();
     (void)padPos;   // pad-anchor no longer used (native keyboard)
     return changed;
+}
+
+bool numberField(const char* id, const char* label, double* v, const char* fmt) {
+    const float s = uiScale();
+    bool committed = false;
+
+    // Per-field entry buffer. Keyed by ImGui id so two fields on screen keep
+    // separate half-typed values, and so a field that is scrolled away and
+    // back doesn't inherit the other one's digits.
+    struct Entry { char buf[32]; };
+    static std::map<ImGuiID, Entry> s_entries;
+
+    ImGui::PushID(id);
+    const ImGuiID key = ImGui::GetID("##numfield");
+
+    if (label && *label) {
+        ImGui::TextUnformatted(label);
+    }
+
+    char shown[32];
+    std::snprintf(shown, sizeof(shown), fmt ? fmt : "%g", *v);
+
+    // The well. A plain button, so the popup opens on an explicit tap and
+    // NOTHING else — the previous keyboard's habit of appearing whenever a
+    // dialog opened is the specific behaviour this must not repeat.
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(10.0f * s, 10.0f * s));
+    const float wellW = std::max(ImGui::GetContentRegionAvail().x,
+                                 numberPadWidth(44.0f * s));
+    if (ImGui::Button(shown, ImVec2(wellW, 0.0f))) {
+        Entry e{};
+        std::snprintf(e.buf, sizeof(e.buf), fmt ? fmt : "%g", *v);
+        s_entries[key] = e;
+        ImGui::OpenPopup("##numpad");
+    }
+    ImGui::PopStyleVar();
+
+    // Anchor under the well, then clamp so a field low in a scrolling panel
+    // doesn't push the pad off the bottom or the right of the screen.
+    const float keySide = 44.0f * s;
+    const float padW = numberPadWidth(keySide) + 2.0f * 8.0f * s;
+    const float padH = 6.0f * keySide + 90.0f * s;
+    ImVec2 anchor = ImGui::GetItemRectMin();
+    anchor.y = ImGui::GetItemRectMax().y + 4.0f * s;
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    const float maxX = vp->Pos.x + vp->Size.x - padW - 8.0f * s;
+    const float maxY = vp->Pos.y + vp->Size.y - padH - 8.0f * s;
+    if (anchor.x > maxX) anchor.x = maxX;
+    if (anchor.x < vp->Pos.x + 8.0f * s) anchor.x = vp->Pos.x + 8.0f * s;
+    if (anchor.y > maxY) anchor.y = maxY;
+    if (anchor.y < vp->Pos.y + 8.0f * s) anchor.y = vp->Pos.y + 8.0f * s;
+    ImGui::SetNextWindowPos(anchor, ImGuiCond_Always);
+
+    if (ImGui::BeginPopup("##numpad")) {
+        Entry& e = s_entries[key];
+
+        // Header: what is being edited, and the dismiss ✗ hard right.
+        if (label && *label) {
+            ImGui::TextUnformatted(label);
+            ImGui::SameLine();
+        }
+        const float xW = 32.0f * s;
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() +
+                             std::max(0.0f, ImGui::GetContentRegionAvail().x - xW));
+        if (ImGui::Button(MZ_ICON_CLOSE, ImVec2(xW, xW))) {
+            ImGui::CloseCurrentPopup();   // dismiss: *v untouched
+        }
+
+        valueReadout("##ro", e.buf[0] ? e.buf : "0", e.buf[0] == '\0',
+                     numberPadWidth(keySide));
+        numberPad("##pad", e.buf, sizeof(e.buf), keySide, /*allowSign=*/true);
+
+        // Enter commits. Parsing here (not per keystroke) is what makes the
+        // caller see one change instead of one per digit — a history-step
+        // editor rebuilds once on commit rather than on every tap.
+        if (ImGui::Button("Enter", ImVec2(numberPadWidth(keySide), keySide))) {
+            char* end = nullptr;
+            const double parsed = std::strtod(e.buf, &end);
+            if (end != e.buf) { *v = parsed; committed = true; }
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+
+    ImGui::PopID();
+    return committed;
 }
 
 bool amountField(const char* id, const char* label, float* v,

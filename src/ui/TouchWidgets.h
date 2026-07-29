@@ -89,6 +89,28 @@ bool amountField(const char* id, const char* label, double* v,
                  const char* suffix = "mm", int decimals = 1,
                  bool allowSign = false, double minV = 0.0, double maxV = 0.0,
                  const ImVec2* padPos = nullptr);
+
+// Touch numeric entry: a tappable well showing the current value, which opens
+// a number-pad popup. Returns true when the pad COMMITS a new value.
+//
+// This is the third attempt at numeric entry on a tablet, and the two failures
+// define the design:
+//
+//  1. A full self-designed keyboard. It went clunky the moment it had to cover
+//     digits AND symbols AND letters, and — worse — it popped up whenever a
+//     dialog appeared rather than when a field was focused. Hence: digits only
+//     (letters keep the native keyboard, see inputNumber), and the popup opens
+//     ONLY from a tap on the well. Nothing here opens it implicitly.
+//  2. The native keyboard (aab4bfb), which fixed a field-width bug but left
+//     tablets at the mercy of whatever keyboard the OS shows — a half-screen
+//     slab on stock Android, and on iOS one that froze the app when raised
+//     from the SDL loop.
+//
+// The pad carries digits, decimal and backspace, plus the three extras that
+// make it self-sufficient: sign, Enter (commit) and a top-right ✗ (dismiss,
+// leaving the value untouched).
+bool numberField(const char* id, const char* label, double* v,
+                 const char* fmt = "%g");
 bool amountField(const char* id, const char* label, float* v,
                  const char* suffix = "mm", int decimals = 1,
                  bool allowSign = false, float minV = 0.0f, float maxV = 0.0f,
