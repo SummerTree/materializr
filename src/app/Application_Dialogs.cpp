@@ -1801,6 +1801,34 @@ void Application::renderThreadPanel() {
             ImGui::SetItemTooltip("Radial gap so a PRINTED thread fits its mate "
                                   "(0.2\xE2\x80\x93" "0.4mm typical). 0 = exact.");
         }
+        // Groove width: normally a fixed fraction of the pitch, so a coarse
+        // pitch always means a wide groove. Setting it explicitly decouples
+        // the two — a narrow groove on a long lead (a wire seat, a grip
+        // spiral, a cable channel). Only the straight-flanked profiles size
+        // their groove this way; Standard and Rounded are swept forms.
+        if (ThreadOp::profileTakesGrooveWidth(
+                static_cast<ThreadProfile>(m_threadProfile))) {
+            ImGui::Text("Groove width"); ImGui::SameLine();
+            ImGui::SetNextItemWidth(90);
+            ImGui::InputFloat("##thrGWidth", &m_threadGrooveWidth, 0.1f, 0.5f,
+                              "%.2f");
+            if (m_threadGrooveWidth < 0.0f) m_threadGrooveWidth = 0.0f;
+            ImGui::SameLine(); ImGui::Text("mm");
+            ImGui::SetItemTooltip("Width of the cut at the surface. "
+                                  "0 = automatic (a set fraction of the pitch, "
+                                  "which is how threads are normally "
+                                  "proportioned).");
+            const float autoW = static_cast<float>(
+                ThreadOp::profileOpenFraction(
+                    static_cast<ThreadProfile>(m_threadProfile))) *
+                std::max(0.1f, m_threadPitch);
+            if (m_threadGrooveWidth <= 0.0f)
+                ImGui::TextDisabled("automatic: %.2f mm at this pitch", autoW);
+            else if (m_threadGrooveWidth > 0.9f * m_threadPitch)
+                ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.3f, 1.0f),
+                                   "Capped at %.2f mm — a crest must survive "
+                                   "between turns.", 0.9f * m_threadPitch);
+        }
     }
 
     ImGui::Checkbox("Right-handed", &m_threadRightHanded);

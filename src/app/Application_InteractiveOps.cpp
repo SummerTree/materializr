@@ -926,6 +926,9 @@ void Application::beginThread() {
     // A standard coarse bolt is single-start; a lingering starts=3 from the
     // last cap would silently lose the sweep fast path (and its geometry).
     m_threadStarts = 1;
+    // Likewise a groove width from the last part would silently override the
+    // ISO proportions this dialog just computed.
+    m_threadGrooveWidth = 0.0f;
     std::snprintf(m_threadPitchBuf, sizeof(m_threadPitchBuf), "%.2f", m_threadPitch);
     std::snprintf(m_threadDepthBuf, sizeof(m_threadDepthBuf), "%.2f", m_threadDepth);
 
@@ -971,6 +974,7 @@ std::unique_ptr<ThreadOp> Application::makeThreadOpFromState() const {
     op->setProfile(static_cast<ThreadProfile>(m_threadProfile));
     op->setClearance(static_cast<double>(m_threadClearance));
     op->setStarts(m_threadStarts);
+    op->setGrooveWidth(static_cast<double>(m_threadGrooveWidth));
     op->setTargetFaceRef(m_threadFaceRef);
     return op;
 }

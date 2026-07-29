@@ -473,10 +473,19 @@ TopoDS_Shape ThreadOp::buildResult(const TopoDS_Shape& body) const {
     // shipped trapezoid). Used by buildCutterEx, the width-probe gate, and the
     // analytic-volume gate below.
     const GrooveSpec gSpec = grooveSpec(m_profile);
+    // Groove half-width at the surface. Normally the profile's own fraction
+    // of the pitch; an explicit m_grooveWidth decouples the two so a coarse
+    // pitch can carry a NARROW groove (a wire seat, a grip spiral). Clamped
+    // to 0.9·pitch so a crest land always survives between turns. This single
+    // value feeds the cutter, the analytic volume gate and the width probes,
+    // which is why they all stay consistent for free.
+    const double baseMouthHalf =
+        (m_grooveWidth > 0.0 && profileTakesGrooveWidth(m_profile))
+            ? 0.5 * std::min(m_grooveWidth, 0.9 * m_pitch)
+            : 0.5 * gSpec.openFrac * m_pitch;
     // Flank clearance (mm per side): widen the groove — and thus every gate
     // that measures it — so it stays consistent between the cutter and the
     // volume/width checks. Clamped to keep a crest land (mouth < 0.9·pitch).
-    const double baseMouthHalf = 0.5 * gSpec.openFrac * m_pitch;
     const double flankClear = std::min(std::max(0.0, m_clearance),
                                        std::max(0.0, 0.45 * m_pitch - baseMouthHalf));
 
@@ -837,7 +846,7 @@ TopoDS_Shape ThreadOp::buildResult(const TopoDS_Shape& body) const {
                 double uSign = m_rightHanded ? 1.0 : -1.0;
                 // Mouth half-width from the profile's opening fraction (Standard
                 // = 0.4375·pitch, the shipped 7/8-pitch opening).
-                double mouthHalf = 0.5 * gSpec.openFrac * m_pitch * wFac;
+                double mouthHalf = baseMouthHalf * wFac;
                 // Flank clearance: widen the groove by `clearance` on EACH
                 // flank (thins the ridge) so a printed thread clears its mate
                 // on the sides, not just radially (m_clearance already deepens
@@ -1037,8 +1046,7 @@ TopoDS_Shape ThreadOp::buildResult(const TopoDS_Shape& body) const {
                 // rounded) fail the gate spuriously.
                 if (okSample && k * 10 >= 3 * K && k * 10 <= 7 * K) {
                     double hLo, hUp;
-                    grooveHalfAt(gSpec, 0.5 * gSpec.openFrac * m_pitch, 0.25,
-                                 hLo, hUp);
+                    grooveHalfAt(gSpec, baseMouthHalf, 0.25, hLo, hUp);
                     gp_Pnt w1 = cylPt(rC, th, vG - 0.85 * hLo);
                     gp_Pnt w2 = cylPt(rC, th, vG + 0.85 * hUp);
                     if (isIn(pre, w1) && isIn(post, w1)) okSample = false;
@@ -1196,8 +1204,7 @@ TopoDS_Shape ThreadOp::buildResult(const TopoDS_Shape& body) const {
             if (nT < 1 || nT > 120) return {};
             // Analytic groove volume of one turn: the PROFILE's cross-section
             // area (integrated from its band table) swept at mid-groove radius.
-            double area = grooveArea(gSpec, 0.5 * gSpec.openFrac * m_pitch,
-                                     depth)
+            double area = grooveArea(gSpec, baseMouthHalf, depth)
                         + 2.0 * flankClear * depth;   // flank clearance widens it
             double rMid = m_isHole ? (m_radius + 0.5 * depth)
                                    : (m_radius - 0.5 * depth);
@@ -2078,6 +2085,10 @@ bool ThreadOp::undo(Document& doc) {
     }
 }
 
+double ThreadOp::profileOpenFraction(ThreadProfile p) {
+    return grooveSpec(p).openFrac;
+}
+
 std::string ThreadOp::description() const {
     char buf[128];
     char starts[24] = "";
@@ -2114,6 +2125,15 @@ void ThreadOp::renderProperties() {
     int prof = static_cast<int>(m_profile);
     if (ImGui::Combo("Profile", &prof, kProfiles, IM_ARRAYSIZE(kProfiles)))
         m_profile = static_cast<ThreadProfile>(prof);
+    if (profileTakesGrooveWidth(m_profile)) {
+        ImGui::InputDouble("Groove width (mm)", &m_grooveWidth, 0.1, 0.5, "%.2f");
+        if (m_grooveWidth < 0.0) m_grooveWidth = 0.0;
+        ImGui::SetItemTooltip("Width of the cut at the surface. 0 = automatic "
+                              "(a set fraction of the pitch).");
+        if (m_grooveWidth <= 0.0)
+            ImGui::TextDisabled("automatic: %.2f mm at this pitch",
+                                profileOpenFraction(m_profile) * m_pitch);
+    }
     if (m_profile != ThreadProfile::Standard) {
         ImGui::InputDouble("Fit clearance (mm)", &m_clearance, 0.05, 0.1, "%.2f");
         if (m_clearance < 0.0) m_clearance = 0.0;
@@ -2144,15 +2164,15 @@ OperationDiff ThreadOp::captureDiff() const {
 }
 
 std::string ThreadOp::serializeParams() const {
-    char buf[480];
+    char buf[512];   // grew with gwidth
     std::snprintf(buf, sizeof(buf),
         "body=%d;radius=%.6f;length=%.6f;pitch=%.6f;depth=%.6f;hole=%d;rh=%d;"
-        "profile=%d;clearance=%.6f;starts=%d;"
+        "profile=%d;clearance=%.6f;starts=%d;gwidth=%.6f;"
         "ox=%.9g;oy=%.9g;oz=%.9g;dx=%.9g;dy=%.9g;dz=%.9g;"
         "xx=%.9g;xy=%.9g;xz=%.9g",
         m_bodyId, m_radius, m_length, m_pitch, m_depth,
         m_isHole ? 1 : 0, m_rightHanded ? 1 : 0,
-        static_cast<int>(m_profile), m_clearance, m_starts,
+        static_cast<int>(m_profile), m_clearance, m_starts, m_grooveWidth,
         m_axOX, m_axOY, m_axOZ, m_axDX, m_axDY, m_axDZ,
         m_axXX, m_axXY, m_axXZ);
     std::string s = buf;
@@ -2191,6 +2211,7 @@ bool ThreadOp::deserializeParams(const std::string& blob) {
         else if (key == "profile")   { m_profile = static_cast<ThreadProfile>(i); any = true; }
         else if (key == "clearance") { m_clearance = d; any = true; }
         else if (key == "starts")    { m_starts = i < 1 ? 1 : i; any = true; }
+        else if (key == "gwidth")    { m_grooveWidth = d > 0.0 ? d : 0.0; any = true; }
         else if (key == "ox") { m_axOX = d; any = true; }
         else if (key == "oy") { m_axOY = d; any = true; }
         else if (key == "oz") { m_axOZ = d; any = true; }

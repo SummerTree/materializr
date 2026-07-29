@@ -59,6 +59,25 @@ public:
     ThreadProfile getProfile() const { return m_profile; }
     void setClearance(double c) { m_clearance = c; }
     void setStarts(int n) { m_starts = n < 1 ? 1 : n; }
+    // Explicit groove width in mm, decoupling the cut from the pitch. Every
+    // profile otherwise sizes its groove as a FRACTION of the pitch, so a
+    // coarse pitch always means a wide groove — no way to ask for a narrow
+    // groove on a long lead (a helical wire seat, a grip spiral, a cable
+    // channel). 0 = automatic, i.e. the profile's own fraction, which is what
+    // every existing thread and every saved file keeps. Applies to the
+    // straight-flanked profiles (Trapezoidal / Square / Buttress); Standard
+    // and Rounded are swept forms whose shape is defined differently.
+    void setGrooveWidth(double w) { m_grooveWidth = w > 0.0 ? w : 0.0; }
+    double getGrooveWidth() const { return m_grooveWidth; }
+    // True for the profiles setGrooveWidth() actually affects.
+    static bool profileTakesGrooveWidth(ThreadProfile p) {
+        return p == ThreadProfile::Trapezoidal ||
+               p == ThreadProfile::Square ||
+               p == ThreadProfile::Buttress;
+    }
+    // The groove opening this profile uses when the width is automatic, as a
+    // fraction of the pitch — so the UI can show what "automatic" resolves to.
+    static double profileOpenFraction(ThreadProfile p);
 
     // Cooperative cancel for background workers: buildResult checks the token
     // between turns/chunks and wires it into the boolean cuts as an OCCT
@@ -142,6 +161,7 @@ private:
     bool m_rightHanded = true;
     ThreadProfile m_profile = ThreadProfile::Standard;
     double m_clearance = 0.0;   // radial fit gap (mm); 0 = geometrically exact
+    double m_grooveWidth = 0.0; // explicit groove width (mm); 0 = from pitch
     int m_starts = 1;           // interleaved helical starts
     bool m_allowGraft = true;   // false on the nested op the graft spawns
     bool m_forceGraft = false;  // test-only: skip the direct cut, always graft

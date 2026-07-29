@@ -124,6 +124,73 @@ TEST(ThreadProfiles, MultiStartExternalValid) {
     }
 }
 
+// An explicit groove width decouples the cut from the pitch: normally the
+// groove is a fixed FRACTION of the pitch, so a coarse pitch forces a wide
+// groove. Steve's case is a 2mm-wide, 1mm-deep groove on an 11.5mm pitch —
+// a helical wire seat, where the automatic width would be 5.75mm.
+TEST(ThreadProfiles, ExplicitGrooveWidthIsIndependentOfPitch) {
+    const double R = 7.5, L = 46.0, P = 11.5;   // 15mm rod, 4 turns
+    TopoDS_Shape rod = BRepPrimAPI_MakeCylinder(R, L).Shape();
+    auto build = [&](double width) {
+        ThreadOp t;
+        configure(t, R, L, ThreadProfile::Square, 0.0);
+        t.setPitch(P);
+        t.setDepth(1.0);
+        t.setIsHole(false);
+        t.setGrooveWidth(width);
+        return t.buildResult(rod);
+    };
+
+    TopoDS_Shape narrow = build(2.0);
+    TopoDS_Shape autoW  = build(0.0);   // Square = 0.50 * pitch = 5.75mm
+    ASSERT_FALSE(narrow.IsNull()) << "explicit 2mm groove built nothing";
+    ASSERT_FALSE(autoW.IsNull());
+    EXPECT_TRUE(BRepCheck_Analyzer(narrow).IsValid());
+
+    // The requested groove really is narrower — not silently snapped back to
+    // the profile's fraction. Removed volume scales with width, so a 2mm cut
+    // must remove FAR less than the 5.75mm automatic one.
+    const double vRod = vol(rod);
+    const double removedNarrow = vRod - vol(narrow);
+    const double removedAuto   = vRod - vol(autoW);
+    EXPECT_GT(removedNarrow, 0.0) << "the explicit-width cut removed nothing";
+    EXPECT_LT(removedNarrow, 0.6 * removedAuto)
+        << "explicit width was ignored (removed " << removedNarrow
+        << " vs automatic " << removedAuto << ")";
+
+    // Sanity against the analytic figure: a 2mm x 1mm square groove swept at
+    // mid-depth radius, over L/P turns. Loose band — real ends taper.
+    const double turns = L / P;
+    const double analytic = 2.0 * 1.0 * 2.0 * M_PI * (R - 0.5) * turns;
+    EXPECT_GT(removedNarrow, 0.4 * analytic);
+    EXPECT_LT(removedNarrow, 1.6 * analytic);
+
+    // 0 stays "automatic" for every existing thread and saved file.
+    EXPECT_NEAR(removedAuto, vRod - vol(build(0.0)), 1e-6);
+}
+
+// A width wider than the pitch would leave no crest between turns; it clamps
+// instead of producing a shredded body.
+TEST(ThreadProfiles, GrooveWidthClampsToLeaveACrest) {
+    const double R = 7.5, L = 30.0, P = 5.0;
+    TopoDS_Shape rod = BRepPrimAPI_MakeCylinder(R, L).Shape();
+    auto build = [&](double width) {
+        ThreadOp t;
+        configure(t, R, L, ThreadProfile::Square, 0.0);
+        t.setPitch(P);
+        t.setDepth(1.0);
+        t.setIsHole(false);
+        t.setGrooveWidth(width);
+        return t.buildResult(rod);
+    };
+    TopoDS_Shape huge = build(50.0);        // absurd — 10x the pitch
+    TopoDS_Shape atCap = build(0.9 * P);    // the cap itself
+    ASSERT_FALSE(huge.IsNull()) << "over-wide groove rejected instead of clamped";
+    EXPECT_TRUE(BRepCheck_Analyzer(huge).IsValid());
+    EXPECT_NEAR(vol(huge), vol(atCap), 1e-3)
+        << "clamped width should cut the same groove as asking for the cap";
+}
+
 TEST(ThreadProfiles, MultiStartRoundedDepthCap) {
     // Multi-start Rounded cuts with the rope tool, whose radius (= depth)
     // caps at 0.45·pitch. A requested depth above that cap must clamp to it
