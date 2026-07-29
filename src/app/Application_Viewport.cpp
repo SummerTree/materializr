@@ -188,6 +188,14 @@ void Application::gizmoPreviewApply(const glm::mat4& m) {
     // slots (shape + edges). GPU-only — the document is untouched, so a drag
     // frame costs two uniform updates per body instead of re-tessellating
     // the body (see the Revolve live preview, which pioneered the pattern).
+    //
+    // Mirror it for the world-space chrome. Because the document never moves,
+    // the gizmo (positioned from the body's bbox centre) and the selection
+    // outline (cached in world coords) both sat at the PRE-drag pose for the
+    // whole drag: the body slid out from under its own gizmo and snapped back
+    // together on release, and the outline had to be hidden outright. Every
+    // preview passes through here, so this is the one place that has to know.
+    m_gizmoPreviewXf = m;
     for (auto& [id, orig] : m_gizmoDragOriginals) {
         if (m_shapeRenderer) {
             int slot = m_shapeRenderer->findSlotByBody(id);
@@ -733,13 +741,19 @@ void Application::renderViewport() {
         if (m_sectionView) m_sectionView->render(view, proj);
 
         // Render selection highlight (face/edge/body)
-        // Selection highlight is cached in world coords — it wouldn't follow
-        // the GPU-model-matrix Revolve preview OR the (equally GPU-only)
-        // gizmo drag preview, so we hide it while either is animating. The
-        // body itself remains highlighted by the body-renderer's outline;
-        // the selection chrome reappears the moment the preview ends.
-        if (!m_revolveLiveActive && !m_gizmoDragging) {
-            m_selectionHighlight->render(*m_selection, *m_document, view, proj);
+        // The highlight is cached in world coords, so it can't follow a
+        // GPU-model-matrix preview on its own. For a gizmo drag it doesn't
+        // need to: the shader's only transform is u_mvp = projection * view
+        // applied to world-space vertices, so folding the preview into the
+        // view matrix moves the outline with the body exactly, with no change
+        // to SelectionHighlight and no re-tessellation. m_gizmoPreviewXf is
+        // identity when no drag is running, so this is a no-op the rest of
+        // the time. (Revolve still hides it — that preview deforms the
+        // geometry rather than rigidly transforming it, so no single matrix
+        // can carry the outline along.)
+        if (!m_revolveLiveActive) {
+            m_selectionHighlight->render(*m_selection, *m_document,
+                                         view * m_gizmoPreviewXf, proj);
         }
 
         // Sketch-mode grid drawn here — after bodies/edges/section/highlight —
@@ -797,6 +811,17 @@ void Application::renderViewport() {
                                        (zmin+zmax)*0.5f);
                     m_gizmoCenterCache[bodyId] = {tsh, shape.Location(), center};
                 }
+                // Follow the live drag. Transforming the centre by the preview
+                // matrix is right for all three modes rather than just adding
+                // the translation: rotate and scale build their matrix about
+                // the pivot, so a centre that sits on the pivot maps to itself
+                // and the gizmo correctly stays put, while a multi-body drag
+                // about a shared pivot moves this body's centre by exactly the
+                // amount the body moved. It also picks up the grid-SNAPPED
+                // translation for free — the snap is applied before the matrix
+                // is built, so the gizmo can't drift off-grid from the body.
+                if (m_gizmoDragging)
+                    center = glm::vec3(m_gizmoPreviewXf * glm::vec4(center, 1.0f));
                 m_gizmo->setPosition(center);
                 m_gizmo->setVisible(true);
                 gizmoShown = true;
@@ -4418,6 +4443,7 @@ void Application::renderViewport() {
                             }
                             m_gizmoDragging = true;
                             m_gizmoTotalDelta = glm::vec3(0.0f);
+                            m_gizmoPreviewXf = glm::mat4(1.0f);
                             m_gizmoTotalAngle = 0.0f;
                             m_gizmoScaleAccum = glm::vec3(0.0f);
                             m_gizmoTotalScale = glm::vec3(1.0f);

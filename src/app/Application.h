@@ -1236,6 +1236,12 @@ private:
     // Accumulated delta from drag start (translate only). Used so snap-to-grid
     // can snap the absolute position rather than each per-frame increment.
     glm::vec3 m_gizmoTotalDelta{0.0f};
+    // The live drag's preview transform, mirrored from gizmoPreviewApply().
+    // The drag moves bodies by a GPU model matrix and never writes the
+    // document, so anything else drawn in world space — the gizmo itself, the
+    // selection outline — has no way to know the body moved. This is that
+    // channel. Identity whenever no drag is running (gizmoPreviewReset()).
+    glm::mat4 m_gizmoPreviewXf{1.0f};
     // Accumulated rotation (deg, about m_gizmoRotAxis) from drag start, for soft
     // 45° snapping; and accumulated per-axis scale (raw drag deltas → factors).
     float m_gizmoTotalAngle = 0.0f;
