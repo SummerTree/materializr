@@ -111,8 +111,8 @@ const Step kSteps[] = {
     {
         "History and undo",
         "Every operation is recorded in the history. Materializr is parametric, "
-        "so you can go back and change an earlier step: double-click a history "
-        "entry to edit its parameters and the whole model rebuilds.",
+        "so you can go back and change an earlier step: click a history entry "
+        "to edit its parameters and the whole model rebuilds.",
         "Undo / redo with Ctrl+Z / Ctrl+Y, or from the Edit menu.",
         "Undo / redo with the arrows in the top bar (or a keyboard, if one is "
         "attached).",
@@ -125,8 +125,11 @@ const Step kSteps[] = {
     {
         "Organize, save and export",
         "Your bodies and sketches are listed so you can hide, rename and group "
-        "them into folders. Save your work as a project, or export to STL or "
-        "STEP for 3D printing or other CAD tools.",
+        "them into folders. Save your work as a project, or export for 3D "
+        "printing and other CAD tools — STL, 3MF, STEP, OBJ, glTF, IGES or "
+        "BREP. Export writes every VISIBLE body to one file, so hiding a "
+        "body leaves it out; to send just a few, select them, right-click "
+        "and use Export.",
         "Right-click an item to move it into a folder. Export lives under "
         "File > Export.",
         "Long-press an item to move it into a folder. Export offers Share (send "
@@ -138,6 +141,22 @@ const Step kSteps[] = {
             "live under the \xE2\x80\xA6 menu > File.",
             "Tap the list icon in the top bar for your items; saving and "
             "exporting live behind the \xE2\x98\xB0 menu."
+        }
+    },
+    {
+        "Several projects at once",
+        "Each project opens in its own tab, with its own history and camera — "
+        "handy for copying a part from one design into another. The home "
+        "screen lists your recent projects with a picture of each; it doesn't "
+        "close what you're working on, so you can go and come back.",
+        "Ctrl+Tab cycles the open tabs. File > Home Screen shows the grid.",
+        "Tap the project name to switch between open projects; the home screen "
+        "is behind the menu.",
+        {
+            "Tabs run along the top of the 3D view; the + opens a new one.",
+            "Tabs are the pills in the top bar; the + beside them opens a new "
+            "one.",
+            "The project name (top-left) opens the list of open projects."
         }
     },
     {

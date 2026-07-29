@@ -1,7 +1,10 @@
 # Usage Guide
 
-Workflow recipes for common tasks, plus the full keyboard-shortcut table. For a
-guided first-model walkthrough, see [getting-started.md](getting-started.md).
+Workflow recipes for common tasks, plus the full keyboard-shortcut table.
+
+New here? Start with
+[Getting Started](https://github.com/materializr-cad/materializr/wiki/Getting-Started)
+on the wiki, which walks from first launch to a printable solid.
 
 ## Basic workflow
 
@@ -91,9 +94,55 @@ viewport. The history panel opens that step in its inline editor; change the
 radius/distance and click **Apply Changes**. The op replays in place — the
 base geometry and any later steps follow.
 
+## Working with several projects
+
+Each project opens in its own **tab**, with its own history, camera and
+crash-recovery snapshot.
+
+- **Ctrl+Tab** / **Ctrl+Shift+Tab** cycle tabs. The **+** button offers New
+  Project, Open Project, or Open Recent — each landing in a new tab.
+- The tab strip is drawn differently per layout: inside the viewport in
+  Classic, as pills in the top bar in Modern, and as a project-name chip that
+  opens a sheet in im-touch. Right-click a tab (or use its ⋮) for Save,
+  Save As and Close.
+- **File → Home Screen** shows the grid of recent projects with thumbnails.
+  It doesn't close what you're working on — the × returns you to it, and
+  opening a project from there lands in a new tab.
+- **Settings → General → Reopen last session on launch** brings back every
+  tab you had open when you quit.
+
+If the app is killed with several projects open, the next launch offers all of
+them back at once, one tab each.
+
+## Copying parts between projects
+
+- **File → Import → From Project…** opens another project's bodies and
+  sketches in a picker, and brings the ones you choose into the current one.
+  Nothing stays linked — the copies are baked.
+- Right-click a body → **Export to New Project** sends it (or the whole body
+  selection) to a fresh tab, unsaved, so you can look at it before deciding
+  where it lives.
+
+## Exporting
+
+**File → Export** writes every **visible** body to one file, with the parts in
+their real positions — that's what a multi-body or print-in-place model needs.
+Hiding a body excludes it, so visibility is how you export part of an
+assembly without deleting anything.
+
+To export a subset instead, select the bodies, right-click one, and use the
+**Export** submenu — it takes the whole selection and lists every format the
+app can write: STL, 3MF, STEP, OBJ, glTF, IGES and BREP.
+
+For 3D printing, prefer **3MF** over STL where your slicer supports it: it
+records units explicitly, so scale can't be misread, and it keeps the bodies
+as distinguishable objects.
+
 ## Navigation
 
-Defaults (the orbit/pan buttons are reassignable in File → Settings):
+Defaults (the orbit/pan buttons are reassignable in Settings → Navigation —
+**File → Settings…** in the Classic layout, or the **⋯** / **☰** overflow menu
+in Modern and im-touch):
 
 | Input | Action |
 |-------|--------|
@@ -107,7 +156,7 @@ Defaults (the orbit/pan buttons are reassignable in File → Settings):
 | ViewCube side arrow | 90° camera rotation |
 | ViewCube body drag | Free orbit (direction invertible in Settings) |
 
-**Trackpad mode** (Settings → *Trackpad mode*) maps orbit + pan onto the left
+**Trackpad mode** (Settings → Navigation) maps orbit + pan onto the left
 mouse button using Shift as the modifier — useful on laptops without a middle
 button.
 
@@ -154,7 +203,7 @@ On a tablet, a **two-finger tap is undo** and a **three-finger tap is redo**.
 
 ### Recovering from a crash caused by rendering settings
 
-The rendering controls in **File → Settings → Rendering** (ambient, headlight
+The rendering controls in **Settings → Rendering** (ambient, headlight
 / fill light, MSAA samples, mesh quality) are persisted across launches.
 That's normally what you want, but it means a setting that crashes your GPU
 or driver will keep crashing the app on every launch.
