@@ -513,3 +513,27 @@ add_executable(test_multibody_export test_multibody_export.cpp
     ${CMAKE_SOURCE_DIR}/src/io/StlExport.cpp)
 target_link_libraries(test_multibody_export PRIVATE materializr_core gtest gtest_main)
 add_test(NAME test_multibody_export COMMAND test_multibody_export)
+
+
+# ─── Loader path for a source-built OCCT ─────────────────────────────────────
+# With MZR_OCCT_PREFIX the kernel lives outside the loader's default search
+# path, and the test binaries then die at startup with "libTKBRep.so.7.9:
+# cannot open shared object file". That failure is badly disguised: ctest
+# reports it as ~90 Failed tests in 0.00s, which reads as a catastrophic
+# regression until you open the log.
+#
+# A build RPATH does NOT fix this. The linker emits DT_RUNPATH, and DT_RUNPATH
+# is not transitive — it resolves the binary's own DT_NEEDED entries, but not
+# the libs those pull in, and most of the OCCT toolkits arrive that way. So
+# hand the path to ctest instead, which covers every dependency at once and
+# leaves the shipped binaries untouched.
+#
+# DIRECTORY/TESTS is read here, at the end of the file, so it picks up every
+# test declared above without each one having to opt in. Keep it last.
+if(DEFINED MZR_OCCT_PREFIX)
+    get_property(_mzr_all_tests DIRECTORY PROPERTY TESTS)
+    if(_mzr_all_tests)
+        set_tests_properties(${_mzr_all_tests} PROPERTIES
+            ENVIRONMENT "LD_LIBRARY_PATH=${MZR_OCCT_PREFIX}/lib:$ENV{LD_LIBRARY_PATH}")
+    endif()
+endif()

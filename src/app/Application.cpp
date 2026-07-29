@@ -173,6 +173,22 @@ namespace materializr { namespace force_link { void linkAll(); } }
 
 namespace materializr {
 
+namespace {
+// Tapping the tool that is ALREADY active puts it down — back to Select/Move —
+// instead of re-arming the same tool. Every sketch tool button used to call
+// setMode() unconditionally, so a drawing tool could only be left by explicitly
+// reaching for Select; on a tablet, where the reflex is to tap the lit button
+// again, that reads as the tool being stuck (#71).
+//
+// setMode() already cancels any in-progress shape and clears the placement
+// state, so a second tap on a half-drawn shape abandons it — the same outcome
+// as Escape, which is what that reflex expects.
+void toggleSketchMode(SketchTool* tool, SketchToolMode mode) {
+    if (!tool) return;
+    tool->setMode(tool->getMode() == mode ? SketchToolMode::Select : mode);
+}
+} // namespace
+
 Application::Application(bool safeMode, float uiScaleOverride)
     : m_safeMode(safeMode), m_cliUiScale(uiScaleOverride > 0.0f ? uiScaleOverride : 0.0f) {
     m_window = std::make_unique<Window>(1600, 900, "Materializr");
@@ -2108,32 +2124,32 @@ void Application::handleToolAction(int action) {
             if (m_inSketchMode) m_sketchTool->setMode(SketchToolMode::Select);
             break;
         case ToolAction::Line:
-            if (m_inSketchMode) m_sketchTool->setMode(SketchToolMode::Line);
+            if (m_inSketchMode) toggleSketchMode(m_sketchTool.get(), SketchToolMode::Line);
             break;
         case ToolAction::Circle:
-            if (m_inSketchMode) m_sketchTool->setMode(SketchToolMode::Circle);
+            if (m_inSketchMode) toggleSketchMode(m_sketchTool.get(), SketchToolMode::Circle);
             break;
         case ToolAction::Rectangle:
-            if (m_inSketchMode) m_sketchTool->setMode(SketchToolMode::Rectangle);
+            if (m_inSketchMode) toggleSketchMode(m_sketchTool.get(), SketchToolMode::Rectangle);
             break;
         case ToolAction::Arc:
-            if (m_inSketchMode) m_sketchTool->setMode(SketchToolMode::Arc);
+            if (m_inSketchMode) toggleSketchMode(m_sketchTool.get(), SketchToolMode::Arc);
             break;
         case ToolAction::Spline:
-            if (m_inSketchMode) m_sketchTool->setMode(SketchToolMode::Spline);
+            if (m_inSketchMode) toggleSketchMode(m_sketchTool.get(), SketchToolMode::Spline);
             break;
         case ToolAction::Polygon:
             if (m_inSketchMode) {
                 // Side count comes from the toolbar's Polygon popout.
                 m_sketchTool->setPolygonSides(m_toolbar->getRequestedPolygonSides());
-                m_sketchTool->setMode(SketchToolMode::Polygon);
+                toggleSketchMode(m_sketchTool.get(), SketchToolMode::Polygon);
             }
             break;
         case ToolAction::Trim:
-            if (m_inSketchMode) m_sketchTool->setMode(SketchToolMode::Trim);
+            if (m_inSketchMode) toggleSketchMode(m_sketchTool.get(), SketchToolMode::Trim);
             break;
         case ToolAction::SketchDimension:
-            if (m_inSketchMode) m_sketchTool->setMode(SketchToolMode::Dimension);
+            if (m_inSketchMode) toggleSketchMode(m_sketchTool.get(), SketchToolMode::Dimension);
             break;
         case ToolAction::SketchText:
             if (m_inSketchMode) {
