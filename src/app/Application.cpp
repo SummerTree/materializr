@@ -462,6 +462,18 @@ int Application::nextFreeRecoveryIndex() const {
     return materializr::kMaxSessionsPerSlot - 1;
 }
 
+bool Application::activeSessionIsScratch() const {
+    // An untouched empty workspace — the tab a fresh launch or a "+" click
+    // leaves you in. Anything else (a named project, geometry, sketches, or
+    // history) counts as occupied, so opening a project from the home screen
+    // gets its own tab rather than replacing what's there.
+    if (!m_currentProjectPath.empty()) return false;
+    if (!m_document) return true;
+    if (!m_document->getAllBodyIds().empty()) return false;
+    if (!m_document->getAllSketchIds().empty()) return false;
+    return !m_history || m_history->stepCount() == 0;
+}
+
 size_t Application::createSession() {
     auto s = std::make_unique<ProjectSession>();
     s->recoveryIndex = nextFreeRecoveryIndex();
@@ -2654,8 +2666,14 @@ void Application::handleShortcuts() {
     if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_E)) {
         exportStepFile();
     }
+    // Ctrl+S = SAVE, matching what the File menu has always advertised next to
+    // "Save Project". It used to call saveProject() — the Save-As picker — so
+    // the shortcut popped a file dialog for a project that already had a file,
+    // while the menu item it was printed beside saved in place (Steve,
+    // 2026-07-28). saveProjectQuick falls back to the picker on its own when
+    // the project has never been saved.
     if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S)) {
-        saveProject();
+        saveProjectQuick();
     }
     if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_O)) {
         loadProject();
@@ -6318,23 +6336,27 @@ void Application::renderProjectRecoveryPrompt() {
                             meta.bodyCount, meta.stepCount);
         ImGui::TextDisabled(
             "Materializr didn't close cleanly (a crash, hang, or restart).");
-        // Several tabs' worth of work can be waiting (one snapshot per open
-        // project); they restore one per launch until the tab UI can take
-        // them all at once.
-        if (materializr::projectRecoveryOrphanCount() > 1)
-            ImGui::TextDisabled("%d more recovered project(s) will be offered "
-                                "on the next launch.",
-                                materializr::projectRecoveryOrphanCount() - 1);
+        // One snapshot per tab the dead instance had open — the summary above
+        // describes the newest; all of them come back, a tab each.
+        const int nOrphans = materializr::projectRecoveryOrphanCount();
+        if (nOrphans > 1)
+            ImGui::TextDisabled("%d projects in total — each reopens in its "
+                                "own tab.", nOrphans);
         ImGui::Spacing();
-        if (ImGui::Button("Restore it", ImVec2(140, 0))) {
+        if (ImGui::Button(nOrphans > 1 ? "Restore all" : "Restore it",
+                          ImVec2(140, 0))) {
             restoreProjectRecoveryNow();
             m_pendingProjectRecovery = false;
             ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();
         if (ImGui::Button("Discard", ImVec2(140, 0))) {
-            // The candidate is the dead session's orphaned snapshot — our own
-            // live slot is separate and untouched.
+            // These are the dead session's orphaned snapshots — our own live
+            // slot is separate and untouched. Discard means ALL of them, to
+            // match the restore: leaving the rest to resurface on the next
+            // launch after the user said no is just nagging.
+            for (const auto& p : materializr::projectRecoveryOrphanPaths())
+                materializr::clearProjectRecoveryAt(p);
             materializr::clearProjectRecoveryCandidate();
             m_pendingProjectRecovery = false;
             ImGui::CloseCurrentPopup();
@@ -6344,30 +6366,67 @@ void Application::renderProjectRecoveryPrompt() {
 }
 
 void Application::restoreProjectRecoveryNow() {
-    materializr::ProjectRecoveryMeta meta;
-    materializr::readProjectRecoveryMeta(meta);
-    // The dead session's orphaned snapshot — NOT projectRecoveryPath(), which
-    // is this instance's own (live, empty-so-far) slot.
-    const std::string recPath = materializr::projectRecoveryRestorePath();
-    // Load the snapshot through the normal project loader (rebuilds bodies +
-    // editable history). loadProjectAt sets m_currentProjectPath to the sidecar
-    // and marks it saved — override both with the project's ORIGINAL identity so
-    // the user can't overwrite the sidecar and unsaved work stays unsaved/dirty.
-    if (recPath.empty() || !loadProjectAt(recPath)) {
-        std::fprintf(stderr, "[Recovery] failed to load project snapshot\n");
-        materializr::clearProjectRecoveryCandidate();
-        return;
+    // EVERY orphan comes back, one per tab — a crash with four tabs open used
+    // to hand them back one launch at a time (Steve, 2026-07-28). The newest
+    // (the prompt's candidate) goes first so it lands in the tab the user is
+    // already looking at.
+    std::vector<std::string> paths = materializr::projectRecoveryOrphanPaths();
+    const std::string newest = materializr::projectRecoveryRestorePath();
+    if (!newest.empty()) {
+        auto it = std::find(paths.begin(), paths.end(), newest);
+        if (it != paths.end()) std::rotate(paths.begin(), it, it + 1);
+        else paths.insert(paths.begin(), newest);
     }
-    // Consumed: drop the orphan so it isn't offered again next launch. The
-    // restored state is re-snapshotted into OUR slot within seconds (the
-    // markDirty below makes writeProjectRecoveryIfDue fire).
-    materializr::clearProjectRecoveryCandidate();
-    m_currentProjectPath = meta.projectPath; // "" if it was never saved
-    markDirty();                             // unsaved since the snapshot
-    saveAppSettings();                       // fix lastProjectPath off the sidecar
-    m_lastRecoveryStep = -2;                 // force a fresh snapshot going forward
-    std::fprintf(stdout, "[Recovery] restored project (%d bodies, %d steps)\n",
-                 meta.bodyCount, meta.stepCount);
+    if (paths.empty()) return;
+
+    int restored = 0, failed = 0;
+    size_t firstTab = m_activeSession;   // where the newest snapshot lands
+    for (size_t i = 0; i < paths.size(); ++i) {
+        const std::string& recPath = paths[i];
+        materializr::ProjectRecoveryMeta meta;
+        materializr::readProjectRecoveryMetaAt(recPath, meta);
+        // Each snapshot after the first gets its own tab. A refused switch
+        // can't happen here (nothing is mid-sketch at startup), but honour it
+        // anyway rather than restoring into the wrong tab.
+        if (restored > 0) {
+            const size_t idx = createSession();
+            if (!switchToSession(idx)) { closeSession(idx); ++failed; continue; }
+        }
+        // Load through the normal project loader (rebuilds bodies + editable
+        // history). loadProjectAt sets m_currentProjectPath to the sidecar and
+        // marks it saved — override both with the project's ORIGINAL identity
+        // so the user can't overwrite the sidecar and unsaved work stays
+        // unsaved/dirty.
+        if (!loadProjectAt(recPath)) {
+            std::fprintf(stderr, "[Recovery] failed to load snapshot %s\n",
+                         recPath.c_str());
+            materializr::clearProjectRecoveryAt(recPath);
+            if (restored > 0) closeSession(m_activeSession);
+            ++failed;
+            continue;
+        }
+        // Consumed: drop the orphan so it isn't offered again next launch. The
+        // restored state is re-snapshotted into OUR slot within seconds (the
+        // markDirty below makes writeProjectRecoveryIfDue fire).
+        materializr::clearProjectRecoveryAt(recPath);
+        m_currentProjectPath = meta.projectPath; // "" if it was never saved
+        markDirty();                             // unsaved since the snapshot
+        m_lastRecoveryStep = -2;                 // force a fresh snapshot
+        ++restored;
+        std::fprintf(stdout, "[Recovery] restored project (%d bodies, %d steps)"
+                             " into tab %zu\n",
+                     meta.bodyCount, meta.stepCount, m_activeSession);
+    }
+    // Land on the tab the PROMPT described (the newest snapshot), not
+    // whichever one happened to load last.
+    if (restored > 1 && firstTab < m_sessions.size()) switchToSession(firstTab);
+    materializr::clearProjectRecoveryCandidate();  // whatever is left of it
+    saveAppSettings();                             // fix lastProjectPath off the sidecar
+    if (restored > 1)
+        showToast("Recovered " + std::to_string(restored) + " projects.");
+    if (failed > 0)
+        showToast(std::to_string(failed) + " recovered project(s) "
+                  "couldn't be reopened.");
 }
 
 void Application::run() {

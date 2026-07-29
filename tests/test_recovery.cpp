@@ -135,6 +135,35 @@ TEST(Recovery, TabOnlyOrphanIsOffered) {
         << "the background tab's snapshot was not counted as an orphan";
 }
 
+// A crash with several tabs open must hand back ALL of them in one restore,
+// so the scan has to expose every orphan (not just the newest candidate) and
+// their metadata has to be readable per-path.
+TEST(Recovery, AllOrphansEnumeratedWithPerPathMeta) {
+    ASSERT_TRUE(materializr::hasProjectRecovery());
+    const auto paths = materializr::projectRecoveryOrphanPaths();
+    EXPECT_EQ(static_cast<int>(paths.size()),
+              materializr::projectRecoveryOrphanCount());
+    ASSERT_GE(paths.size(), 2u);
+
+    std::string tabPath;
+    bool haveLegacy = false;
+    for (const auto& p : paths) {
+        if (p.find("-t1.materializr") != std::string::npos) tabPath = p;
+        else if (p.find("autosave.materializr") != std::string::npos)
+            haveLegacy = true;
+    }
+    EXPECT_TRUE(haveLegacy) << "the slot-0 orphan is missing from the list";
+    ASSERT_FALSE(tabPath.empty()) << "the background tab's orphan is missing";
+
+    // Per-path meta: the restore reads each tab's own project identity, not
+    // the candidate's.
+    materializr::ProjectRecoveryMeta meta;
+    ASSERT_TRUE(materializr::readProjectRecoveryMetaAt(tabPath, meta));
+    EXPECT_EQ(meta.projectPath, "/tmp/background-tab.materializr");
+    EXPECT_EQ(meta.bodyCount, 1);
+    EXPECT_EQ(meta.stepCount, 2);
+}
+
 #ifndef _WIN32
 // A snapshot whose slot lock is HELD BY ANOTHER LIVE PROCESS must never be
 // offered; the moment that process dies, it must be.

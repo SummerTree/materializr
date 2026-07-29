@@ -9,6 +9,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <algorithm>
 #include <vector>
 
 #ifdef _WIN32
@@ -150,6 +151,10 @@ std::string metaPathFor(const std::string& snapshotPath) {
 // The orphaned snapshot chosen by hasProjectRecovery() for this launch, and
 // how many orphans the scan saw in total (for the prompt's plural wording).
 std::string s_candidatePath;
+// Every orphan the scan saw, newest first — one per tab the dead instance
+// had open. The restore takes them ALL (one per tab); s_candidatePath stays
+// the newest for the prompt's summary line.
+std::vector<std::string> s_orphanPaths;
 int s_orphanCount = 0;
 } // namespace
 
@@ -212,6 +217,7 @@ bool hasProjectRecovery() {
     (void)claimedSlot();
 
     s_candidatePath.clear();
+    s_orphanPaths.clear();
     s_orphanCount = 0;
     std::error_code ec;
     std::filesystem::file_time_type bestTime{};
@@ -227,6 +233,7 @@ bool hasProjectRecovery() {
             const std::string snap = sessionSnapshotPath(n, t);
             if (!std::filesystem::exists(snap, ec)) continue;
             ++s_orphanCount;
+            s_orphanPaths.push_back(snap);
             auto mt = std::filesystem::last_write_time(snap, ec);
             if (ec) mt = std::filesystem::file_time_type{};
             if (s_candidatePath.empty() || mt > bestTime) {
@@ -242,10 +249,17 @@ int projectRecoveryOrphanCount() { return s_orphanCount; }
 
 std::string projectRecoveryRestorePath() { return s_candidatePath; }
 
+std::vector<std::string> projectRecoveryOrphanPaths() { return s_orphanPaths; }
+
 bool readProjectRecoveryMeta(ProjectRecoveryMeta& meta) {
+    return readProjectRecoveryMetaAt(s_candidatePath, meta);
+}
+
+bool readProjectRecoveryMetaAt(const std::string& snapshotPath,
+                               ProjectRecoveryMeta& meta) {
     meta = ProjectRecoveryMeta{};
-    if (s_candidatePath.empty()) return false;
-    std::ifstream is(metaPathFor(s_candidatePath));
+    if (snapshotPath.empty()) return false;
+    std::ifstream is(metaPathFor(snapshotPath));
     if (is.is_open()) {
         std::string line;
         while (std::getline(is, line)) {
@@ -276,12 +290,20 @@ void clearProjectRecovery(int sessionIndex) {
 }
 
 void clearProjectRecoveryCandidate() {
-    if (s_candidatePath.empty()) return;
+    clearProjectRecoveryAt(s_candidatePath);
+}
+
+void clearProjectRecoveryAt(const std::string& snapshotPath) {
+    if (snapshotPath.empty()) return;
     std::error_code ec;
-    std::filesystem::remove(s_candidatePath, ec);
-    std::filesystem::remove(s_candidatePath + ".tmp", ec);
-    std::filesystem::remove(metaPathFor(s_candidatePath), ec);
-    s_candidatePath.clear();
+    std::filesystem::remove(snapshotPath, ec);
+    std::filesystem::remove(snapshotPath + ".tmp", ec);
+    std::filesystem::remove(metaPathFor(snapshotPath), ec);
+    s_orphanPaths.erase(
+        std::remove(s_orphanPaths.begin(), s_orphanPaths.end(), snapshotPath),
+        s_orphanPaths.end());
+    if (s_candidatePath == snapshotPath) s_candidatePath.clear();
+    if (s_orphanCount > 0) --s_orphanCount;
 }
 
 } // namespace materializr

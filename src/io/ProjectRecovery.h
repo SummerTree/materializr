@@ -1,5 +1,6 @@
 #pragma once
 #include <string>
+#include <vector>
 
 class Document;
 
@@ -70,10 +71,20 @@ std::string projectRecoveryRestorePath();
 bool readProjectRecoveryMeta(ProjectRecoveryMeta& meta);
 
 // How many orphaned snapshots the startup scan found in total (all dead
-// slots, all their sessions). hasProjectRecovery() picks the newest as the
-// restore candidate; the rest are offered on subsequent launches — and once
-// the tab UI lands, all of them restore into tabs in one go.
+// slots, all their sessions) — one per tab those instances had open.
 int projectRecoveryOrphanCount();
+
+// Every orphan the scan found, so a restore can bring back ALL of the dead
+// session's tabs at once instead of one per launch. Newest-first is NOT
+// guaranteed; projectRecoveryRestorePath() is the newest.
+std::vector<std::string> projectRecoveryOrphanPaths();
+
+// Metadata for a specific orphan (the no-arg form reads the candidate).
+bool readProjectRecoveryMetaAt(const std::string& snapshotPath,
+                               ProjectRecoveryMeta& meta);
+
+// Delete one specific orphan + its meta, and drop it from the scan's list.
+void clearProjectRecoveryAt(const std::string& snapshotPath);
 
 // Delete THIS instance's snapshot + meta for one session (clean exit /
 // closing a tab).

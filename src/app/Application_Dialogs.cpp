@@ -5159,15 +5159,14 @@ bool Application::landingPageUp() const {
 }
 
 void Application::goToHomeScreen() {
-    // Same prompt-then-act path every project open uses: dirty → the
-    // save/discard/cancel dialog resolves first (cancel = stay put); clean →
-    // straight through. The project always closes on the way out, so nothing
-    // sits behind the page and New Project from home never prompts again —
-    // the decision was already made here.
-    guardedOpen([this]() {
-        doCloseProject();
-        showLandingPage(/*fromStartup=*/true);   // no session behind → no ×
-    });
+    // The home screen no longer CLOSES anything (Steve, 2026-07-28: "clicking
+    // a tile with a currently open one should open a new tab"). It used to
+    // prompt and close the project on the way in, which meant there was never
+    // an open project left for a tile to displace — the page is now just a
+    // launcher laid over the session you already have. Nothing is lost, so
+    // there is nothing to prompt about; the × takes you back, and opening
+    // anything from here lands in its own tab.
+    showLandingPage(/*fromStartup=*/activeSessionIsScratch());
 }
 
 // ─── Cross-project parts (picker + per-body export) ─────────────────────────
@@ -5385,20 +5384,28 @@ void Application::renderLandingPage() {
     switch (act.type) {
     case AT::NewProject:
         m_landingPage->setVisible(false);
-        // Same semantics as File → New Project: prompts to save first when
-        // the (File → Home Screen case) current project has unsaved work.
-        closeProject();
+        // An empty tab is reused; otherwise a new one, so the project behind
+        // the page survives (same rule as the recent tiles below).
+        if (activeSessionIsScratch()) closeProject();
+        else openNewTab();
         break;
     case AT::OpenEntry: {
         m_landingPage->setVisible(false);
         AppSettings::RecentProject rp;
         rp.ref = act.ref;
         rp.name = act.name;
+        // A tile opens in a NEW tab when this one already holds a project
+        // (Steve, 2026-07-28). The home screen is reachable from a live
+        // session via File → Home Screen, so loading in place would displace
+        // work the user only meant to set aside. An untouched empty
+        // workspace is loaded into directly — no point stacking a blank tab.
+        if (!activeSessionIsScratch() && !openNewTab()) break;
         openRecentProject(rp);   // resolves URIs, bumps the MRU, toasts failures
         break;
     }
     case AT::OpenFileDialog:
         m_landingPage->setVisible(false);
+        if (!activeSessionIsScratch() && !openNewTab()) break;
         loadProject();
         break;
     case AT::ExportStep:

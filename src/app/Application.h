@@ -302,6 +302,10 @@ private:
     // etc.) the just-created session is cleaned up again. False = nothing
     // happened (the refusal already toasted).
     bool openNewTab();
+    // True when the active tab is an untouched empty workspace (no project,
+    // no geometry, no history) — i.e. safe to load into without displacing
+    // anything the user still wants.
+    bool activeSessionIsScratch() const;
     // Reopen a previous session's projects, one per tab, and focus the tab
     // that was in front. Runs from the deferred startup slot when "open last
     // project on launch" is on. Missing projects are skipped, not fatal.
