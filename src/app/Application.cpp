@@ -296,6 +296,18 @@ Application::Application(bool safeMode, float uiScaleOverride)
     installThreadRecutHook();
     m_itemsPanel->setDirtyCallback([this]() { markDirty(); });
     m_itemsPanel->setExportStlCallback([this](int bodyId) { exportBodyAsStl(bodyId); });
+    // The Export submenu's format list comes straight from the registry, so a
+    // new export plugin appears there without touching ItemsPanel.
+    m_itemsPanel->setExportFormatsProvider([]() {
+        std::vector<std::string> names;
+        for (const auto& f : PluginRegistry::instance().ioFormats())
+            if (f.canExport && f.exportDocFn) names.push_back(f.name);
+        return names;
+    });
+    m_itemsPanel->setExportBodiesCallback(
+        [this](const std::vector<int>& ids, const std::string& fmt) {
+            exportBodiesAs(ids, fmt);
+        });
     m_itemsPanel->setExportToProjectCallback(
         [this](int bodyId) { exportBodyToNewProject(bodyId); });
     m_itemsPanel->setEditSketchCallback([this](int sketchId) { editSketch(sketchId); });
@@ -4250,6 +4262,70 @@ void Application::exportBodyAsStl(int bodyId) {
                              result.errorMessage.c_str());
             }
         });
+#endif
+}
+
+void Application::exportBodiesAs(const std::vector<int>& bodyIds,
+                                 const std::string& formatName) {
+    if (!m_document || bodyIds.empty()) return;
+    // Find the format's document exporter in the registry. exportFn is no use
+    // here: it runs its own file dialog whose callback reads ctx.document()
+    // frames later, which would export the WHOLE project instead of the
+    // chosen bodies.
+    const IOFormatContribution* fmt = nullptr;
+    for (const auto& f : PluginRegistry::instance().ioFormats()) {
+        if (f.name == formatName && f.exportDocFn) { fmt = &f; break; }
+    }
+    if (!fmt) { showToast("Can't export to " + formatName + "."); return; }
+
+    // A scratch document holding BAKED copies of the chosen bodies, at their
+    // real positions — that's what makes a print-in-place assembly come out
+    // as one file with the parts still where they belong. shared_ptr because
+    // the dialog's callback runs frames later.
+    auto scratch = std::make_shared<Document>();
+    for (int id : bodyIds) {
+        TopoDS_Shape s;
+        try { s = m_document->getBody(id); } catch (...) {}
+        if (s.IsNull()) continue;
+        const int nid = scratch->addBody(s, m_document->getBodyName(id));
+        scratch->setBodyColor(nid, m_document->getBodyColor(id));
+    }
+    if (scratch->getAllBodyIds().empty()) {
+        showToast("Nothing to export — those bodies have no geometry.");
+        return;
+    }
+
+    // Default filename: the body's name for one, the project's for a set.
+    std::string base;
+    if (bodyIds.size() == 1) base = m_document->getBodyName(bodyIds.front());
+    if (base.empty()) base = m_currentProjectName;
+    if (base.empty()) base = "export";
+    if (const auto dot = base.rfind('.'); dot != std::string::npos && dot > 0)
+        base = base.substr(0, dot);          // drop a project extension
+    for (char& ch : base)
+        if (std::strchr("/\\:*?\"<>|", ch)) ch = '_';
+    const std::string ext = fmt->extensions.empty() ? "dat" : fmt->extensions.front();
+    const std::string defaultFile = base + "." + ext;
+
+    auto write = [scratch, fmt, ext](std::string path) {
+        if (path.empty()) return false;
+        if (std::filesystem::path(path).extension() != "." + ext) path += "." + ext;
+        const bool ok = fmt->exportDocFn(*scratch, path);
+        std::fprintf(ok ? stdout : stderr, "%s %s\n",
+                     ok ? "Exported" : "Export FAILED:", path.c_str());
+        return ok;
+    };
+    const std::string title = bodyIds.size() > 1
+        ? "Export " + std::to_string(bodyIds.size()) + " Bodies"
+        : "Export Body";
+#if defined(MZ_MOBILE)
+    FileDialogs::mobileExportShareOrSave(defaultFile, "application/octet-stream",
+                                         [write](const std::string& p) { return write(p); });
+#else
+    std::string filter = "*." + ext;
+    FileDialogs::saveFile(title, defaultFile,
+                          {{formatName + " Files", filter}},
+                          [write](std::string path) { (void)write(std::move(path)); });
 #endif
 }
 

@@ -27,5 +27,10 @@ REGISTER_PLUGIN(BrepIO, [](materializr::PluginContext& ctx) {
                     return materializr::BrepIO::exportFile(path, ctx.document()).success;
                 });
             return true;
+        },
+        // Export a caller-supplied document (the "export just these
+        // bodies" path hands over a scratch doc holding copies).
+        [](const Document& doc, const std::string& path) {
+            return materializr::BrepIO::exportFile(path, doc).success;
         }});
 })

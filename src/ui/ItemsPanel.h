@@ -30,6 +30,21 @@ public:
     // ItemsPanel doesn't own STL I/O, so the Application wires this up to
     // route the click into its own per-body export flow.
     void setExportStlCallback(std::function<void(int)> cb) { m_exportStl = std::move(cb); }
+    // The formats the "Export" submenu offers, in menu order, from the plugin
+    // registry — a new export plugin shows up here without touching this
+    // panel. The callback below gets the bodies to export (the whole
+    // selection when the clicked body is part of one) and the chosen name.
+    // A PROVIDER, not a fixed list: the panel is wired up before the plugins
+    // register their IO formats, so anything captured at wiring time would be
+    // empty forever. Asked at menu-open instead, which also survives any
+    // future re-ordering of startup.
+    void setExportFormatsProvider(std::function<std::vector<std::string>()> p) {
+        m_exportFormats = std::move(p);
+    }
+    void setExportBodiesCallback(
+        std::function<void(const std::vector<int>&, const std::string&)> cb) {
+        m_exportBodies = std::move(cb);
+    }
     // "Export to New Project…" on a body's context menu — routes to
     // Application::exportBodyToNewProject (writes a fresh .mzr with a baked
     // copy of the body).
@@ -73,6 +88,8 @@ private:
     std::function<void()> m_markDirty;
     std::function<void(int)> m_exportStl;
     std::function<void(int)> m_exportToProject;
+    std::function<std::vector<std::string>()> m_exportFormats;
+    std::function<void(const std::vector<int>&, const std::string&)> m_exportBodies;
     std::function<void(int)> m_editSketch;
     std::function<void(int)> m_exportSketchSvg;
     std::function<void(int)> m_exportSketchDxf;

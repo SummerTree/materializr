@@ -505,3 +505,11 @@ add_executable(test_settings_sessions test_settings_sessions.cpp
     ${CMAKE_SOURCE_DIR}/src/io/Settings.cpp)
 target_link_libraries(test_settings_sessions PRIVATE materializr_core gtest gtest_main)
 add_test(NAME test_settings_sessions COMMAND test_settings_sessions)
+
+# test_multibody_export — several disjoint solids export as ONE file with
+# their spacing intact (print-in-place), and visibility selects the subset.
+# StlExport.cpp is not in materializr_core — compiled in directly.
+add_executable(test_multibody_export test_multibody_export.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/StlExport.cpp)
+target_link_libraries(test_multibody_export PRIVATE materializr_core gtest gtest_main)
+add_test(NAME test_multibody_export COMMAND test_multibody_export)

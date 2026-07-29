@@ -748,11 +748,38 @@ bool ItemsPanel::renderBodyRow(int id, bool& colorChanged) {
                 if (m_markDirty) m_markDirty();
             }
         }
-        // Per-body STL export: dumps only this body's mesh to a file the
-        // user picks. Default filename = the body's current name (see
-        // Application::exportBodyAsStl). Wired via callback so ItemsPanel
-        // doesn't depend on the STL I/O module.
-        if (!deleted && m_exportStl && ImGui::MenuItem("Export STL…")) {
+        // Export: every format the app can write, listed from the plugin
+        // registry (Application supplies the names), acting on the whole
+        // BODY SELECTION when the clicked body is part of one — the
+        // print-in-place case, where the parts must land in one file with
+        // their relative positions intact. Same multi-selection rule as
+        // "Move to folder" below.
+        const std::vector<std::string> exportFormats =
+            m_exportFormats ? m_exportFormats() : std::vector<std::string>{};
+        if (!deleted && m_exportBodies && !exportFormats.empty() &&
+            ImGui::BeginMenu("Export")) {
+            std::vector<int> targets;
+            bool multi = false;
+            if (m_selection) {
+                for (const auto& e : m_selection->getSelection()) {
+                    if (e.type == SelectionType::Body && e.bodyId >= 0)
+                        targets.push_back(e.bodyId);
+                }
+                multi = targets.size() > 1 &&
+                        std::find(targets.begin(), targets.end(), id) != targets.end();
+            }
+            if (!multi) { targets.clear(); targets.push_back(id); }
+            if (multi)
+                ImGui::TextDisabled("%zu selected bodies", targets.size());
+            for (const auto& fmt : exportFormats) {
+                const std::string label = fmt + "…";
+                if (ImGui::MenuItem(label.c_str())) m_exportBodies(targets, fmt);
+            }
+            ImGui::EndMenu();
+        }
+        // Kept for the callers that still wire only the STL shortcut.
+        if (!deleted && m_exportStl && exportFormats.empty() &&
+            ImGui::MenuItem("Export STL…")) {
             m_exportStl(id);
         }
         // Baked copy of this body into a fresh project file — the "use this

@@ -217,6 +217,11 @@ private:
     // multi-body project without juggling visibility for the file-menu
     // "Export STL" (which writes every visible body to one file).
     void exportBodyAsStl(int bodyId);
+    // Export the given bodies to any format the plugin registry can
+    // write, as ONE file with their relative positions intact (a
+    // print-in-place assembly is several bodies that must stay put).
+    void exportBodiesAs(const std::vector<int>& bodyIds,
+                        const std::string& formatName);
     void exportSketchAsSvg(int sketchId);
     void exportSketchAsDxf(int sketchId);
     // Zoom-fit the camera onto the selection (or all visible bodies when

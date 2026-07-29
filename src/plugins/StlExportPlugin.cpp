@@ -15,5 +15,10 @@ REGISTER_PLUGIN(StlExport, [](materializr::PluginContext& ctx) {
                     return materializr::StlExport::exportFile(path, ctx.document()).success;
                 });
             return true;
+        },
+        // Export a caller-supplied document (the "export just these
+        // bodies" path hands over a scratch doc holding copies).
+        [](const Document& doc, const std::string& path) {
+            return materializr::StlExport::exportFile(path, doc).success;
         }});
 })
