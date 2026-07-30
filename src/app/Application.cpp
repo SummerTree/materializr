@@ -7372,8 +7372,9 @@ void Application::run() {
         const std::string trace = materializr::lastThrowTrace();
         if (!trace.empty())
             std::fprintf(stderr, "[Recovered] thrown from:\n%s", trace.c_str());
-        showToast("Something went wrong in that step - it was skipped. "
-                  "Your project is intact; save a copy if it looks wrong.");
+        // SHORT on purpose: the first version ran past what a tablet toast
+        // shows, so the part that mattered (save a copy) was the part cut off.
+        showToast("A step was skipped after an error - save a copy.", 6.0);
         // Previews/tools may be half-applied; drop the ones that hold geometry
         // so the next frame draws from the document rather than a dead handle.
         m_meshesDirty = true;

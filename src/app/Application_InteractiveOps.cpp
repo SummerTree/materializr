@@ -775,7 +775,18 @@ bool Application::detectCylindricalResizeCandidate() {
     if (bodyId < 0) return false;
     if (faceCount + edgeCount != 1) return false;
 
-    const TopoDS_Shape& body = m_document->getBody(bodyId);
+    // The selection can name a body that no longer exists. This runs from the
+    // frame loop whenever the selection OR HISTORY revision changes, and an
+    // Apply Changes bumps the history revision: a replay retires the body it
+    // rebuilds, while the selection still holds the OLD id for one more frame.
+    // Unguarded, getBody's throw escaped the frame, reached main()'s handler
+    // and — on Android — made SDL_main return, which finishes the activity, so
+    // the app silently VANISHED with the user's unsaved work. (Steve's tablet,
+    // "Body not found: 1"; found via the throw-site backtrace in ThrowTrace.h.)
+    // Nothing to detect on a body that's gone; the next frame re-runs this
+    // with a settled selection.
+    TopoDS_Shape body;
+    try { body = m_document->getBody(bodyId); } catch (...) { return false; }
 
     // Find the cylindrical face we'll operate on. For a face pick, it's the
     // pick itself (must be cylindrical). For an edge pick, walk the body's

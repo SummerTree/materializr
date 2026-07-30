@@ -746,7 +746,13 @@ bool ItemsPanel::renderBodyRow(int id, bool& colorChanged) {
         // them into individual bodies — the largest keeps this one, the rest
         // become new bodies the user can inspect or delete.
         if (!deleted && m_history &&
-            SeparateBodyOp::solidCount(m_document->getBody(id)) > 1) {
+            // Guarded: getBody throws when the row's body has just been
+            // retired (a replay, a delete elsewhere) and the panel is drawing
+            // one frame behind. Same class as the escape that silently exited
+            // the app on Android — see Application_InteractiveOps.cpp's note.
+            [&] { try { return SeparateBodyOp::solidCount(
+                                   m_document->getBody(id)) > 1; }
+                  catch (...) { return false; } }()) {
             if (ImGui::MenuItem("Separate")) {
                 auto op = std::make_unique<SeparateBodyOp>();
                 op->setBody(id);
