@@ -582,17 +582,23 @@ bool numberField(const char* id, const char* label, double* v, const char* fmt) 
     // Sizes are deliberately modest: the pad lives inside a scrolling
     // properties panel UNDER as many as six other fields, so every row it
     // spends is a row the caller has to scroll past.
-    const float gap   = 6.0f * s;
+    const float gap   = 4.0f * s;
     const float avail = ImGui::GetContentRegionAvail().x;
     const float keyW  = std::min(std::max((avail - 2.0f * gap) / 3.0f, 38.0f * s),
                                  78.0f * s);
-    const float keyH  = 32.0f * s;    // wider than tall: height is the scarce axis
+    // 24, not the 42 this started at. The pad lives in a scrolling properties
+    // column under as many as six other fields, so every unit of key HEIGHT is
+    // a unit the caller has to scroll past — and a number pad is the one
+    // keyboard where nobody needs a big target per key, because the keys are
+    // huge in the width axis and there are only twelve of them. Still ~48px on
+    // a tablet (uiScale ~2), comfortably above the 44pt touch-target floor.
+    const float keyH  = 24.0f * s;
     const float padW  = numberPadWidth(keyW);
 
     // A plain button, so the pad unfolds on an explicit tap and NOTHING else —
     // the old keyboard's habit of appearing whenever a dialog opened is the
     // specific behaviour this must not repeat.
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(8.0f * s, 8.0f * s));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(8.0f * s, 6.0f * s));
     if (openHere)
         ImGui::PushStyleColor(ImGuiCol_Text, accentFill());
     if (ImGui::Button(shown, ImVec2(avail, 0.0f))) {
