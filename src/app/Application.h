@@ -823,6 +823,11 @@ private:
 
     // Numeric dimension input shown while placing a sketch shape
     char m_sketchDimBuf[32] = "";
+    // Line/Circle inline dimension, as a VALUE rather than the buffer above.
+    // The buffer form meant an InputText, i.e. the OS keyboard on a tablet;
+    // a value drives materializr::inputNumber and so gets the number pad,
+    // matching the Rectangle W/H fields beside it.
+    float m_sketchDimValue = 0.0f;
     bool m_sketchDimWasShown = false; // tracks placing transitions to grab keyboard focus
 
     // Dimension-label click-to-edit. m_dimEditingId is the constraint being

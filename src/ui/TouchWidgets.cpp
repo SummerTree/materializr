@@ -547,7 +547,7 @@ bool amountField(const char* id, const char* label, double* v,
 }
 
 bool numberField(const char* id, const char* label, double* v, const char* fmt,
-                 bool* opened) {
+                 bool* opened, const char* hint) {
     const float s = uiScale();
     bool committed = false;
 
@@ -565,17 +565,28 @@ bool numberField(const char* id, const char* label, double* v, const char* fmt,
     const ImGuiID key = ImGui::GetID("##numfield");
     const bool openHere = (s_open == key);
 
-    if (label && *label) ImGui::TextUnformatted(label);
+    // Honour ImGui's label conventions, which InputDouble got for free and a
+    // plain TextUnformatted does not: "##id" means NO visible label (printing
+    // it verbatim leaked raw ids like "##sketchDimT" into the UI), and
+    // "Name##id" shows only "Name".
+    if (label && *label) {
+        const char* lblEnd = ImGui::FindRenderedTextEnd(label);
+        if (lblEnd > label) ImGui::TextUnformatted(label, lblEnd);
+    }
 
     // The well doubles as the readout: while unfolded it shows the LIVE typed
     // buffer, not the stored value. A separate calculator-style readout above
     // the keys cost ~50*s of height and pushed the digits being typed out of
     // view whenever the panel had to scroll to reach the keys — the field
     // itself is the obvious place to show them, and it's already on screen.
-    char shown[32];
+    const bool hintState = hint && *v <= 0.0;   // empty-is-meaningful fields
+    char shown[64];
     if (openHere) {
         const Entry& e = s_entries[key];
-        std::snprintf(shown, sizeof(shown), "%s", e.buf[0] ? e.buf : "0");
+        std::snprintf(shown, sizeof(shown), "%s",
+                      e.buf[0] ? e.buf : (hintState ? hint : "0"));
+    } else if (hintState) {
+        std::snprintf(shown, sizeof(shown), "%s", hint);
     } else {
         std::snprintf(shown, sizeof(shown), fmt ? fmt : "%g", *v);
     }
@@ -607,19 +618,22 @@ bool numberField(const char* id, const char* label, double* v, const char* fmt,
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(8.0f * s, 6.0f * s));
     if (openHere)
         ImGui::PushStyleColor(ImGuiCol_Text, accentFill());
+    else if (hintState)
+        ImGui::PushStyleColor(ImGuiCol_Text, textDim());
     if (ImGui::Button(shown, ImVec2(avail, 0.0f))) {
         if (openHere) {
             s_open = 0;               // tapping the open field folds it again
         } else {
             Entry e{};
-            std::snprintf(e.buf, sizeof(e.buf), fmt ? fmt : "%g", *v);
+            if (!hintState)   // hint fields start EMPTY: nothing typed = keep
+                std::snprintf(e.buf, sizeof(e.buf), fmt ? fmt : "%g", *v);
             s_entries[key] = e;
             s_open = key;
             s_justOpened = key;
             if (opened) *opened = true;
         }
     }
-    if (openHere) ImGui::PopStyleColor();
+    if (openHere || (!openHere && hintState)) ImGui::PopStyleColor();
     ImGui::PopStyleVar();
 
     // Park the well at the TOP of the view on the frame after it unfolds, so

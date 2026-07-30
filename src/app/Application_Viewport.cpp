@@ -2135,10 +2135,24 @@ void Application::renderViewport() {
                             ImGui::SetNextItemWidth(touchui::numberPadWidth(keySide));
                             ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
                                                 ImVec2(uiW(12.0f), uiW(12.0f)));
-                            ImGui::InputTextWithHint("##bubbleDia", hint,
-                                m_sketchShapeDimBuf, sizeof(m_sketchShapeDimBuf),
-                                ImGuiInputTextFlags_CharsDecimal |
-                                ImGuiInputTextFlags_AutoSelectAll);
+                            // The pad, with the empty-is-meaningful hint:
+                            // nothing typed = keep the dragged diameter (the
+                            // ✓ below parses the buffer; empty buffer means
+                            // "keep"). A commit writes the buffer back so
+                            // that contract is untouched.
+                            double diaPadV = 0.0;
+                            (void)materializr::parseFinite(m_sketchShapeDimBuf,
+                                                           diaPadV);
+                            if (touchui::numberField("##bubbleDia", nullptr,
+                                                     &diaPadV, "%.2f",
+                                                     nullptr, hint)) {
+                                if (diaPadV > 0.0)
+                                    std::snprintf(m_sketchShapeDimBuf,
+                                                  sizeof(m_sketchShapeDimBuf),
+                                                  "%.6g", diaPadV);
+                                else
+                                    m_sketchShapeDimBuf[0] = '\0';
+                            }
                             ImGui::PopStyleVar();
                         } else {
                             // Rectangle: two native Width/Height fields (tap to
@@ -3185,11 +3199,19 @@ void Application::renderViewport() {
                             m_dimEditingFocus = false;
                         }
                         ImGui::SetNextItemWidth(120.0f);
-                        if (ImGui::InputText("##dimval", m_dimEditingBuf,
-                                             sizeof(m_dimEditingBuf),
-                                             ImGuiInputTextFlags_EnterReturnsTrue |
-                                             ImGuiInputTextFlags_CharsDecimal |
-                                             ImGuiInputTextFlags_AutoSelectAll)) {
+                        // Number wearing a text coat (see the pad sweep): the
+                        // buffer stays authoritative — every seed site writes
+                        // it — so parse it in, let inputNumber edit the value
+                        // (pad on touch, InputDouble otherwise), and write the
+                        // commit back for the parse below.
+                        double dimPadV = 0.0;
+                        (void)materializr::parseFinite(m_dimEditingBuf, dimPadV);
+                        if (materializr::inputNumber(
+                                "##dimval", &dimPadV, 0.0, 0.0, "%.2f",
+                                ImGuiInputTextFlags_EnterReturnsTrue)) {
+                            std::snprintf(m_dimEditingBuf,
+                                          sizeof(m_dimEditingBuf), "%.6g",
+                                          dimPadV);
                             // parseFinite: CharsDecimal blocks "nan" but not
                             // "1e999" → inf, which passed the v > 0 guards
                             // below into the constraint solver.
@@ -6312,12 +6334,19 @@ void Application::renderViewport() {
                                            "Rotation (deg)");
                         ImGui::SetNextItemWidth(150.0f);
                         if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
-                        bool typedEnter = ImGui::InputText(
-                            "##sketchRotAng", m_sketchGizmoRotateBuf,
-                            sizeof(m_sketchGizmoRotateBuf),
-                            ImGuiInputTextFlags_EnterReturnsTrue |
-                            ImGuiInputTextFlags_CharsDecimal);
-                        if (ImGui::IsItemDeactivatedAfterEdit()) {
+                        float rotPadV = m_sketchGizmoRotateDegrees;
+                        (void)materializr::parseFinite(m_sketchGizmoRotateBuf,
+                                                       rotPadV);
+                        bool typedEnter = materializr::inputNumber(
+                            "##sketchRotAng", &rotPadV, 0.0f, 0.0f, "%.1f",
+                            ImGuiInputTextFlags_EnterReturnsTrue);
+                        if (typedEnter)
+                            std::snprintf(m_sketchGizmoRotateBuf,
+                                          sizeof(m_sketchGizmoRotateBuf),
+                                          "%.6g", rotPadV);
+                        // Pad commit counts as the click-off: the buffer was
+                        // just rewritten, so the same live re-apply runs.
+                        if (typedEnter || ImGui::IsItemDeactivatedAfterEdit()) {
                             // Re-apply the typed value live as the user clicks off
                             // the field, so the sketch reflects what they typed.
                             float deg = m_sketchGizmoRotateDegrees;
@@ -8162,21 +8191,24 @@ void Application::renderViewport() {
                     ImGui::SetNextItemWidth(-1.0f);
                     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
                                         ImVec2(uiW(12.0f), uiW(12.0f)));
-                    bool entered = ImGui::InputText("##sketchDimT", m_sketchDimBuf,
-                        sizeof(m_sketchDimBuf),
-                        ImGuiInputTextFlags_EnterReturnsTrue |
-                        ImGuiInputTextFlags_CharsDecimal |
-                        ImGuiInputTextFlags_AutoSelectAll);
+                    // VALUE-based, like the Rectangle W/H fields above — so
+                    // touch mode gets the number pad instead of the OS
+                    // keyboard. Enter (pad or hardware) and Apply both commit;
+                    // Apply stays for the finger route, since the pad's own
+                    // Enter is the only way digits reach us on a tablet.
+                    const bool entered = materializr::inputNumber(
+                        "##sketchDimT", &m_sketchDimValue, 0.0f, 0.0f, "%.2f",
+                        ImGuiInputTextFlags_EnterReturnsTrue);
                     ImGui::PopStyleVar();
                     ImGui::Spacing();
-                    ImGui::BeginDisabled(m_sketchDimBuf[0] == '\0');
-                    bool applied = ImGui::Button("Apply", ImVec2(-1.0f, uiW(44.0f)));
+                    ImGui::BeginDisabled(m_sketchDimValue <= 0.0f);
+                    const bool applied =
+                        ImGui::Button("Apply", ImVec2(-1.0f, uiW(44.0f)));
                     ImGui::EndDisabled();
-                    if (entered || applied) {
-                        float v = 0.0f;
-                        if (materializr::parseFinite(m_sketchDimBuf, v) && v > 0.0f) {
-                            recordSketchMutation([&]{ m_sketchTool->applyDimension(v); });
-                        }
+                    if ((entered || applied) && m_sketchDimValue > 0.0f) {
+                        const float v = m_sketchDimValue;
+                        recordSketchMutation([&]{ m_sketchTool->applyDimension(v); });
+                        m_sketchDimValue = 0.0f;
                         m_sketchDimBuf[0] = '\0';
                     }
                 }
@@ -8207,6 +8239,7 @@ void Application::renderViewport() {
     } else {
         // Reset when not placing
         m_sketchDimBuf[0] = '\0';
+        m_sketchDimValue = 0.0f;
         m_sketchDimWasShown = false;
     }
 

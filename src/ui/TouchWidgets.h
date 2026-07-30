@@ -124,8 +124,14 @@ bool amountField(const char* id, const char* label, double* v,
 // commits — the sketch constraint fields take a copy of the whole sketch there
 // to serve as the undo "before". That was ImGui::IsItemActivated() on the
 // InputText they used to be; this is the equivalent.
+// `hint`, when non-null, marks a field whose EMPTY state is meaningful (the
+// im-touch circle bubble: no typed value = keep the dragged diameter). While
+// *v <= 0 the collapsed well shows the hint dimmed instead of "0", and the
+// pad unfolds with an EMPTY entry — Enter with nothing typed commits nothing
+// and just folds, preserving the "keep the drag" contract.
 bool numberField(const char* id, const char* label, double* v,
-                 const char* fmt = "%g", bool* opened = nullptr);
+                 const char* fmt = "%g", bool* opened = nullptr,
+                 const char* hint = nullptr);
 bool amountField(const char* id, const char* label, float* v,
                  const char* suffix = "mm", int decimals = 1,
                  bool allowSign = false, float minV = 0.0f, float maxV = 0.0f,
