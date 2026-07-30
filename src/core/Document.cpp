@@ -2,6 +2,7 @@
 #include "EventBus.h"
 #include "Events.h"
 #include "../modeling/Sketch.h"
+#include "ThrowTrace.h"
 #include <gp_Ax3.hxx>
 #include <algorithm>
 #include <stdexcept>
@@ -107,6 +108,11 @@ void Document::putBody(int id, const TopoDS_Shape& shape, const std::string& nam
 const TopoDS_Shape& Document::getBody(int id) const {
     int idx = findBodyIndex(id);
     if (idx < 0) {
+        // Record where this came from. Most callers guard this throw on
+        // purpose (a body legitimately may be gone), so nothing is printed
+        // here — the frame firewall in Application::run() renders the trace
+        // only if the throw escapes, which is the case that is always a bug.
+        materializr::captureThrowTrace();
         throw std::runtime_error("Body not found: " + std::to_string(id));
     }
     return m_bodies[idx].shape;

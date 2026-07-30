@@ -86,6 +86,7 @@ add_library(materializr_core STATIC
     ${CMAKE_SOURCE_DIR}/src/io/MeshDecimate.cpp
     ${CMAKE_SOURCE_DIR}/src/io/ProjectRecovery.cpp
     ${CMAKE_SOURCE_DIR}/src/core/Verbose.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/ThrowTrace.cpp
     ${CMAKE_SOURCE_DIR}/src/modeling/Unfold.cpp
     ${CMAKE_SOURCE_DIR}/src/viewport/SectionCap.cpp
     # Op editors call materializr::inputNumber (ui/NumField.h), whose touch

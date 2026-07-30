@@ -108,6 +108,7 @@ inline void resetFpuForOcct() {
 #include "core/EventBus.h"
 #include "core/Events.h"
 #include "core/Verbose.h"
+#include "core/ThrowTrace.h"
 #include "core/NumParse.h"
 #include "plugin/PluginContext.h"
 #include "plugin/PluginRegistry.h"
@@ -7365,6 +7366,12 @@ void Application::run() {
                      "[Recovered]   this is a BUG — the frame was abandoned and "
                      "the session kept alive; fix it at the throw site.\n",
                      e.what());
+        // The stack is already unwound here, so this is the trace captured AT
+        // the throw (see core/ThrowTrace.h). Printed only on escape: the same
+        // throw is ordinary guarded control flow at ~40 call sites.
+        const std::string trace = materializr::lastThrowTrace();
+        if (!trace.empty())
+            std::fprintf(stderr, "[Recovered] thrown from:\n%s", trace.c_str());
         showToast("Something went wrong in that step - it was skipped. "
                   "Your project is intact; save a copy if it looks wrong.");
         // Previews/tools may be half-applied; drop the ones that hold geometry
