@@ -37,6 +37,7 @@
 #include <GeomAbs_CurveType.hxx>
 #include <TopoDS.hxx>
 #include <TopAbs_ShapeEnum.hxx>
+#include "NumField.h"
 
 // Measurement-style readouts for selected FACES / EDGES / VERTICES — area,
 // length, surface/curve kind and dimensions, with totals across a
@@ -592,7 +593,7 @@ void PropertiesPanel::renderSketchElementPanel(bool& modified) {
         ImGui::Text("Circle");
         double dia = c->radius * 2.0;
         ImGui::SetNextItemWidth(140);
-        if (ImGui::InputDouble("Diameter (mm)", &dia, 0.0, 0.0, "%.3f",
+        if (materializr::inputNumber("Diameter (mm)", &dia, 0.0, 0.0, "%.3f",
                                ImGuiInputTextFlags_EnterReturnsTrue)) {
             double r = std::max(dia, 1e-6) * 0.5;
             apply([sk, circleId, r]() { sk->setCircleRadius(circleId, r); });
@@ -606,7 +607,7 @@ void PropertiesPanel::renderSketchElementPanel(bool& modified) {
         // Radius: centre fixed, endpoints slide radially (sweep preserved).
         double rad = a->radius;
         ImGui::SetNextItemWidth(140);
-        if (ImGui::InputDouble("Radius (mm)", &rad, 0.0, 0.0, "%.3f",
+        if (materializr::inputNumber("Radius (mm)", &rad, 0.0, 0.0, "%.3f",
                                ImGuiInputTextFlags_EnterReturnsTrue)) {
             double r = std::max(rad, 1e-6);
             apply([sk, arcId, r]() { sk->resizeArc(arcId, r); });
@@ -621,7 +622,7 @@ void PropertiesPanel::renderSketchElementPanel(bool& modified) {
             double chord = std::sqrt((e->pos.x - s->pos.x) * (e->pos.x - s->pos.x) +
                                      (e->pos.y - s->pos.y) * (e->pos.y - s->pos.y));
             ImGui::SetNextItemWidth(140);
-            if (ImGui::InputDouble("Chord (mm)", &chord, 0.0, 0.0, "%.3f",
+            if (materializr::inputNumber("Chord (mm)", &chord, 0.0, 0.0, "%.3f",
                                    ImGuiInputTextFlags_EnterReturnsTrue)) {
                 double ch = std::max(chord, 1e-6);
                 apply([sk, arcId, ch]() { sk->setArcChord(arcId, ch); });
@@ -634,7 +635,7 @@ void PropertiesPanel::renderSketchElementPanel(bool& modified) {
             while (sweep > 2.0 * M_PI) sweep -= 2.0 * M_PI;
             double deg = sweep * 180.0 / M_PI;
             ImGui::SetNextItemWidth(140);
-            if (ImGui::InputDouble("Sweep (\xC2\xB0)", &deg, 0.0, 0.0, "%.2f",
+            if (materializr::inputNumber("Sweep (\xC2\xB0)", &deg, 0.0, 0.0, "%.2f",
                                    ImGuiInputTextFlags_EnterReturnsTrue)) {
                 double rad2 = deg * M_PI / 180.0;
                 apply([sk, arcId, rad2]() { sk->setArcSweep(arcId, rad2); });
@@ -655,10 +656,10 @@ void PropertiesPanel::renderSketchElementPanel(bool& modified) {
             ImGui::Text("Rectangle");
             double w = rect.width, h = rect.height;
             ImGui::SetNextItemWidth(140);
-            bool w_ed = ImGui::InputDouble("Width (mm)", &w, 0.0, 0.0, "%.3f",
+            bool w_ed = materializr::inputNumber("Width (mm)", &w, 0.0, 0.0, "%.3f",
                                            ImGuiInputTextFlags_EnterReturnsTrue);
             ImGui::SetNextItemWidth(140);
-            bool h_ed = ImGui::InputDouble("Height (mm)", &h, 0.0, 0.0, "%.3f",
+            bool h_ed = materializr::inputNumber("Height (mm)", &h, 0.0, 0.0, "%.3f",
                                            ImGuiInputTextFlags_EnterReturnsTrue);
             if (w_ed || h_ed) {
                 double nw = std::max(w, 1e-6), nh = std::max(h, 1e-6);
@@ -674,7 +675,7 @@ void PropertiesPanel::renderSketchElementPanel(bool& modified) {
                 len = std::sqrt((p2->pos.x - p1->pos.x) * (p2->pos.x - p1->pos.x) +
                                 (p2->pos.y - p1->pos.y) * (p2->pos.y - p1->pos.y));
             ImGui::SetNextItemWidth(140);
-            if (ImGui::InputDouble("Length (mm)", &len, 0.0, 0.0, "%.3f",
+            if (materializr::inputNumber("Length (mm)", &len, 0.0, 0.0, "%.3f",
                                    ImGuiInputTextFlags_EnterReturnsTrue)) {
                 double nl = std::max(len, 1e-6);
                 apply([sk, lid, nl]() { sk->setLineLength(lid, nl); });

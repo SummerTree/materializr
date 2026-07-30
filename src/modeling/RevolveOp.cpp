@@ -11,6 +11,7 @@
 #include <TopoDS.hxx>
 #include <imgui.h>
 #include <cmath>
+#include "../ui/NumField.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -270,21 +271,21 @@ void RevolveOp::renderProperties() {
     ImGui::Text("Lathe");
     ImGui::Separator();
 
-    ImGui::InputDouble("Angle (deg)", &m_angle, 1.0, 10.0, "%.1f");
+    materializr::inputNumber("Angle (deg)", &m_angle, 1.0, 10.0, "%.1f");
     if (m_angle < 0.0) m_angle = 0.0;
     if (m_angle > 360.0) m_angle = 360.0;
 
     ImGui::Separator();
     ImGui::Text("Axis Origin");
-    ImGui::InputDouble("Origin X", &m_axisOriginX, 0.1, 1.0, "%g");
-    ImGui::InputDouble("Origin Y", &m_axisOriginY, 0.1, 1.0, "%g");
-    ImGui::InputDouble("Origin Z", &m_axisOriginZ, 0.1, 1.0, "%g");
+    materializr::inputNumber("Origin X", &m_axisOriginX, 0.1, 1.0, "%g");
+    materializr::inputNumber("Origin Y", &m_axisOriginY, 0.1, 1.0, "%g");
+    materializr::inputNumber("Origin Z", &m_axisOriginZ, 0.1, 1.0, "%g");
 
     ImGui::Separator();
     ImGui::Text("Axis Direction");
-    ImGui::InputDouble("Dir X", &m_axisDirX, 0.1, 1.0, "%g");
-    ImGui::InputDouble("Dir Y", &m_axisDirY, 0.1, 1.0, "%g");
-    ImGui::InputDouble("Dir Z", &m_axisDirZ, 0.1, 1.0, "%g");
+    materializr::inputNumber("Dir X", &m_axisDirX, 0.1, 1.0, "%g");
+    materializr::inputNumber("Dir Y", &m_axisDirY, 0.1, 1.0, "%g");
+    materializr::inputNumber("Dir Z", &m_axisDirZ, 0.1, 1.0, "%g");
 
     ImGui::Separator();
     const char* modeItems[] = { "New Body", "Union", "Subtract", "Intersect" };
@@ -294,6 +295,6 @@ void RevolveOp::renderProperties() {
     }
 
     if (m_mode != RevolveMode::NewBody) {
-        ImGui::InputInt("Target Body ID", &m_targetBodyId);
+        materializr::inputNumberInt("Target Body ID", &m_targetBodyId);
     }
 }

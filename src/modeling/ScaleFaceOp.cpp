@@ -31,6 +31,7 @@
 #include <gp_Vec.hxx>
 #include <gp_Pln.hxx>
 #include <imgui.h>
+#include "../ui/NumField.h"
 
 ScaleFaceOp::ScaleFaceOp() = default;
 
@@ -273,9 +274,9 @@ std::string ScaleFaceOp::description() const {
 void ScaleFaceOp::renderProperties() {
     ImGui::Text("Scale Face");
     ImGui::Separator();
-    ImGui::InputDouble("Scale U (%)", &m_scaleU, 1.0, 10.0, "%.1f");
-    ImGui::InputDouble("Scale V (%)", &m_scaleV, 1.0, 10.0, "%.1f");
-    ImGui::InputDouble("Length (mm)", &m_length, 0.5, 5.0, "%.2f");
+    materializr::inputNumber("Scale U (%)", &m_scaleU, 1.0, 10.0, "%.1f");
+    materializr::inputNumber("Scale V (%)", &m_scaleV, 1.0, 10.0, "%.1f");
+    materializr::inputNumber("Length (mm)", &m_length, 0.5, 5.0, "%.2f");
     ImGui::Text("Mode: %s", m_mode == Mode::Extend ? "Extend" : "Pinch");
     ImGui::Text("Body ID: %d", m_bodyId);
 }

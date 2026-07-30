@@ -7,6 +7,7 @@
 #include <gp_Pnt.hxx>
 #include <imgui.h>
 #include <cmath>
+#include "../ui/NumField.h"
 
 ConstructionPlaneOp::ConstructionPlaneOp() = default;
 
@@ -250,7 +251,7 @@ void ConstructionPlaneOp::renderProperties() {
             break;
 
         case PlaneCreationType::OffsetFromPlane:
-            ImGui::InputDouble("Offset Distance", &m_offset, 0.1, 1.0, "%g");
+            materializr::inputNumber("Offset Distance", &m_offset, 0.1, 1.0, "%g");
             ImGui::TextWrapped("Creates a plane parallel to the base plane, "
                                "offset along its normal.");
             break;

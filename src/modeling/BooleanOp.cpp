@@ -10,6 +10,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <imgui.h>
+#include "../ui/NumField.h"
 
 BooleanOp::BooleanOp() = default;
 
@@ -233,8 +234,8 @@ void BooleanOp::renderProperties() {
         m_mode = static_cast<BooleanMode>(modeIndex);
     }
 
-    ImGui::InputInt("Target Body ID", &m_targetBodyId);
-    ImGui::InputInt("Tool Body ID", &m_toolBodyId);
+    materializr::inputNumberInt("Target Body ID", &m_targetBodyId);
+    materializr::inputNumberInt("Tool Body ID", &m_toolBodyId);
 }
 
 OperationDiff BooleanOp::captureDiff() const {

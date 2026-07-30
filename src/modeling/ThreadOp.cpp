@@ -59,6 +59,7 @@
 #include <Message_ProgressRange.hxx>
 #include <Message_ProgressScope.hxx>
 #include <imgui.h>
+#include "../ui/NumField.h"
 
 namespace {
 // Turns the per-job cancel token into an OCCT user-break, so a Cancel click
@@ -2103,9 +2104,9 @@ std::string ThreadOp::description() const {
 void ThreadOp::renderProperties() {
     ImGui::Text("%s Thread", m_isHole ? "Internal" : "External");
     ImGui::Separator();
-    ImGui::InputDouble("Pitch (mm)", &m_pitch, 0.1, 0.5, "%.2f");
+    materializr::inputNumber("Pitch (mm)", &m_pitch, 0.1, 0.5, "%.2f");
     if (m_pitch < 0.1) m_pitch = 0.1;
-    ImGui::InputDouble("Depth (mm)", &m_depth, 0.05, 0.2, "%.2f");
+    materializr::inputNumber("Depth (mm)", &m_depth, 0.05, 0.2, "%.2f");
     if (m_depth < 0.05) m_depth = 0.05;
     // Past ~0.65·pitch the grooves merge and shred the crests into floating
     // helical fins (Steve found this empirically — "it's jumping lol").
@@ -2131,7 +2132,7 @@ void ThreadOp::renderProperties() {
     if (ImGui::Combo("Profile", &prof, kProfiles, IM_ARRAYSIZE(kProfiles)))
         m_profile = static_cast<ThreadProfile>(prof);
     if (profileTakesGrooveWidth(m_profile)) {
-        ImGui::InputDouble("Groove width (mm)", &m_grooveWidth, 0.1, 0.5, "%.2f");
+        materializr::inputNumber("Groove width (mm)", &m_grooveWidth, 0.1, 0.5, "%.2f");
         if (m_grooveWidth < 0.0) m_grooveWidth = 0.0;
         ImGui::SetItemTooltip("Width of the cut at the surface. 0 = automatic "
                               "(a set fraction of the pitch).");
@@ -2140,7 +2141,7 @@ void ThreadOp::renderProperties() {
                                 profileOpenFraction(m_profile) * m_pitch);
     }
     if (m_profile != ThreadProfile::Standard) {
-        ImGui::InputDouble("Fit clearance (mm)", &m_clearance, 0.05, 0.1, "%.2f");
+        materializr::inputNumber("Fit clearance (mm)", &m_clearance, 0.05, 0.1, "%.2f");
         if (m_clearance < 0.0) m_clearance = 0.0;
         ImGui::SetItemTooltip("Radial gap so a PRINTED thread fits its mate "
                               "(0.2\xE2\x80\x93" "0.4mm typical). 0 = geometrically exact.");
@@ -2153,7 +2154,7 @@ void ThreadOp::renderProperties() {
     // have its start count edited after the fact. Same 1-6 range and stepped
     // style as the create panel.
     int starts = m_starts;
-    ImGui::InputInt("Starts", &starts, 1, 1);
+    materializr::inputNumberInt("Starts", &starts, 1, 1);
     m_starts = std::min(6, std::max(1, starts));
     if (m_starts > 1)
         ImGui::TextDisabled("lead %.2f mm/turn (%d interleaved helixes)",

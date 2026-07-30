@@ -104,6 +104,7 @@ namespace materializr { namespace force_link { void linkAll(); } }
 #include <gp_GTrsf.hxx>
 #include <gp_Mat.hxx>
 #include <gp_XYZ.hxx>
+#include "../ui/NumField.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -2149,11 +2150,11 @@ void Application::renderViewport() {
                                                 ImVec2(uiW(10.0f), uiW(10.0f)));
                             ImGui::TextDisabled("Width (mm)");
                             ImGui::SetNextItemWidth(fieldW);
-                            ImGui::InputFloat("##bubbleW", &m_sketchShapeDimW,
+                            materializr::inputNumber("##bubbleW", &m_sketchShapeDimW,
                                               0.0f, 0.0f, "%.2f");
                             ImGui::TextDisabled("Height (mm)");
                             ImGui::SetNextItemWidth(fieldW);
-                            ImGui::InputFloat("##bubbleH", &m_sketchShapeDimH,
+                            materializr::inputNumber("##bubbleH", &m_sketchShapeDimH,
                                               0.0f, 0.0f, "%.2f");
                             ImGui::PopStyleVar();
                             if (m_sketchShapeDimW < 0.01f) m_sketchShapeDimW = 0.01f;
@@ -7890,7 +7891,7 @@ void Application::renderViewport() {
                                         /*allowNegative=*/true, -90.0f, 90.0f))
                 ch = true;
             ImGui::SetNextItemWidth(90);
-            if (ImGui::InputFloat("deg", &deg, 1.0f, 5.0f, "%.1f")) ch = true;
+            if (materializr::inputNumber("deg", &deg, 1.0f, 5.0f, "%.1f")) ch = true;
             ImGui::Checkbox("Snap 1 deg", &m_moveFaceRotSnap);
             if (ch) {
                 if (m_moveFaceRotSnap) deg = std::round(deg);
@@ -7913,7 +7914,7 @@ void Application::renderViewport() {
                                         /*allowNegative=*/true, -180.0f, 180.0f))
                 twch = true;
             ImGui::SetNextItemWidth(90);
-            if (ImGui::InputFloat("deg##tw", &twdeg, 1.0f, 5.0f, "%.1f")) twch = true;
+            if (materializr::inputNumber("deg##tw", &twdeg, 1.0f, 5.0f, "%.1f")) twch = true;
             if (twch) {
                 if (m_moveFaceRotSnap) twdeg = std::round(twdeg);
                 m_moveFaceTwist = twdeg / 57.2957795f;
@@ -7947,7 +7948,7 @@ void Application::renderViewport() {
                                             400.0f, /*zeroValue=*/100.0f))
                     ch = true;
                 ImGui::SetNextItemWidth(90);
-                if (ImGui::InputFloat("%", &pct, 5.0f, 25.0f, "%.0f")) ch = true;
+                if (materializr::inputNumber("%", &pct, 5.0f, 25.0f, "%.0f")) ch = true;
                 if (ch) m_moveFaceScale = std::max(0.1f, pct / 100.0f);
             } else {
                 float a = m_moveFaceScaleA * 100.0f, b = m_moveFaceScaleB * 100.0f;
@@ -7959,7 +7960,7 @@ void Application::renderViewport() {
                                             400.0f, /*zeroValue=*/100.0f))
                     ch = true;
                 ImGui::SetNextItemWidth(90);
-                if (ImGui::InputFloat("% A", &a, 5.0f, 25.0f, "%.0f")) ch = true;
+                if (materializr::inputNumber("% A", &a, 5.0f, 25.0f, "%.0f")) ch = true;
                 ImGui::TextColored(ImVec4(0.4f, 0.95f, 0.45f, 1.0f), "Axis B (green)");
                 ImGui::SetNextItemWidth(150);
                 ImGui::TextDisabled("%.0f %%", b);
@@ -7968,7 +7969,7 @@ void Application::renderViewport() {
                                             400.0f, /*zeroValue=*/100.0f))
                     ch = true;
                 ImGui::SetNextItemWidth(90);
-                if (ImGui::InputFloat("% B", &b, 5.0f, 25.0f, "%.0f")) ch = true;
+                if (materializr::inputNumber("% B", &b, 5.0f, 25.0f, "%.0f")) ch = true;
                 if (ch) {
                     m_moveFaceScaleA = std::max(0.1f, a / 100.0f);
                     m_moveFaceScaleB = std::max(0.1f, b / 100.0f);
@@ -8120,10 +8121,10 @@ void Application::renderViewport() {
                                         ImVec2(uiW(10.0f), uiW(10.0f)));
                     ImGui::TextDisabled("Width (mm)");
                     ImGui::SetNextItemWidth(-1.0f);
-                    ImGui::InputFloat("##dimW", &m_sketchShapeDimW, 0.0f, 0.0f, "%.2f");
+                    materializr::inputNumber("##dimW", &m_sketchShapeDimW, 0.0f, 0.0f, "%.2f");
                     ImGui::TextDisabled("Height (mm)");
                     ImGui::SetNextItemWidth(-1.0f);
-                    ImGui::InputFloat("##dimH", &m_sketchShapeDimH, 0.0f, 0.0f, "%.2f");
+                    materializr::inputNumber("##dimH", &m_sketchShapeDimH, 0.0f, 0.0f, "%.2f");
                     ImGui::PopStyleVar();
                     if (m_sketchShapeDimW < 0.01f) m_sketchShapeDimW = 0.01f;
                     if (m_sketchShapeDimH < 0.01f) m_sketchShapeDimH = 0.01f;

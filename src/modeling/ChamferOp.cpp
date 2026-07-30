@@ -29,6 +29,7 @@
 #include <gp_Pnt.hxx>
 #include <gp_Vec.hxx>
 #include <imgui.h>
+#include "../ui/NumField.h"
 
 namespace {
 // Representative point on a face (midpoint of its UV bounds).
@@ -792,12 +793,12 @@ void ChamferOp::renderProperties() {
     ImGui::Text("Chamfer");
     ImGui::Separator();
 
-    ImGui::InputDouble("Distance", &m_distance, 0.1, 1.0, "%g");
+    materializr::inputNumber("Distance", &m_distance, 0.1, 1.0, "%g");
     bool asym = (m_distance2 > 0.0);
     if (ImGui::Checkbox("Two distances", &asym))
         m_distance2 = asym ? m_distance : -1.0;
     if (m_distance2 > 0.0)
-        ImGui::InputDouble("Distance 2", &m_distance2, 0.1, 1.0, "%g");
+        materializr::inputNumber("Distance 2", &m_distance2, 0.1, 1.0, "%g");
 
     ImGui::Text("Edges: %d selected", static_cast<int>(m_edges.size()));
     ImGui::Text("Body ID: %d", m_bodyId);

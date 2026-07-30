@@ -37,15 +37,22 @@ namespace materializr {
 // behaviour), once on Enter under the number pad. Callers that only set a
 // dirty flag need no changes; a caller that live-previews every keystroke
 // will preview on commit instead, which on a tablet is the better trade.
+// `flags` exists for the dozen sites that pass EnterReturnsTrue. That flag is
+// already the pad's semantics — it commits on Enter and nowhere else — so the
+// touch branch ignores it and the desktop branch forwards it unchanged.
 inline bool inputNumber(const char* label, double* v, double step = 0.1,
-                        double stepFast = 1.0, const char* fmt = "%g") {
-    if (!touchMode()) return ImGui::InputDouble(label, v, step, stepFast, fmt);
+                        double stepFast = 1.0, const char* fmt = "%g",
+                        ImGuiInputTextFlags flags = 0) {
+    if (!touchMode())
+        return ImGui::InputDouble(label, v, step, stepFast, fmt, flags);
     return touchui::numberField(label, label, v, fmt);
 }
 
 inline bool inputNumber(const char* label, float* v, float step = 0.1f,
-                        float stepFast = 1.0f, const char* fmt = "%g") {
-    if (!touchMode()) return ImGui::InputFloat(label, v, step, stepFast, fmt);
+                        float stepFast = 1.0f, const char* fmt = "%g",
+                        ImGuiInputTextFlags flags = 0) {
+    if (!touchMode())
+        return ImGui::InputFloat(label, v, step, stepFast, fmt, flags);
     double d = static_cast<double>(*v);
     if (!touchui::numberField(label, label, &d, fmt)) return false;
     *v = static_cast<float>(d);

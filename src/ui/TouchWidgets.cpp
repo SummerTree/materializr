@@ -464,6 +464,10 @@ bool numberPad(const char* id, char* buf, size_t bufSize, float keyW,
     if (keyH <= 0.0f) keyH = 42.0f * s;
     bool changed = false;
     ImGui::PushID(id);
+    // Nudge the glyphs UP a couple of px. ImGui centres a button label on the
+    // full frame height, which reads as sitting low once the keys are short
+    // and wide — the digit ends up optically below the middle of the key.
+    ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.5f, 0.40f));
     static const char kRows[4][4] = {"789", "456", "123", ".0<"};
     for (int r = 0; r < 4; ++r) {
         for (int c = 0; c < 3; ++c) {
@@ -501,6 +505,7 @@ bool numberPad(const char* id, char* buf, size_t bufSize, float keyW,
             changed = true;
         }
     }
+    ImGui::PopStyleVar();   // ButtonTextAlign
     ImGui::PopID();
     return changed;
 }
@@ -633,6 +638,7 @@ bool numberField(const char* id, const char* label, double* v, const char* fmt) 
         numberPad("##pad", e.buf, sizeof(e.buf), keyW, keyH, /*allowSign=*/false);
 
         const float thirdW = (padW - 2.0f * gap) / 3.0f;
+        ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.5f, 0.40f));
         if (ImGui::Button("+ / -", ImVec2(thirdW, keyH))) {
             const size_t len = std::strlen(e.buf);
             if (e.buf[0] == '-') {
@@ -656,6 +662,7 @@ bool numberField(const char* id, const char* label, double* v, const char* fmt) 
             if (end != e.buf) { *v = parsed; committed = true; }
             s_open = 0;
         }
+        ImGui::PopStyleVar();   // ButtonTextAlign
     }
 
     ImGui::PopID();

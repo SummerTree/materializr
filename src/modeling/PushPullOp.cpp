@@ -39,6 +39,7 @@
 #include <imgui.h>
 #include <cmath>
 #include <unordered_set>
+#include "../ui/NumField.h"
 
 // A point that genuinely lies on the face's MATERIAL. Returns `center` when it's
 // already inside the trimmed face; otherwise samples a UV grid (rejecting points
@@ -634,7 +635,7 @@ std::string PushPullOp::description() const {
 void PushPullOp::renderProperties() {
     ImGui::Text("Push/Pull");
     ImGui::Separator();
-    ImGui::InputDouble("Distance", &m_distance, 0.1, 1.0, "%g");
+    materializr::inputNumber("Distance", &m_distance, 0.1, 1.0, "%g");
     ImGui::Text("Regions: %zu", m_targets.size());
 }
 

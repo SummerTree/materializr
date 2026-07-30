@@ -120,6 +120,7 @@ static const char* mouseButtonName(int b) {
 #include <gp_GTrsf.hxx>
 #include <gp_Mat.hxx>
 #include <gp_XYZ.hxx>
+#include "../ui/NumField.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -800,7 +801,7 @@ void Application::renderMultiTransformPanel() {
         ImGui::SliderFloat("##slider", &m_multiRotate[i], -180.0f, 180.0f, "%.1f°");
         ImGui::SameLine();
         ImGui::SetNextItemWidth(80);
-        ImGui::InputFloat("##input", &m_multiRotate[i], 0.0f, 0.0f, "%.3f");
+        materializr::inputNumber("##input", &m_multiRotate[i], 0.0f, 0.0f, "%.3f");
         ImGui::PopID();
     }
 
@@ -1109,7 +1110,7 @@ void Application::renderScalePanel() {
             ImGui::TextColored(axisColors[i], "%s", axisLabels[i]);
             ImGui::SameLine(28);
             ImGui::SetNextItemWidth(95.0f);
-            if (ImGui::InputFloat("##pct", &m_scalePct[i], 0.0f, 0.0f, "%.1f")) {
+            if (materializr::inputNumber("##pct", &m_scalePct[i], 0.0f, 0.0f, "%.1f")) {
                 if (m_scaleUniform) {
                     m_scalePct[0] = m_scalePct[1] = m_scalePct[2] = m_scalePct[i];
                 }
@@ -1795,7 +1796,7 @@ void Application::renderThreadPanel() {
         if (m_threadProfile != 0) {
             ImGui::Text("Fit clearance"); ImGui::SameLine();
             ImGui::SetNextItemWidth(90);
-            ImGui::InputFloat("##thrClr", &m_threadClearance, 0.05f, 0.1f, "%.2f");
+            materializr::inputNumber("##thrClr", &m_threadClearance, 0.05f, 0.1f, "%.2f");
             if (m_threadClearance < 0.0f) m_threadClearance = 0.0f;
             ImGui::SameLine(); ImGui::Text("mm");
             ImGui::SetItemTooltip("Radial gap so a PRINTED thread fits its mate "
@@ -1810,7 +1811,7 @@ void Application::renderThreadPanel() {
                 static_cast<ThreadProfile>(m_threadProfile))) {
             ImGui::Text("Groove width"); ImGui::SameLine();
             ImGui::SetNextItemWidth(90);
-            ImGui::InputFloat("##thrGWidth", &m_threadGrooveWidth, 0.1f, 0.5f,
+            materializr::inputNumber("##thrGWidth", &m_threadGrooveWidth, 0.1f, 0.5f,
                               "%.2f");
             if (m_threadGrooveWidth < 0.0f) m_threadGrooveWidth = 0.0f;
             ImGui::SameLine(); ImGui::Text("mm");
@@ -1847,7 +1848,7 @@ void Application::renderThreadPanel() {
             ++m_threadStarts;
     } else {
         ImGui::SetNextItemWidth(uiSz(120, 0).x);
-        if (ImGui::InputInt("##thrStarts", &m_threadStarts, 1, 1))
+        if (materializr::inputNumberInt("##thrStarts", &m_threadStarts, 1, 1))
             m_threadStarts = std::min(6, std::max(1, m_threadStarts));
         if (m_threadStarts > 1)
             ImGui::SetItemTooltip("Multi-start thread: %d interleaved helixes. "
@@ -2170,7 +2171,7 @@ void Application::renderRefImagePanel() {
 
     float widthMM = static_cast<float>(img->widthMM);
     ImGui::SetNextItemWidth(uiSz(120, 0).x);
-    if (ImGui::InputFloat("Width (mm)", &widthMM, 0, 0, "%.2f",
+    if (materializr::inputNumber("Width (mm)", &widthMM, 0, 0, "%.2f",
                           ImGuiInputTextFlags_EnterReturnsTrue)) {
         if (widthMM > 0.01f) {
             m_document->setRefImageWidthMM(planeId, widthMM);
@@ -3959,7 +3960,7 @@ void Application::renderPrimitivePopup() {
         if (imTouchLayout())
             touchui::amountField(label, label, v, "mm", 3);
         else
-            ImGui::InputDouble(label, v, 0.1, 1.0, "%.3f");
+            materializr::inputNumber(label, v, 0.1, 1.0, "%.3f");
     };
     switch (k) {
     case 0: // Box
@@ -3989,9 +3990,9 @@ void Application::renderPrimitivePopup() {
 
     ImGui::Spacing();
     ImGui::TextColored(materializr::accentText(), "Origin (mm)");
-    ImGui::InputDouble("X", &m_primitivePopupOrigin[0], 0.1, 1.0, "%.3f");
-    ImGui::InputDouble("Y", &m_primitivePopupOrigin[1], 0.1, 1.0, "%.3f");
-    ImGui::InputDouble("Z", &m_primitivePopupOrigin[2], 0.1, 1.0, "%.3f");
+    materializr::inputNumber("X", &m_primitivePopupOrigin[0], 0.1, 1.0, "%.3f");
+    materializr::inputNumber("Y", &m_primitivePopupOrigin[1], 0.1, 1.0, "%.3f");
+    materializr::inputNumber("Z", &m_primitivePopupOrigin[2], 0.1, 1.0, "%.3f");
     ImGui::TextDisabled("Box origin = corner; the rest use it as the axis "
                         "base / centre.");
 
@@ -4670,7 +4671,7 @@ void Application::renderUnfoldDialog() {
     // Thickness sets the bevel/mitre setback; irrelevant for pliable (boundary only).
     if (fm != materializr::FoldMode::None) {
         ImGui::SetNextItemWidth(120.0f);
-        if (ImGui::InputFloat("Thickness (mm)", &m_unfoldThicknessMm, 0.5f, 1.0f, "%.1f")) {
+        if (materializr::inputNumber("Thickness (mm)", &m_unfoldThicknessMm, 0.5f, 1.0f, "%.1f")) {
             m_unfoldThicknessMm = std::clamp(m_unfoldThicknessMm, 0.1f, 50.0f);
             persistSheet();
         }

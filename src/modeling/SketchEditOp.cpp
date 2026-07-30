@@ -8,6 +8,7 @@
 #include <map>
 #include <sstream>
 #include <vector>
+#include "../ui/NumField.h"
 
 namespace materializr {
 
@@ -390,7 +391,7 @@ void SketchEditOp::renderProperties() {
             case ConstraintType::Distance: {
                 anyDim = true;
                 double v = c.value;
-                if (ImGui::InputDouble("Distance (mm)", &v, 0.0, 0.0, "%g",
+                if (materializr::inputNumber("Distance (mm)", &v, 0.0, 0.0, "%g",
                                        ImGuiInputTextFlags_EnterReturnsTrue)) {
                     c.value = v;
                     resolveAfter();
@@ -402,7 +403,7 @@ void SketchEditOp::renderProperties() {
                 // Stored as radius; show as diameter to match the in-sketch
                 // popup ("Ø ..." in descriptions and dimensions).
                 double dia = c.value * 2.0;
-                if (ImGui::InputDouble("\xC3\x98 (mm)", &dia, 0.0, 0.0, "%g",
+                if (materializr::inputNumber("\xC3\x98 (mm)", &dia, 0.0, 0.0, "%g",
                                        ImGuiInputTextFlags_EnterReturnsTrue)) {
                     c.value = std::max(dia, 1e-6) * 0.5;
                     resolveAfter();
@@ -412,7 +413,7 @@ void SketchEditOp::renderProperties() {
             case ConstraintType::Angle: {
                 anyDim = true;
                 double deg = c.value * 180.0 / M_PI;
-                if (ImGui::InputDouble("Angle (\xC2\xB0)", &deg, 0.0, 0.0, "%.2f",
+                if (materializr::inputNumber("Angle (\xC2\xB0)", &deg, 0.0, 0.0, "%.2f",
                                        ImGuiInputTextFlags_EnterReturnsTrue)) {
                     c.value = deg * M_PI / 180.0;
                     resolveAfter();
@@ -456,7 +457,7 @@ void SketchEditOp::renderProperties() {
                 if (c.id == cid) { r = c.radius; break; }
             double dia = r * 2.0;
             ImGui::PushID(cid + 1000000);   // keep clear of the constraint-row ids
-            if (ImGui::InputDouble("Diameter (mm)", &dia, 0.0, 0.0, "%g",
+            if (materializr::inputNumber("Diameter (mm)", &dia, 0.0, 0.0, "%g",
                                    ImGuiInputTextFlags_EnterReturnsTrue)) {
                 // Writes the after-snapshot AND records the edit so Apply can
                 // carry the new radius into later snapshots — otherwise the next

@@ -21,6 +21,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include "../ui/NumField.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -258,22 +259,22 @@ void TransformOp::renderProperties() {
         m_type = static_cast<TransformType>(typeIndex);
     }
 
-    ImGui::InputInt("Body ID", &m_bodyId);
+    materializr::inputNumberInt("Body ID", &m_bodyId);
 
     switch (m_type) {
         case TransformType::Translate:
-            ImGui::InputDouble("X", &m_dx, 0.1, 1.0, "%g");
-            ImGui::InputDouble("Y", &m_dy, 0.1, 1.0, "%g");
-            ImGui::InputDouble("Z", &m_dz, 0.1, 1.0, "%g");
+            materializr::inputNumber("X", &m_dx, 0.1, 1.0, "%g");
+            materializr::inputNumber("Y", &m_dy, 0.1, 1.0, "%g");
+            materializr::inputNumber("Z", &m_dz, 0.1, 1.0, "%g");
             break;
         case TransformType::Rotate:
-            ImGui::InputDouble("Axis X", &m_ax, 0.1, 1.0, "%g");
-            ImGui::InputDouble("Axis Y", &m_ay, 0.1, 1.0, "%g");
-            ImGui::InputDouble("Axis Z", &m_az, 0.1, 1.0, "%g");
-            ImGui::InputDouble("Angle (deg)", &m_angle, 1.0, 15.0, "%.1f");
+            materializr::inputNumber("Axis X", &m_ax, 0.1, 1.0, "%g");
+            materializr::inputNumber("Axis Y", &m_ay, 0.1, 1.0, "%g");
+            materializr::inputNumber("Axis Z", &m_az, 0.1, 1.0, "%g");
+            materializr::inputNumber("Angle (deg)", &m_angle, 1.0, 15.0, "%.1f");
             break;
         case TransformType::Scale:
-            ImGui::InputDouble("Scale Factor", &m_scale, 0.1, 0.5, "%g");
+            materializr::inputNumber("Scale Factor", &m_scale, 0.1, 0.5, "%g");
             break;
     }
 }

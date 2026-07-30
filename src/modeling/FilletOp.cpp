@@ -27,6 +27,7 @@
 #include <gp_Vec.hxx>
 #include <cmath>
 #include <imgui.h>
+#include "../ui/NumField.h"
 
 namespace {
 // Representative point on a face (midpoint of its UV bounds). Stable for the
@@ -607,7 +608,7 @@ void FilletOp::renderProperties() {
     ImGui::Text("Fillet");
     ImGui::Separator();
 
-    ImGui::InputDouble("Radius", &m_radius, 0.1, 1.0, "%g");
+    materializr::inputNumber("Radius", &m_radius, 0.1, 1.0, "%g");
 
     ImGui::Text("Edges: %d selected", static_cast<int>(m_edges.size()));
     ImGui::Text("Body ID: %d", m_bodyId);

@@ -52,6 +52,7 @@ void ExtrudeOp::setProfile(const TopoDS_Shape& wire) {
 #include <gp_Pln.hxx>
 #include <ElSLib.hxx>
 #include <TopExp_Explorer.hxx>
+#include "../ui/NumField.h"
 
 namespace {
 // Interior points of `face`, up to `maxPts`, spread over a UV grid. MANY
@@ -753,7 +754,7 @@ void ExtrudeOp::renderProperties() {
     ImGui::Text("Extrude");
     ImGui::Separator();
 
-    ImGui::InputDouble("Distance", &m_distance, 0.1, 1.0, "%g");
+    materializr::inputNumber("Distance", &m_distance, 0.1, 1.0, "%g");
 
     const char* modeItems[] = { "New Body", "Union", "Subtract", "Intersect" };
     int modeIndex = static_cast<int>(m_mode);
@@ -767,10 +768,10 @@ void ExtrudeOp::renderProperties() {
         m_direction = static_cast<ExtrudeDirection>(dirIndex);
     }
 
-    ImGui::InputDouble("Draft Angle", &m_draftAngle, 0.1, 1.0, "%.1f");
+    materializr::inputNumber("Draft Angle", &m_draftAngle, 0.1, 1.0, "%.1f");
 
     if (m_mode != ExtrudeMode::NewBody) {
-        ImGui::InputInt("Target Body ID", &m_targetBodyId);
+        materializr::inputNumberInt("Target Body ID", &m_targetBodyId);
     }
 }
 

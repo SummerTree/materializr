@@ -3,6 +3,7 @@
 #include <gp_Trsf.hxx>
 #include <gp_Vec.hxx>
 #include <imgui.h>
+#include "../ui/NumField.h"
 
 AlignOp::AlignOp() = default;
 
@@ -73,22 +74,22 @@ void AlignOp::renderProperties() {
     ImGui::Text("Align");
     ImGui::Separator();
 
-    ImGui::InputInt("Body ID", &m_bodyId);
+    materializr::inputNumberInt("Body ID", &m_bodyId);
 
     double sx = m_source.X(), sy = m_source.Y(), sz = m_source.Z();
     double tx = m_target.X(), ty = m_target.Y(), tz = m_target.Z();
 
     ImGui::Text("Source Point");
-    if (ImGui::InputDouble("Src X", &sx, 0.1, 1.0, "%g") ||
-        ImGui::InputDouble("Src Y", &sy, 0.1, 1.0, "%g") ||
-        ImGui::InputDouble("Src Z", &sz, 0.1, 1.0, "%g")) {
+    if (materializr::inputNumber("Src X", &sx, 0.1, 1.0, "%g") ||
+        materializr::inputNumber("Src Y", &sy, 0.1, 1.0, "%g") ||
+        materializr::inputNumber("Src Z", &sz, 0.1, 1.0, "%g")) {
         m_source.SetCoord(sx, sy, sz);
     }
 
     ImGui::Text("Target Point");
-    if (ImGui::InputDouble("Tgt X", &tx, 0.1, 1.0, "%g") ||
-        ImGui::InputDouble("Tgt Y", &ty, 0.1, 1.0, "%g") ||
-        ImGui::InputDouble("Tgt Z", &tz, 0.1, 1.0, "%g")) {
+    if (materializr::inputNumber("Tgt X", &tx, 0.1, 1.0, "%g") ||
+        materializr::inputNumber("Tgt Y", &ty, 0.1, 1.0, "%g") ||
+        materializr::inputNumber("Tgt Z", &tz, 0.1, 1.0, "%g")) {
         m_target.SetCoord(tx, ty, tz);
     }
 

@@ -3,6 +3,7 @@
 #include <gp_Trsf.hxx>
 #include <gp_Vec.hxx>
 #include <imgui.h>
+#include "../ui/NumField.h"
 
 CopyOp::CopyOp() = default;
 
@@ -70,12 +71,12 @@ void CopyOp::renderProperties() {
     ImGui::Text("Duplicate");
     ImGui::Separator();
 
-    ImGui::InputInt("Source Body ID", &m_sourceBodyId);
+    materializr::inputNumberInt("Source Body ID", &m_sourceBodyId);
 
     ImGui::Text("Offset");
-    ImGui::InputDouble("X", &m_dx, 0.1, 1.0, "%g");
-    ImGui::InputDouble("Y", &m_dy, 0.1, 1.0, "%g");
-    ImGui::InputDouble("Z", &m_dz, 0.1, 1.0, "%g");
+    materializr::inputNumber("X", &m_dx, 0.1, 1.0, "%g");
+    materializr::inputNumber("Y", &m_dy, 0.1, 1.0, "%g");
+    materializr::inputNumber("Z", &m_dz, 0.1, 1.0, "%g");
 
     if (m_createdBodyId >= 0) {
         ImGui::Text("Created body ID: %d", m_createdBodyId);

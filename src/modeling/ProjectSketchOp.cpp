@@ -43,6 +43,7 @@
 #include <TopoDS.hxx>
 #include <gp_Pln.hxx>
 #include <imgui.h>
+#include "../ui/NumField.h"
 
 namespace {
 
@@ -529,7 +530,7 @@ void ProjectSketchOp::renderProperties() {
     ImGui::Separator();
     ImGui::Text("Mode: %s",
                 m_mode == Mode::Engrave ? "Engrave" : "Emboss");
-    ImGui::InputDouble("Depth (mm)", &m_depth, 0.1, 1.0, "%.2f");
+    materializr::inputNumber("Depth (mm)", &m_depth, 0.1, 1.0, "%.2f");
     ImGui::Text("Sketch ID: %d", m_sketchId);
     ImGui::Text("Body ID: %d", m_bodyId);
 }
