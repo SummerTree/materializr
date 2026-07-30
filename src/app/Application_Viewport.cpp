@@ -3398,7 +3398,13 @@ void Application::renderViewport() {
                                   // im-touch has no ItemsPanel; its own tree
                                   // overlay reports hover the same way so a
                                   // press-and-hold on a row opens its menu.
-                                  m_imTouchTreeHovered;
+                                  m_imTouchTreeHovered ||
+                                  // The tab strip: its per-tab Save / Save As /
+                                  // Close menu is right-click-only, so without
+                                  // this there is no touch route to it at all.
+                                  // No sliders live there, so the drag hazard
+                                  // that gates this list doesn't apply.
+                                  m_tabBarHovered;
             if (m_inSketchMode && m_sketchTool &&
                 m_sketchTool->getMode() != SketchToolMode::Select)
                 allowLongPress = false;
@@ -3407,6 +3413,11 @@ void Application::renderViewport() {
                 m_resizeCylActive || anyIopActive())
                 allowLongPress = false;
             if (m_window) m_window->setTouchOverViewport(allowLongPress);
+            // Consume-and-clear: the tab strips set this during their own
+            // render, which may be before or after this pass depending on the
+            // layout. A stationary long-press is stable across frames, so a
+            // one-frame lag is harmless (same reasoning as the Items hover).
+            m_tabBarHovered = false;
             // Strict canvas hover (excludes the Items panel) gates touch
             // drag-to-scroll: a vertical drag over any panel scrolls it, but
             // over the 3D canvas the one-finger drag stays an orbit.

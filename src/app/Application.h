@@ -996,6 +996,12 @@ private:
     // Application_Viewport so press-and-hold synthesizes a right-click over the
     // tree, opening a row's context menu just like the classic/modern panels).
     bool m_imTouchTreeHovered = false;
+    // Tab strip (classic in-viewport bar / modern pills): hovered this frame.
+    // Same purpose — both already call BeginPopupContextItem for Save / Save As
+    // / Close, but on touch that menu was UNREACHABLE: the long-press gate arms
+    // only over the canvas and the Items panel, so a press-and-hold on a tab
+    // never became the right-click those popups wait for.
+    bool m_tabBarHovered = false;
     // im-touch rename: a namespaced key (body=id, sketch=1000000+id,
     // folder=2000000+id, plane=4000000+id, axis=5000000+id) whose name is being
     // edited in the rename modal; -1 = idle. The buffer holds the edited text.

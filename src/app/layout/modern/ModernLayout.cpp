@@ -124,6 +124,10 @@ void Application::renderModernLayout() {
                 if (ImGui::Button(label.c_str(), ImVec2(0, pillH)) && !active)
                     switchToSession(i);
                 ImGui::PopStyleColor(2);
+                // Hover on the pill itself feeds the long-press gate, so a
+                // press-and-hold reaches this menu on touch (m_tabBarHovered).
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup))
+                    m_tabBarHovered = true;
                 if (ImGui::BeginPopupContextItem("tabctx")) {
                     renderTabMenuItems(i);
                     ImGui::EndPopup();

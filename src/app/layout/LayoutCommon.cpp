@@ -47,6 +47,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include <algorithm>   // std::max — tab-row width reservation
 
 namespace materializr {
 
@@ -261,6 +262,11 @@ void Application::renderViewportTabBar() {
     // whole sync frame while SetSelected drags ImGui to the real active tab.
     const bool syncing = m_tabSelectionSync;
     m_tabSelectionSync = false;
+    // Report hover so a press-and-hold here becomes the right-click that
+    // BeginPopupContextItem below is waiting for (see m_tabBarHovered).
+    if (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows |
+                               ImGuiHoveredFlags_AllowWhenBlockedByPopup))
+        m_tabBarHovered = true;
     bool closedOne = false;
     for (size_t i = 0; i < m_sessions.size() && !closedOne; ++i) {
         ImGui::PushID(static_cast<int>(i));
@@ -313,13 +319,25 @@ void Application::renderTouchTabsSheet() {
         ImGui::PushID(static_cast<int>(i));
         std::string label = sessionDisplayLabel(i);
         if (sessionDirty(i)) label += " \xe2\x80\xa2";
-        if (ImGui::MenuItem(label.c_str(), nullptr, i == m_activeSession)) {
+        // The row and its ... are SEPARATE hit areas. Previously the row was a
+        // full-width MenuItem with the ... drawn on top of it, so a tap on the
+        // ... hit the MenuItem underneath: it switched tabs and — because a
+        // MenuItem closes its popup on activation — took the sheet down with
+        // it, so the menu could never appear. Reserve the width, and use a
+        // Selectable (which does NOT auto-close) so the two can coexist.
+        const ImGuiStyle& st = ImGui::GetStyle();
+        const float moreW = ImGui::CalcTextSize(MZ_ICON_MORE).x +
+                            st.FramePadding.x * 2.0f;
+        const float rowW  = std::max(1.0f, ImGui::GetContentRegionAvail().x -
+                                               moreW - st.ItemSpacing.x);
+        if (ImGui::Selectable(label.c_str(), i == m_activeSession,
+                              ImGuiSelectableFlags_None, ImVec2(rowW, 0.0f))) {
             switchToSession(i);
+            ImGui::CloseCurrentPopup();   // MenuItem did this implicitly
         }
-        ImGui::SameLine(ImGui::GetContentRegionMax().x -
-                        ImGui::CalcTextSize(MZ_ICON_MORE).x -
-                        ImGui::GetStyle().FramePadding.x * 2.0f);
-        if (ImGui::SmallButton(MZ_ICON_MORE)) ImGui::OpenPopup("touchtabctx");
+        ImGui::SameLine(0.0f, st.ItemSpacing.x);
+        if (ImGui::Button(MZ_ICON_MORE, ImVec2(moreW, 0.0f)))
+            ImGui::OpenPopup("touchtabctx");
         if (ImGui::BeginPopup("touchtabctx")) {
             renderTabMenuItems(i);
             ImGui::EndPopup();
