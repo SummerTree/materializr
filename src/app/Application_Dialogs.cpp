@@ -242,6 +242,13 @@ void Application::renderSettings() {
                                        "toggles, trackpad navigation. Off: the desktop "
                                        "mouse/keyboard layout — use it with an attached "
                                        "mouse/keyboard. Takes full effect on restart.");
+                    // Numeric entry rides on this flag (ui/NumField.h gates the
+                    // in-app pad on touchMode()), which is not something anyone
+                    // would guess from "Touch mode". Say so here rather than add
+                    // a second setting for it: with a keyboard attached, turning
+                    // this off is already the way back to typing.
+                    ImGui::TextWrapped("Also switches numeric fields between the in-app "
+                                       "number pad and the system keyboard.");
                     if (materializr::touchMode() != m_touchMode) {
                         ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f),
                             "Restart Materializr to apply the new mode.");
