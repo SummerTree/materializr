@@ -546,7 +546,8 @@ bool amountField(const char* id, const char* label, double* v,
     return changed;
 }
 
-bool numberField(const char* id, const char* label, double* v, const char* fmt) {
+bool numberField(const char* id, const char* label, double* v, const char* fmt,
+                 bool* opened) {
     const float s = uiScale();
     bool committed = false;
 
@@ -615,6 +616,7 @@ bool numberField(const char* id, const char* label, double* v, const char* fmt) 
             s_entries[key] = e;
             s_open = key;
             s_justOpened = key;
+            if (opened) *opened = true;
         }
     }
     if (openHere) ImGui::PopStyleColor();

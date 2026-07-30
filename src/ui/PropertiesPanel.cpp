@@ -836,12 +836,21 @@ void PropertiesPanel::renderSketchConstraintsPanel(int sketchId, bool& modified)
             ImGui::TextUnformatted(label);
             ImGui::SameLine(120);
             ImGui::SetNextItemWidth(110);
-            ImGui::InputText("##val", edit.buf, sizeof(edit.buf),
-                             ImGuiInputTextFlags_CharsDecimal |
-                             ImGuiInputTextFlags_AutoSelectAll |
-                             ImGuiInputTextFlags_EnterReturnsTrue);
-            bool justActivated   = ImGui::IsItemActivated();
-            bool justDeactivated = ImGui::IsItemDeactivatedAfterEdit();
+            // A NUMBER wearing a text coat: this was an InputText carrying
+            // CharsDecimal, which is why the number-pad sweep (which looked for
+            // InputDouble) missed it and left the sketch's most-edited field
+            // raising the OS keyboard on a tablet. inputNumber gives it the pad
+            // in touch mode and the identical InputDouble otherwise.
+            double padVal = shown;
+            (void)materializr::parseFinite(edit.buf, padVal);
+            bool justActivated   = false;
+            bool justDeactivated =
+                materializr::inputNumber("##val", &padVal, 0.0, 0.0, "%.3f",
+                                         ImGuiInputTextFlags_EnterReturnsTrue,
+                                         &justActivated);
+            // Keep the buffer authoritative — the commit path below parses it.
+            if (justDeactivated)
+                std::snprintf(edit.buf, sizeof(edit.buf), "%.6g", padVal);
             ImGui::SameLine(); ImGui::Text("%s", unit);
 
             // Snapshot the pre-edit sketch the moment the user starts typing

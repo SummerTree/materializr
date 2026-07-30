@@ -42,10 +42,14 @@ namespace materializr {
 // touch branch ignores it and the desktop branch forwards it unchanged.
 inline bool inputNumber(const char* label, double* v, double step = 0.1,
                         double stepFast = 1.0, const char* fmt = "%g",
-                        ImGuiInputTextFlags flags = 0) {
-    if (!touchMode())
-        return ImGui::InputDouble(label, v, step, stepFast, fmt, flags);
-    return touchui::numberField(label, label, v, fmt);
+                        ImGuiInputTextFlags flags = 0, bool* opened = nullptr) {
+    if (!touchMode()) {
+        const bool r = ImGui::InputDouble(label, v, step, stepFast, fmt, flags);
+        // Desktop equivalent of the pad unfolding: the field took focus.
+        if (opened && ImGui::IsItemActivated()) *opened = true;
+        return r;
+    }
+    return touchui::numberField(label, label, v, fmt, opened);
 }
 
 inline bool inputNumber(const char* label, float* v, float step = 0.1f,
