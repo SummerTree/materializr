@@ -42,6 +42,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <cmath>
+#include <set>
 
 namespace materializr {
 
@@ -1268,6 +1269,31 @@ std::vector<TopoDS_Wire> Sketch::buildWires() const {
             BRepBuilderAPI_MakeWire wm;
             if (emitOcctEdge(edges[i], edges[i].startPtId, wm) && wm.IsDone())
                 wires.push_back(wm.Wire());
+        }
+    }
+
+    // COINCIDENT STRAIGHT EDGES collapse to one. Drawing a rectangle whose side
+    // lands on an existing line — inevitable on a busy face, and what the 0.3mm
+    // point snap encourages — produces two edges between the SAME pair of nodes.
+    // The half-edge walker then sees two outgoing half-edges at an identical
+    // angle, so nextHE's "clockwise of the twin" can pick the duplicate instead
+    // of turning the corner: the walk escapes along the twin, the enclosed area
+    // never closes as its own face, and its half-edges are absorbed into the
+    // surrounding one. The visible result is a rectangle with NO selectable
+    // region, so clicking inside it picks the whole surrounding face — and a
+    // push/pull there cut an entire box wall away (Steve's antenna tracker).
+    //
+    // Curves are excluded: two arcs (or an arc and a line) between the same two
+    // points are genuinely different edges bounding real area between them.
+    {
+        std::set<std::pair<int, int>> seenStraight;
+        for (size_t i = 0; i < edges.size(); ++i) {
+            if (edgeDead[i]) continue;
+            const EdgeSpec& e = edges[i];
+            if (e.isArc || e.splineIdx >= 0) continue;
+            const int lo = std::min(e.startPtId, e.endPtId);
+            const int hi = std::max(e.startPtId, e.endPtId);
+            if (!seenStraight.insert({lo, hi}).second) edgeDead[i] = true;
         }
     }
 
