@@ -59,6 +59,21 @@ const gp_Pln& Sketch::getPlane() const {
     return m_plane;
 }
 
+gp_Pnt Sketch::latticeAnchor(const gp_Pln& plane, const gp_Pnt& near,
+                             double step) {
+    if (step <= 0.0) return near;
+    const gp_Ax3& ax = plane.Position();
+    const gp_Pnt o = ax.Location();
+    const gp_Dir xd = ax.XDirection();
+    const gp_Dir yd = ax.YDirection();
+    const gp_Vec rel(o, near);
+    const double u = std::round(rel.Dot(gp_Vec(xd)) / step) * step;
+    const double v = std::round(rel.Dot(gp_Vec(yd)) / step) * step;
+    return gp_Pnt(o.X() + u * xd.X() + v * yd.X(),
+                  o.Y() + u * xd.Y() + v * yd.Y(),
+                  o.Z() + u * xd.Z() + v * yd.Z());
+}
+
 gp_Pnt Sketch::sketchToWorld(glm::vec2 pt2d) const {
     const gp_Ax3& ax = m_plane.Position();
     gp_Pnt origin = ax.Location();

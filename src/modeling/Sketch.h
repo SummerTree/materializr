@@ -114,6 +114,19 @@ public:
         const std::vector<glm::vec2>& ctrl, int segsPerSpan = 12,
         bool closed = false);
 
+    // The point of `plane` NEAREST `near` whose sketch coordinates are both
+    // multiples of `step` — i.e. a point of the snap lattice.
+    //
+    // Snapping rounds sketch (u,v), measured from the PLANE ORIGIN along the
+    // plane's X/Y directions, so the lattice is only defined in that frame.
+    // Rounding world XYZ and projecting onto the plane is a different (and
+    // wrong) thing: the projection of a world lattice point lands at an
+    // arbitrary fraction of a cell in-plane. Anything that has to agree with
+    // where clicks land — above all the grid the viewport DRAWS — must round
+    // here rather than roll its own.
+    static gp_Pnt latticeAnchor(const gp_Pln& plane, const gp_Pnt& near,
+                                double step);
+
     // Element removal
     void removeElement(int id);
     // Remove points that no geometry references any more (e.g. a line's two

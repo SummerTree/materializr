@@ -520,6 +520,11 @@ add_executable(test_multibody_export test_multibody_export.cpp
 target_link_libraries(test_multibody_export PRIVATE materializr_core gtest gtest_main)
 add_test(NAME test_multibody_export COMMAND test_multibody_export)
 
+# test_grid_snap — with snap-to-grid on, clicks land on the lattice and the
+# drawn grid IS that lattice. Needs TextSketchOp/SvgImport stubs (in the test).
+add_executable(test_grid_snap test_grid_snap.cpp)
+target_link_libraries(test_grid_snap PRIVATE materializr_core gtest gtest_main)
+add_test(NAME test_grid_snap COMMAND test_grid_snap)
 
 # ─── Loader path for a source-built OCCT ─────────────────────────────────────
 # With MZR_OCCT_PREFIX the kernel lives outside the loader's default search

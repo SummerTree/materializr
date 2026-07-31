@@ -1537,6 +1537,31 @@ glm::vec2 SketchTool::snap(glm::vec2 pos) const {
         return unsnapped;
     };
 
+    // Land a guide result ON the snap lattice. With snap-to-grid on, the grid
+    // is an explicit precision request, and a DIRECTIONAL guide (perpendicular
+    // / parallel / axis-from-point / angle / tangent) only says which WAY to
+    // go — it has no business deciding where between two grid lines you end
+    // up. gridAlongLine below only rounds the guide's dominant axis and solves
+    // the other one on the line, so the free coordinate came out at whatever
+    // the geometry happened to give: a perpendicular off a chain landed at
+    // x=9.0033 on a 0.1 mm grid, a guide pair at y=12.2012. Over a few
+    // segments that reads as the grid wandering arbitrarily (Steve,
+    // 2026-07-31: "I cannot draw a line on that snap grid").
+    //
+    // CONTACT guides are the exception and must stay exact: an OnLine landing
+    // is a point ON an existing edge, which is a topological claim — buildWires
+    // splits that segment at the contact point to route a loop through it, and
+    // a point rounded a few microns off the edge silently stops closing the
+    // region. Those keep gridAlongLine's on-the-line result.
+    auto onLattice = [&](glm::vec2 p) {
+        if (!m_snapToGridEnabled || m_gridStep <= 0.0f) return p;
+        return glm::vec2(std::round(p.x / m_gridStep) * m_gridStep,
+                         std::round(p.y / m_gridStep) * m_gridStep);
+    };
+    auto isContact = [](InferenceGuide::Kind k) {
+        return k == InferenceGuide::OnLine;
+    };
+
     // Intersection cap is WIDER than the single-line posCap: each cand only
     // enters the list after passing its own perpDist tolerance, so a two-cand
     // pair is already user-deliberate (both inferences fired cleanly). The
@@ -1593,6 +1618,22 @@ glm::vec2 SketchTool::snap(glm::vec2 pos) const {
                k == InferenceGuide::OnLineExtension;
     };
     if (bestI >= 0) {
+        // A pair of purely directional guides is quantized outright — both
+        // relationships are about direction, so the lattice decides position.
+        // With ONE contact guide in the pair the point has to stay on that
+        // edge, so quantize ALONG it instead (the directional half then holds
+        // approximately, which is the right way round: the edge landing is
+        // topology, the direction is a hint). Two contacts crossing is a real
+        // vertex — leave it exactly where the geometry puts it.
+        const bool ci = isContact(cands[bestI].kind);
+        const bool cj = isContact(cands[bestJ].kind);
+        if (!ci && !cj) {
+            bestIsect = onLattice(bestIsect);
+        } else if (ci != cj) {
+            const auto& con = ci ? cands[bestI] : cands[bestJ];
+            bestIsect = gridAlongLine(con.anchor, con.dir, con.isSegment,
+                                      con.segLen, bestIsect);
+        }
         emitWithSnap(cands[bestI], bestIsect);
         emitWithSnap(cands[bestJ], bestIsect);
         // A pair intersection is a deliberate composite of two guides — never
@@ -1612,6 +1653,7 @@ glm::vec2 SketchTool::snap(glm::vec2 pos) const {
     if (bestK >= 0) {
         const auto& c = cands[bestK];
         glm::vec2 snapped = gridAlongLine(c.anchor, c.dir, c.isSegment, c.segLen, c.proj);
+        if (!isContact(c.kind)) snapped = onLattice(snapped);
         emitWithSnap(c, snapped);
         // Preserve a borrowed direction (parallel/perp/tangent/on-line) exactly;
         // only flatten genuinely free near-axis results.
@@ -1664,8 +1706,8 @@ glm::vec2 SketchTool::snap(glm::vec2 pos) const {
                     }
                     // Grid-along-line so the ray's endpoint lands on a lattice
                     // step instead of sub-grid drift.
-                    snappedPos = gridAlongLine(m_firstClick, dir, false,
-                                                0.0f, snappedPos);
+                    snappedPos = onLattice(gridAlongLine(m_firstClick, dir, false,
+                                                         0.0f, snappedPos));
                     m_activeInferences.push_back(
                         {InferenceGuide::AngleSnap, m_firstClick,
                          snappedPos, -1});

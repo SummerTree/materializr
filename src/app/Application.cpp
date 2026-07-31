@@ -6022,19 +6022,31 @@ void Application::alignCameraToActiveSketch() {
         }
     }
 
-    // Snap the look-at point to the nearest world-grid intersection PROJECTED
-    // onto the sketch plane. The grid in the viewport then draws lines that
-    // pass through actual world-grid positions on this plane (so a "1 mm"
-    // grid step lands on whole-mm boundaries even when the face's centre is
-    // at fractional world coords). The same snapped point doubles as the
-    // camera target — when the user later orbits out of ortho, the orbit
-    // pivots around this stable, world-aligned anchor close to the face.
+    // Snap the look-at point onto the SNAP LATTICE, so the grid drawn in the
+    // viewport passes through the positions clicks actually land on. The
+    // rounding has to happen in the sketch plane's own (u,v) frame, because
+    // that is the frame both halves are defined in: SketchTool::snap() rounds
+    // sketch coordinates — measured from the PLANE ORIGIN along XDirection /
+    // YDirection — to multiples of the step, and the grid shader lays its
+    // lines at multiples of the step measured from this anchor.
+    //
+    // Rounding world XYZ and projecting onto the plane (what this did) is not
+    // the same thing: the projection of a world lattice point is not a lattice
+    // point in-plane, so the drawn grid ended up offset from the snap lattice
+    // by (plane origin mod step) — an arbitrary fraction of a cell, since a
+    // face's plane origin sits at whatever world coords the geometry put it.
+    // Measured offsets were 10–50% of a cell. At a 1 mm grid that reads as
+    // slightly-fat lines; at 0.1 mm it is most of a cell, i.e. "I can't draw a
+    // line on the snap grid" (Steve, 2026-07-31).
+    //
+    // The anchor doubles as the camera target, and staying on the lattice
+    // keeps that just as stable — it moves by at most half a cell.
     {
-        float step = std::max(m_sketchGridStep, 0.01f);
-        glm::vec3 rounded(std::round(lookAt.x / step) * step,
-                          std::round(lookAt.y / step) * step,
-                          std::round(lookAt.z / step) * step);
-        lookAt = rounded - normal * glm::dot(rounded - planeOrigin, normal);
+        gp_Pnt a = Sketch::latticeAnchor(
+            pln, gp_Pnt(lookAt.x, lookAt.y, lookAt.z),
+            static_cast<double>(std::max(m_sketchGridStep, 0.01f)));
+        lookAt = glm::vec3(static_cast<float>(a.X()), static_cast<float>(a.Y()),
+                           static_cast<float>(a.Z()));
     }
     m_sketchSnappedAnchor = lookAt;
 
