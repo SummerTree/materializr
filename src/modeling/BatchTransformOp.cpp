@@ -1,6 +1,10 @@
 #include "BatchTransformOp.h"
 
 #include <BRepBuilderAPI_GTransform.hxx>
+#include <BRepBuilderAPI_ModifyShape.hxx>
+#include <BRepBuilderAPI_Transform.hxx>
+#include <Standard_ErrorHandler.hxx> // OCC_CATCH_SIGNALS
+#include <memory>
 #include <cstdio>
 #include <cstdlib>
 #include <string>
@@ -8,8 +12,38 @@
 bool BatchTransformOp::execute(Document& doc) {
     if (m_bodyIds.empty()) return false;
     try {
+        // A kernel fault inside the transform below is otherwise FATAL: OCCT
+        // raises its signal-as-exception, finds no handler ("an exception was
+        // raised, but no catch was found") and aborts the process — the app
+        // vanishing mid-drag with no dialog. This macro arms the translation
+        // for the catch at the bottom, matching ShellOp / MoveFaceOp.
+        OCC_CATCH_SIGNALS
+
         m_previousShapes.clear();
         m_prevFaceIds.clear();
+        // A rigid or uniformly-scaled transform is a gp_Trsf, and gp_GTrsf
+        // remembers as much in Form(). It matters a great deal which builder
+        // gets used:
+        //
+        //   BRepBuilderAPI_GTransform::Perform runs BRepBuilderAPI_NurbsConvert
+        //   on the shape FIRST — unconditionally, whatever the transform is —
+        //   rebuilding every surface and pcurve as a NURBS. For a Move or a
+        //   Rotate that work is pure loss: it costs a full geometry rebuild per
+        //   body (Steve's multi-body drags logged 1.2 s main-loop stalls), it
+        //   discards analytic surfaces, and on geometry the converter can't
+        //   handle it dereferences null in NewCurve2d and takes the process
+        //   with it (Steve, 2026-07-31: "moving objects... is just outright
+        //   closing", SIGSEGV at address 0 under NewCurve2d).
+        //
+        //   BRepBuilderAPI_Transform relocates the shape instead — no rebuild,
+        //   nothing for the converter to choke on. It's what the single-body
+        //   TransformOp has always used, which is why moving ONE body was
+        //   instant and safe while moving two was neither.
+        //
+        // So only a genuinely affine transform (non-uniform scale) goes the
+        // GTransform route, where the conversion is actually required.
+        const bool rigid = (m_gtrsf.Form() != gp_Other);
+        const gp_Trsf rigidTrsf = rigid ? m_gtrsf.Trsf() : gp_Trsf();
         for (int id : m_bodyIds) {
             TopoDS_Shape before;
             try { before = doc.getBody(id); } catch (...) { continue; }
@@ -20,9 +54,20 @@ bool BatchTransformOp::execute(Document& doc) {
             materializr::topo::FaceIdMap inMap;
             if (const auto* im = doc.bodyFaceIds(id)) inMap = *im;
 
-            BRepBuilderAPI_GTransform tf(before, m_gtrsf, /*copy=*/true);
-            if (!tf.IsDone() || tf.Shape().IsNull()) return false;
-            TopoDS_Shape after = tf.Shape();
+            std::unique_ptr<BRepBuilderAPI_Transform>  rtf;
+            std::unique_ptr<BRepBuilderAPI_GTransform> gtf;
+            BRepBuilderAPI_ModifyShape* tf = nullptr;
+            if (rigid) {
+                rtf = std::make_unique<BRepBuilderAPI_Transform>(
+                    before, rigidTrsf, /*copy=*/true);
+                tf = rtf.get();
+            } else {
+                gtf = std::make_unique<BRepBuilderAPI_GTransform>(
+                    before, m_gtrsf, /*copy=*/true);
+                tf = gtf.get();
+            }
+            if (!tf->IsDone() || tf->Shape().IsNull()) return false;
+            TopoDS_Shape after = tf->Shape();
 
             m_previousShapes.push_back({id, before});
             m_prevFaceIds[id] = inMap;
@@ -32,7 +77,7 @@ bool BatchTransformOp::execute(Document& doc) {
                 materializr::topo::FaceIdMap moved;
                 for (const auto& e : inMap) {
                     try {
-                        TopoDS_Shape nf = tf.ModifiedShape(e.face);
+                        TopoDS_Shape nf = tf->ModifiedShape(e.face);
                         if (!nf.IsNull()) moved.push_back({nf, e.ids});
                     } catch (...) {}
                 }
@@ -41,6 +86,12 @@ bool BatchTransformOp::execute(Document& doc) {
         }
         return !m_previousShapes.empty();
     } catch (...) {
+        // Undo whatever landed before the failure, so a half-applied batch
+        // can't leave some bodies moved and others not.
+        try {
+            for (const auto& [id, shp] : m_previousShapes) doc.updateBody(id, shp);
+        } catch (...) {}
+        m_previousShapes.clear();
         return false;
     }
 }

@@ -520,6 +520,12 @@ add_executable(test_multibody_export test_multibody_export.cpp
 target_link_libraries(test_multibody_export PRIVATE materializr_core gtest gtest_main)
 add_test(NAME test_multibody_export COMMAND test_multibody_export)
 
+# test_batch_transform_builder — a multi-body Move/Rotate relocates the shapes
+# instead of NURBS-converting them (the GTransform path that crashed the app).
+add_executable(test_batch_transform_builder test_batch_transform_builder.cpp)
+target_link_libraries(test_batch_transform_builder PRIVATE materializr_core gtest gtest_main)
+add_test(NAME test_batch_transform_builder COMMAND test_batch_transform_builder)
+
 # test_grid_snap — with snap-to-grid on, clicks land on the lattice and the
 # drawn grid IS that lattice. Needs TextSketchOp/SvgImport stubs (in the test).
 add_executable(test_grid_snap test_grid_snap.cpp)
