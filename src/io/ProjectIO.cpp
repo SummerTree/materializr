@@ -1318,6 +1318,35 @@ ProjectLoadResult loadImpl(const std::string& filePath, Document& doc,
         // Unknown sections are ignored for forward compatibility.
     }
 
+    // A sketch can outlive the body it was drawn on: delete that body (or have
+    // an op consume it) and the sketch keeps the now-dead id. Nothing validated
+    // it, and two behaviours keyed off it silently went wrong — the toolbar
+    // offered Push/Pull and hid Extrude (attachment is an either/or), while
+    // PushPullOp took the fuse-into-existing path, failed doc.getBody() and
+    // SKIPPED the target, so push/pull appeared to do nothing at all.
+    //
+    // A sketch whose host is gone IS free-floating, so say so once here rather
+    // than re-deriving it at every consumer. Found in Steve's antenna tracker:
+    // Sketch 2 pointed at body 5 after a re-extrude brought the box back under
+    // a different id.
+    {
+        const std::vector<int> liveBodies = doc.getAllBodyIds();
+        for (int sid : doc.getAllSketchIds()) {
+            auto sk = doc.getSketch(sid);
+            if (!sk) continue;
+            const int host = sk->getSourceBody();
+            if (host < 0) continue;
+            if (std::find(liveBodies.begin(), liveBodies.end(), host) !=
+                liveBodies.end())
+                continue;
+            std::fprintf(stderr,
+                         "[ProjectIO] sketch %d was anchored to body %d, which "
+                         "no longer exists — treating it as free-floating.\n",
+                         sid, host);
+            sk->setSourceBody(-1);
+        }
+    }
+
     result.success = true;
     result.bodiesLoaded = loadedCount;
     return result;

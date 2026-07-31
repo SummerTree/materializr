@@ -177,6 +177,12 @@ void Application::touchUndo() {
 
 // ─── Tab UI helpers (shared by all three layouts' tab affordances) ──────────
 
+bool Application::bodyExists(int bodyId) const {
+    if (bodyId < 0 || !m_document) return false;
+    const auto ids = m_document->getAllBodyIds();
+    return std::find(ids.begin(), ids.end(), bodyId) != ids.end();
+}
+
 std::string Application::sessionDisplayLabel(size_t i) const {
     if (i >= m_sessions.size()) return "Untitled";
     // Same fallback chain as projectDisplayName(): explicit name → file

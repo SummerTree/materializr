@@ -6982,8 +6982,14 @@ void Application::run() {
                              e.type == SelectionType::SketchRegion) &&
                             e.sketchId >= 0) {
                             auto sk = m_document->getSketch(e.sketchId);
+                            // ...and the host must still EXIST. Attachment is
+                            // an either/or here (attached => Push/Pull, else
+                            // Extrude), so a stale id offered the one tool that
+                            // cannot work and hid the one that can — delete a
+                            // sketch's body and it still claimed to be attached.
                             if (sk && sk->getSourceBody() >= 0 &&
-                                !sk->isDetachedFromBody()) {
+                                !sk->isDetachedFromBody() &&
+                                bodyExists(sk->getSourceBody())) {
                                 s_selSketchAttached = true;
                                 break;
                             }

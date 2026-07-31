@@ -303,6 +303,11 @@ private:
     bool activateTabFor(size_t i);
     // Shared per-tab dropdown body: Save / Save As / Close Tab.
     void renderTabMenuItems(size_t i);
+    // Does this body id still resolve in the ACTIVE document? Document::getBody
+    // throws on a miss, and callers that only want a yes/no answer kept writing
+    // their own try/catch (or, worse, forgot to — see the sketch-attachment
+    // gating, which treated a dead id as "still attached").
+    bool bodyExists(int bodyId) const;
     // Create a fresh tab AND make it active; on a refused switch (mid-sketch
     // etc.) the just-created session is cleaned up again. False = nothing
     // happened (the refusal already toasted).

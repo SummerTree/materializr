@@ -39,11 +39,19 @@ public:
                 PushPullTarget t;
                 t.sketchId = e.sketchId;
                 t.regionIndex = e.subShapeIndex;
-                // Detached sketch = independent of its former host; don't
-                // fuse into the stale source body (see beginPushPull).
-                t.sourceBodyId = sketch->isDetachedFromBody()
-                                     ? -1
-                                     : sketch->getSourceBody();
+                // Detached sketch, OR one whose host body is gone: both are
+                // free-floating. Without the second check the target kept a
+                // dead id, PushPullOp took the fuse-into-existing branch, and
+                // its doc.getBody() failure `continue`d — the op silently did
+                // NOTHING rather than falling back to making a new body.
+                int host = sketch->isDetachedFromBody()
+                               ? -1
+                               : sketch->getSourceBody();
+                if (host >= 0) {
+                    try { (void)ctx.document().getBody(host); }
+                    catch (...) { host = -1; }
+                }
+                t.sourceBodyId = host;
                 t.profile = regions[e.subShapeIndex].face;
                 if (t.profile.IsNull()) continue;
                 m_targets.push_back(t);
