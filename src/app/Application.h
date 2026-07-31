@@ -303,6 +303,9 @@ private:
     bool activateTabFor(size_t i);
     // Shared per-tab dropdown body: Save / Save As / Close Tab.
     void renderTabMenuItems(size_t i);
+    // Render-pass split point: below this draws BEHIND the bodies (reference
+    // photos), at/above draws IN FRONT (construction planes, axes).
+    static constexpr int kBodyPassPriority = 500;
     // Does this body id still resolve in the ACTIVE document? Document::getBody
     // throws on a miss, and callers that only want a yes/no answer kept writing
     // their own try/catch (or, worse, forgot to — see the sketch-attachment

@@ -635,10 +635,13 @@ void Application::renderViewport() {
         // plane quads) draw between the grid/background and the body/edge
         // pass. PluginContext receives the same view+proj, and each pass'
         // initialize() ran in initRenderers so GL state is ready.
+        // Passes that draw BEHIND geometry. The reference photo (priority 490)
+        // belongs here: it is meant to be traced over.
         if (m_pluginContext) {
             for (auto& pass :
                  materializr::PluginRegistry::instance().renderPasses()) {
-                if (pass.render) pass.render(*m_pluginContext, view, proj);
+                if (pass.priority < kBodyPassPriority && pass.render)
+                    pass.render(*m_pluginContext, view, proj);
             }
         }
         // Section view: feed the clip plane to the body shader and refresh
@@ -739,6 +742,21 @@ void Application::renderViewport() {
         }
         m_shapeRenderer->render(view, proj, cam.getPosition());
         m_edgeRenderer->render(view, proj);
+        // Passes that draw IN FRONT — construction planes (500) and axes (501),
+        // which is what both already claim ("above body") but never got: the
+        // whole block ran before the bodies, and PlaneRenderer draws with
+        // glDepthMask(GL_FALSE). Correct for a transparent overlay, but it
+        // leaves no depth behind, so any body drawn afterwards passed the depth
+        // test and painted straight over it. A plane 2mm ABOVE a body therefore
+        // rendered as if it were UNDER it (Steve). Depth TEST is still on, so a
+        // plane genuinely behind a body stays correctly hidden.
+        if (m_pluginContext) {
+            for (auto& pass :
+                 materializr::PluginRegistry::instance().renderPasses()) {
+                if (pass.priority >= kBodyPassPriority && pass.render)
+                    pass.render(*m_pluginContext, view, proj);
+            }
+        }
         if (m_sectionView) m_sectionView->render(view, proj);
 
         // Render selection highlight (face/edge/body)
