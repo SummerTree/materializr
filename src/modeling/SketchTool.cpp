@@ -2085,9 +2085,38 @@ void SketchTool::handleArcTool(glm::vec2 pos) {
                 int existing = findCoincidentPoint(p, -1);
                 return (existing >= 0) ? existing : m_sketch->addPoint(p);
             };
-            int centerId = reuseOrAdd(center);
+            // ENDPOINTS weld — that is the point of clicking near existing
+            // geometry, and both were snapped before they got here, so the weld
+            // lands on the same point and moves nothing.
             int startId  = reuseOrAdd(start);
             int endId    = reuseOrAdd(end);
+
+            // The CENTRE must not. It is a DERIVED point (the circumcentre),
+            // not something the user aimed at, and welding it to whatever
+            // happens to sit within 0.3mm silently breaks the invariant the
+            // renderer draws with: it sweeps `arc.radius` about the centre
+            // POINT between the endpoint ANGLES, so the curve only touches its
+            // endpoints while |start-centre| == radius == |end-centre|. Welding
+            // moved the centre and left radius computed from the old one, so
+            // the arc placed itself a fraction off the ends it was anchored to
+            // — "shifts over and is no longer anchored" (Steve, 2026-07-30).
+            // Reuse only a point that IS the centre to within float noise,
+            // which keeps concentric geometry sharing a point without ever
+            // moving the arc.
+            int centerId = -1;
+            if (const int near = findCoincidentPoint(center, -1); near >= 0) {
+                if (const auto* np = m_sketch->getPoint(near))
+                    if (glm::length(np->pos - center) < 1e-4f) centerId = near;
+            }
+            if (centerId < 0) centerId = m_sketch->addPoint(center);
+
+            // Radius from the FINAL positions, not the pre-weld ones: if an
+            // endpoint did move, the stored radius has to move with it or the
+            // same detachment reappears from the other end.
+            if (const auto* cp = m_sketch->getPoint(centerId)) {
+                if (const auto* sp = m_sketch->getPoint(startId))
+                    radius = glm::length(sp->pos - cp->pos);
+            }
 
             // Store the endpoints in the order whose CCW sweep passes
             // through the user's MID click. addArc keeps only (center,
