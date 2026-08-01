@@ -66,11 +66,22 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(glm)
 
-# ImGui (docking branch)
+# ImGui (docking branch), pinned to a commit.
+#
+# GIT_TAG was `docking` — a BRANCH HEAD, so every configure resolved to whatever
+# that branch pointed at that day. ImGui is the entire UI and input layer,
+# compiled straight into the shipped binary, so an upstream force-push or a
+# merged malicious PR would land in the next release with no review step; and
+# two builds of the same Materializr tag could ship different ImGui, which makes
+# a release impossible to reproduce.
+#
+# This SHA is v1.92.9-docking-2, the commit the tree is already building and
+# testing against — pinning current reality, not a version change. Bump it
+# deliberately; keep it in step with android/app/jni/src/CMakeLists.txt.
 FetchContent_Declare(
     imgui
     GIT_REPOSITORY https://github.com/ocornut/imgui.git
-    GIT_TAG        docking
+    GIT_TAG        81cfcb8c1fed1e4dac8bcdc059ce811c17b6194c # v1.92.9-docking-2
 )
 FetchContent_MakeAvailable(imgui)
 
