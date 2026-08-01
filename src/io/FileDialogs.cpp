@@ -372,7 +372,12 @@ void FileDialogs::openFile(const std::string& title,
     // /home/user" and the picker lands at $HOME instead of inside
     // Documents. (Steve: "the dialog returns me to my home directory,
     // not the last folder".)
-    std::string seed = s_lastDir;
+    // Only seed with a directory that still EXISTS. macOS resolves it through
+    // `POSIX file ... as alias`, which fails outright on a stale path (a
+    // project opened from a volume that has since been unmounted), and that
+    // failure takes the whole dialog down silently — see the pfd patch and
+    // issue #74. Everywhere else an unseeded picker just opens at its default.
+    std::string seed = dlgIsDir(s_lastDir) ? s_lastDir : std::string();
     if (!seed.empty() && seed.back() != '/' && seed.back() != '\\') {
         seed += '/';
     }
@@ -404,8 +409,14 @@ void FileDialogs::saveFile(const std::string& title,
     // pfd's save_file wants a path-ish default — concat the last-used dir
     // with the supplied filename so the picker opens IN that folder with
     // the suggested filename already in the field.
+    //
+    // Only when that directory actually EXISTS, though. macOS splits this seed
+    // back into folder + name and asks AppleScript to resolve the folder; a
+    // stale lastDir (a project opened from a since-unmounted volume, say) would
+    // fail to resolve and take the whole dialog down with it. Falling back to
+    // the bare name just means the panel opens wherever the OS last was.
     std::string seed = defaultName;
-    if (!s_lastDir.empty()) {
+    if (!s_lastDir.empty() && dlgIsDir(s_lastDir)) {
         std::filesystem::path p(s_lastDir);
         if (!defaultName.empty()) p /= defaultName;
         seed = p.string();

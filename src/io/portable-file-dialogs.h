@@ -1049,8 +1049,51 @@ inline internal::file_dialog::file_dialog(type in_type,
                 break;
         }
 
-        if (default_path.size())
-            script += " default location " + osascript_quote(default_path);
+        // ---- LOCAL PATCH (materializr, issue #74) -------------------------
+        // Two upstream bugs, both of which end the same way: osascript errors
+        // out, result() returns an empty string, and an empty string is
+        // indistinguishable from the user cancelling — so the app appears to
+        // do nothing at all, with no dialog and no error.
+        //
+        //  1. `default location` takes an ALIAS. AppleScript will not coerce a
+        //     bare quoted POSIX path, which is all upstream ever passed, so it
+        //     has to be wrapped: POSIX file "..." as alias. (Apple's "Prompt
+        //     for a File Name" guide spells this out.) The caller must have
+        //     checked the directory exists — `as alias` fails on one that
+        //     doesn't; FileDialogs does that on our side.
+        //
+        //  2. A Save dialog's default path is "<dir>/<name.ext>" — a file that
+        //     does not exist yet, and not a location at all. Split it: folder
+        //     to `default location`, filename to `default name`, which upstream
+        //     never emitted, so the suggested name was dropped even when the
+        //     panel did open.
+        //
+        // Between them, macOS could not Save or Export at all, and Open would
+        // have broken too the moment the app remembered a folder to reopen in.
+        // Inert everywhere else — this branch is osascript-only.
+        {
+            std::string location = default_path, savename;
+            if (in_type == type::save)
+            {
+                auto slash = location.find_last_of("/\\");
+                if (slash != std::string::npos)
+                {
+                    savename = location.substr(slash + 1);
+                    location.resize(slash);
+                }
+                else
+                {
+                    savename = location;
+                    location.clear();
+                }
+            }
+            if (location.size())
+                script += " default location (POSIX file "
+                        + osascript_quote(location) + " as alias)";
+            if (savename.size())
+                script += " default name " + osascript_quote(savename);
+        }
+        // ---- end LOCAL PATCH ----------------------------------------------
         script += " with prompt " + osascript_quote(title);
 
         if (in_type == type::open)

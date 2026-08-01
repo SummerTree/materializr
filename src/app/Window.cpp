@@ -755,6 +755,20 @@ bool Window::isCtrlDown() {
     // multi-select uses the on-screen toggle instead); when an Android tablet has
     // a keyboard attached, hardware Ctrl (undo/redo, additive select) just works.
     const Uint8* state = SDL_GetKeyboardState(nullptr);
+#if defined(__APPLE__)
+    // Command counts as the shortcut modifier here, because it already does
+    // everywhere else in the app: ImGui turns on ConfigMacOSXBehaviors for
+    // __APPLE__ and then SWAPS Cmd and Ctrl in AddKeyEvent, so every shortcut
+    // reached through io.KeyCtrl (Save, Open, Import, Export, tab switching)
+    // is Cmd on a Mac. This function deliberately bypasses ImGui — it polls
+    // the hardware so undo/redo survive text-input focus — and therefore never
+    // saw that swap, leaving Undo/Redo/Select-All alone on physical Control.
+    // Reported by FlorianLoch (#74): "UI says Ctrl+O but it is actually bound
+    // to Cmd+O... this doesn't apply to all bindings. Undo and redo are indeed
+    // bound to Ctrl+Z and Ctrl+Y." Physical Ctrl keeps working too, so nobody
+    // used to the old behaviour loses it.
+    if (state[SDL_SCANCODE_LGUI] || state[SDL_SCANCODE_RGUI]) return true;
+#endif
     return state[SDL_SCANCODE_LCTRL] || state[SDL_SCANCODE_RCTRL];
 }
 
