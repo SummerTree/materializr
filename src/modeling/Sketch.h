@@ -8,6 +8,7 @@
 #include <TopoDS_Wire.hxx>
 #include <TopoDS_Face.hxx>
 #include <gp_Pln.hxx>
+#include <gp_Pnt.hxx>
 
 namespace materializr {
 
@@ -200,7 +201,7 @@ public:
     // Cleared when the sketch and body are moved together (re-linked).
     void setDetachedFromBody(bool d) { m_detached = d; }
     bool isDetachedFromBody() const { return m_detached; }
-    void setSourceFace(const TopoDS_Face& face) { m_sourceFace = face; m_centroidValid = false; }
+    void setSourceFace(const TopoDS_Face& face) { m_sourceFace = face; m_centroid3dValid = false; }
     const TopoDS_Face& getSourceFace() const { return m_sourceFace; }
 
     // Area centroid of the host face's outer wire, projected into sketch-plane
@@ -356,8 +357,15 @@ private:
     int m_nextConstraintId = 1;
     FaceReference m_faceRefs;
 
-    mutable bool m_centroidValid = false;
-    mutable glm::vec2 m_centroid{0};
+    // Cached in 3D, deliberately. The centroid belongs to the FACE, so its
+    // world position is fixed until the face itself is replaced; only its
+    // sketch-2D coordinates depend on the plane. Caching the 2D value meant a
+    // plane change silently invalidated it — and setPlane is exactly what
+    // moving a sketch does, so the centre marker (and the snap that follows it)
+    // stayed behind by the distance moved. Projecting on read is two dot
+    // products; recomputing the centroid is a BRepGProp pass over the face.
+    mutable bool m_centroid3dValid = false;
+    mutable gp_Pnt m_centroid3d;
 
     // buildRegions cache (see the public declaration for rationale).
     mutable std::vector<Region> m_regionCache;

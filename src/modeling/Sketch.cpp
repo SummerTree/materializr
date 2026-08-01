@@ -2003,29 +2003,38 @@ bool Sketch::isPointInOrNearRegion(const Region& region, glm::vec2 p, float tol)
 
 bool Sketch::getSourceFaceCentroid(glm::vec2& out) const {
     if (m_sourceFace.IsNull()) return false;
-    if (m_centroidValid) { out = m_centroid; return true; }
 
     // Let OCCT compute the true area centroid (centre of mass for a uniform
     // density surface). Doing this ourselves from densified polygon vertices is
     // fragile for faces whose outer wire has any reversed edges — the resulting
     // vertex sequence is scrambled and the polygon-area formula returns garbage.
-    try {
-        GProp_GProps props;
-        BRepGProp::SurfaceProperties(m_sourceFace, props);
-        if (props.Mass() <= 0.0) return false;
-        gp_Pnt c3d = props.CentreOfMass();
-        // Project to sketch-plane 2D coordinates.
-        const gp_Ax3& ax = m_plane.Position();
-        gp_Pnt origin = ax.Location();
-        gp_Dir xd = ax.XDirection();
-        gp_Dir yd = ax.YDirection();
-        gp_Vec v(origin, c3d);
-        m_centroid = glm::vec2(static_cast<float>(v.Dot(gp_Vec(xd))),
-                               static_cast<float>(v.Dot(gp_Vec(yd))));
-        m_centroidValid = true;
-        out = m_centroid;
-        return true;
-    } catch (...) { return false; }
+    //
+    // NOTE this is the centroid of the TRIMMED face, so holes count: an
+    // off-centre pocket pulls the point away from itself. That is what a centre
+    // of mass means, and it is what the green centre marker shows.
+    if (!m_centroid3dValid) {
+        try {
+            GProp_GProps props;
+            BRepGProp::SurfaceProperties(m_sourceFace, props);
+            if (props.Mass() <= 0.0) return false;
+            m_centroid3d = props.CentreOfMass();
+            m_centroid3dValid = true;
+        } catch (...) { return false; }
+    }
+
+    // Project to sketch-plane 2D on every call rather than caching the 2D
+    // result. The centroid belongs to the face, so its world position holds
+    // until the face is replaced (setSourceFace clears the cache) — but its
+    // 2D coordinates are relative to the PLANE, and the plane moves whenever
+    // the sketch is moved. Caching the 2D value left the centre marker (and
+    // the snap that follows it) behind by exactly the distance moved, since
+    // setPlane has no way to know the cache existed. Two dot products per call
+    // is nothing next to the BRepGProp pass this still avoids.
+    const gp_Ax3& ax = m_plane.Position();
+    gp_Vec v(ax.Location(), m_centroid3d);
+    out = glm::vec2(static_cast<float>(v.Dot(gp_Vec(ax.XDirection()))),
+                    static_cast<float>(v.Dot(gp_Vec(ax.YDirection()))));
+    return true;
 }
 
 int Sketch::elementCount() const {
