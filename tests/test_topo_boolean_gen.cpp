@@ -22,6 +22,7 @@
 #include <gp_Pln.hxx>
 #include <cmath>
 #include <memory>
+#include "test_tmp_path.h"
 
 using materializr::Sketch;
 using namespace materializr;
@@ -333,7 +334,7 @@ TEST(TopoBooleanGen, ReloadedSeamFilletFollowsEdit) {
     st.params = fil.serializeParams();
     st.changed = {{bodyA, doc.getBody(bodyA)}};
     hist.steps = {st};
-    const std::string path = "/tmp/mtz_seam_roundtrip.materializr";
+    const std::string path = mzrtest::tmpPath("mtz_seam_roundtrip.materializr");
     ASSERT_TRUE(ProjectIO::save(path, doc, &hist).success);
     Document scratch;
     ProjectHistory loaded;

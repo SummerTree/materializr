@@ -46,6 +46,7 @@
 #include <functional>
 #include <memory>
 #include <vector>
+#include "test_tmp_path.h"
 
 namespace {
 
@@ -195,7 +196,7 @@ TEST(ReloadEdit, FilletSurvivesRealFileRoundTrip) {
     ASSERT_FALSE(st.params.empty()) << "fillet must serialise params to save";
 
     // 3. Save to a temp file, then load it back into a fresh doc/history.
-    const std::string path = "/tmp/mtz_fillet_roundtrip.materializr";
+    const std::string path = mzrtest::tmpPath("mtz_fillet_roundtrip.materializr");
     ASSERT_TRUE(ProjectIO::save(path, src, &hist).success);
 
     Document doc;
@@ -292,7 +293,7 @@ TEST(ReloadEdit, MoveHoleSurvivesRealFileRoundTrip) {
     hist.steps     = {st};
     ASSERT_FALSE(st.params.empty()) << "move-hole must serialise params to save";
 
-    const std::string path = "/tmp/mtz_movehole_roundtrip.materializr";
+    const std::string path = mzrtest::tmpPath("mtz_movehole_roundtrip.materializr");
     ASSERT_TRUE(ProjectIO::save(path, src, &hist).success);
     Document doc;
     ProjectHistory loaded;

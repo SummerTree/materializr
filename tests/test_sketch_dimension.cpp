@@ -8,6 +8,7 @@
 #include <gtest/gtest.h>
 #include <glm/glm.hpp>
 #include <cmath>
+#include "test_tmp_path.h"
 
 using materializr::Constraint;
 using materializr::ConstraintType;
@@ -379,10 +380,12 @@ using materializr::ProjectIO;
 namespace {
 
 std::string tmpProjectPath(const char* name) {
-    const char* t = std::getenv("TMPDIR");
-    std::string dir = t ? t : "/tmp";
-    if (!dir.empty() && dir.back() != '/') dir += '/';
-    return dir + name;
+    // temp_directory_path() honours TMPDIR on POSIX and TEMP/TMP on Windows.
+    // The previous "/tmp" fallback was an unwritable path on Windows, so
+    // ProjectIO::save failed and the ASSERT_TRUE(...success) below reported it
+    // as a persistence bug (DimensionPersistence.KLineRoundTripsTypeAndLabelOffsets,
+    // the first failure Windows CI ever caught).
+    return mzrtest::tmpPath(name);
 }
 
 } // namespace
