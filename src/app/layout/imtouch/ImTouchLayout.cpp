@@ -511,10 +511,16 @@ void Application::renderImTouchLayout() {
                         bool sgone = false;
                         if (act.rightClicked) ImGui::OpenPopup("sketchCtx");
                         if (ImGui::BeginPopup("sketchCtx")) {
-                            if (ImGui::MenuItem("Rename"))
+                            // The sketch currently being drawn: renaming or
+                            // deleting it out from under the tool that's still
+                            // writing to it leaves m_activeSketchId stale and
+                            // silently re-loses the geometry the mid-edit save
+                            // just protected.
+                            bool isBeingDrawn = m_inSketchMode && id == m_activeSketchId;
+                            if (ImGui::MenuItem("Rename", nullptr, false, !isBeingDrawn))
                                 startRename(1000000 + id,
                                             m_document->getSketchName(id));
-                            if (ImGui::MenuItem("Delete")) {
+                            if (ImGui::MenuItem("Delete", nullptr, false, !isBeingDrawn)) {
                                 m_document->removeSketch(id);
                                 if (m_selection) m_selection->clear();
                                 sgone = true;

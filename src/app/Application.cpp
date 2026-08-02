@@ -3307,8 +3307,19 @@ void Application::flushActiveSketchToDocument() {
     markDirty();
 }
 
+// Call ONLY after ProjectIO::save() reports success. The crash-recovery draft
+// is a promise "if we crash, restore this" — clearing it here, not inside
+// flushActiveSketchToDocument(), means a failed/interrupted disk write still
+// leaves the draft in place to recover from. Clearing it right after the
+// in-memory Document registration (the original shape of this fix) deleted
+// the sole recovery copy before the sketch was durably on disk at all.
+void Application::acknowledgeSketchDraftCommitted() {
+    if (!m_inSketchMode || !m_activeSketch || m_activeSketchId < 0) return;
+    materializr::clearSketchDraft();
+    m_lastDraftElemCount = -1;
+}
+
 void Application::saveProject() {
-    flushActiveSketchToDocument();
     // Seed the picker with the CURRENT project's name (a resave keeps its
     // name instead of silently reverting to "project.materializr").
     std::string suggest = m_currentProjectName;
@@ -3328,6 +3339,12 @@ void Application::saveProject() {
         {{"Materializr Project", "*.mzr *.materializr"}, {"All Files", "*"}},
         [this](const std::string& chosenPath) {
             if (chosenPath.empty()) return;
+            // Only commit the in-progress sketch once the user has actually
+            // confirmed a destination — flushing before the picker opened
+            // meant merely opening-then-cancelling Save As permanently
+            // registered the sketch and flipped the dirty flag with no file
+            // ever written.
+            flushActiveSketchToDocument();
             std::string path = chosenPath;
 #if !defined(MZ_MOBILE)
             // Keep a project extension. The file is gzip-compressed, so
@@ -3347,6 +3364,18 @@ void Application::saveProject() {
             auto result = ProjectIO::save(path, *m_document, &hist,
                                           thumb.empty() ? nullptr : &thumb);
             if (result.success) {
+#if !defined(MZ_MOBILE)
+                // On mobile (Android SAF / iOS export sheet) `path` here is
+                // only a temp cache file — FileDialogs::poll() commits it to
+                // the user's actual chosen document in a SEPARATE step
+                // AFTER this callback returns (mobileCommitSave(), whose
+                // result isn't even threaded back here). Clearing the
+                // recovery draft on this "success" would delete the only
+                // recovery copy before the real destination write has even
+                // been attempted. Desktop has no such gap: `path` IS the
+                // final destination and this write is durable.
+                acknowledgeSketchDraftCommitted();
+#endif
                 m_currentProjectPath = path;
                 m_currentProjectName =
                     std::filesystem::path(path).filename().string();
@@ -3428,6 +3457,7 @@ void Application::saveProjectQuick() {
                                       thumb.empty() ? nullptr : &thumb);
         if (result.success &&
             materializr::mobileCommitSaveToRef(m_currentProjectPath, tmp)) {
+            acknowledgeSketchDraftCommitted();
             markSaved();
             saveAppSettings();
             cacheProjectThumbnail(m_currentProjectPath, thumb);
@@ -3450,6 +3480,7 @@ void Application::saveProjectQuick() {
     auto result = ProjectIO::save(m_currentProjectPath, *m_document, &hist,
                                   thumb.empty() ? nullptr : &thumb);
     if (result.success) {
+        acknowledgeSketchDraftCommitted();
         markSaved();
         saveAppSettings(); // persist lastProjectPath for auto-open
         cacheProjectThumbnail(m_currentProjectPath, thumb);
@@ -6905,6 +6936,11 @@ void Application::run() {
         // viewport (NoBringToFrontOnFocus) and its panels aren't submitted, so
         // it's invisible — it only preserves the node tree.
         renderDockspace();
+        // Synced unconditionally, once per frame, before any layout reads it —
+        // ItemsPanel's Delete/Edit-Sketch/Combine gating on the sketch being
+        // drawn must never see a stale value from a frame where the panel (or
+        // a different layout) didn't render.
+        if (m_itemsPanel) m_itemsPanel->setActiveSketchContext(m_inSketchMode, m_activeSketchId);
         // Per-layout chrome (src/app/layout/<name>/). A new layout gets a case
         // here; everything below this dispatch is layout-agnostic or gated on
         // the layout helpers. While the landing page is up the modern and
@@ -7308,10 +7344,11 @@ void Application::run() {
                     m_meshesDirty = true;
                 }
 
-                if (classicLayout() && !landingPageUp() && m_showItems &&
-                    m_itemsPanel->render()) {
-                    m_hoveredBodyId = -1;
-                    m_meshesDirty = true;
+                if (classicLayout() && !landingPageUp() && m_showItems) {
+                    if (m_itemsPanel->render()) {
+                        m_hoveredBodyId = -1;
+                        m_meshesDirty = true;
+                    }
                 }
                 m_propertiesPanel->setSketchContext(
                     m_inSketchMode, m_activeSketch.get(), m_activeSketchId,
