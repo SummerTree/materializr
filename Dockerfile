@@ -53,10 +53,28 @@ RUN mkdir -p build && cd build \
         -DMZR_OCCT_PREFIX=/usr/local \
     && make -j$(nproc)
 
-# Download appimagetool
+# appimagetool — pinned tag + per-arch sha256, same treatment as OCCT above.
+#
+# This was `continuous`: a rolling tag upstream force-updates, downloaded with
+# no integrity check and then EXECUTED to package every shipped Linux release.
+# Anyone able to publish to that tag (or interpose on the download) could inject
+# into the AppImage users install, and nothing in the pipeline would notice.
+#
+# 1.9.1 is the current stable release, and is byte-identical to what
+# `continuous` serves today — so this pins the behaviour we already have rather
+# than changing versions. Bumping is then a deliberate, reviewable diff.
+ARG APPIMAGETOOL_VERSION=1.9.1
+ARG APPIMAGETOOL_SHA256_X86_64=ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0
+ARG APPIMAGETOOL_SHA256_AARCH64=f0837e7448a0c1e4e650a93bb3e85802546e60654ef287576f46c71c126a9158
 RUN ARCH=$(uname -m) \
-    && wget -q "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${ARCH}.AppImage" \
+    && case "$ARCH" in \
+         x86_64)  AIT_SHA="$APPIMAGETOOL_SHA256_X86_64" ;; \
+         aarch64) AIT_SHA="$APPIMAGETOOL_SHA256_AARCH64" ;; \
+         *) echo "no pinned appimagetool checksum for arch $ARCH" >&2; exit 1 ;; \
+       esac \
+    && wget -q "https://github.com/AppImage/appimagetool/releases/download/${APPIMAGETOOL_VERSION}/appimagetool-${ARCH}.AppImage" \
         -O /usr/local/bin/appimagetool \
+    && echo "${AIT_SHA}  /usr/local/bin/appimagetool" | sha256sum -c - \
     && chmod +x /usr/local/bin/appimagetool
 
 # ─── Create AppDir structure ────────────────────────────────────────────────

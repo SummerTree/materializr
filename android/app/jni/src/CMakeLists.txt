@@ -30,7 +30,11 @@ set(OCCT_LIB "${OCCT_ROOT}/lib")
 
 # ── ImGui (docking) + GLM, same versions as the desktop build ────────────────
 include(FetchContent)
-FetchContent_Declare(imgui GIT_REPOSITORY https://github.com/ocornut/imgui.git GIT_TAG docking)
+# Pinned to a commit, not the `docking` branch head — see the rationale in the
+# top-level CMakeLists.txt. Keep this SHA in step with that one so desktop and
+# Android build the same ImGui.
+FetchContent_Declare(imgui GIT_REPOSITORY https://github.com/ocornut/imgui.git
+                     GIT_TAG 81cfcb8c1fed1e4dac8bcdc059ce811c17b6194c) # v1.92.9-docking-2
 FetchContent_MakeAvailable(imgui)
 FetchContent_Declare(glm GIT_REPOSITORY https://github.com/g-truc/glm.git GIT_TAG 1.0.1)
 FetchContent_MakeAvailable(glm)

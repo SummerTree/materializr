@@ -59,14 +59,19 @@ const gp_Pln& Sketch::getPlane() const {
     return m_plane;
 }
 
-gp_Pnt Sketch::latticeAnchor(const gp_Pln& plane, const gp_Pnt& near,
+// NB: the point parameter is `nearPt`, not `near`. <windef.h> still defines
+// `near` (and `far`) as empty macros from the 16-bit memory-model days, so on
+// MSVC a parameter called `near` is erased: `return near;` becomes `return ;`
+// and `gp_Vec rel(o, near)` becomes `gp_Vec rel(o, )`. The build breaks with a
+// pile of errors that never mention the macro.
+gp_Pnt Sketch::latticeAnchor(const gp_Pln& plane, const gp_Pnt& nearPt,
                              double step) {
-    if (step <= 0.0) return near;
+    if (step <= 0.0) return nearPt;
     const gp_Ax3& ax = plane.Position();
     const gp_Pnt o = ax.Location();
     const gp_Dir xd = ax.XDirection();
     const gp_Dir yd = ax.YDirection();
-    const gp_Vec rel(o, near);
+    const gp_Vec rel(o, nearPt);
     const double u = std::round(rel.Dot(gp_Vec(xd)) / step) * step;
     const double v = std::round(rel.Dot(gp_Vec(yd)) / step) * step;
     return gp_Pnt(o.X() + u * xd.X() + v * yd.X(),
