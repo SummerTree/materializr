@@ -235,6 +235,9 @@ private:
     void saveProject();
     std::string projectDisplayName() const;    // name or basename or "New project"         // Save dialog (Save As behavior)
     void saveProjectQuick();    // Save to current path if known, else falls through to saveProject
+    // Register the sketch currently being drawn into the Document so a save
+    // taken mid-sketch actually contains it. Idempotent; see the definition.
+    void flushActiveSketchToDocument();
     // Render the "home view" of the project (visible bodies only — no
     // sketches, planes, axes, grid or overlays; reset isometric camera,
     // zoom-fit) into an offscreen 512px square and PNG-encode it. Embedded

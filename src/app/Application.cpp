@@ -3283,7 +3283,32 @@ std::string Application::projectDisplayName() const {
     return pn;
 }
 
+// A save taken while a sketch is being drawn must not lose that sketch.
+//
+// m_activeSketch is a live shared_ptr the Document does not know about until
+// sketch mode ENDS (the registration in exitSketchMode). Saving straight from
+// sketch mode therefore serialised SKETCH_COUNT 0 — the geometry was simply
+// absent from the file — and the accompanying SketchEditOp step serialised with
+// no params, because SketchEditOp::serializeWithDocument resolves its target via
+// Document::findSketchId, which cannot resolve an unregistered pointer. The
+// result reloaded as a frozen ReplayOp that reproduces nothing. Drawing a circle
+// and pressing Ctrl+S was enough to lose it.
+//
+// Registering here rather than force-finishing the sketch is deliberate: a save
+// should never change what the user is editing, and they stay in sketch mode.
+// exitSketchMode stays correct afterwards — its add is guarded on
+// m_activeSketchId < 0, so it will not add the same sketch twice, and its
+// "existing sketch emptied during this edit" branch still removes it.
+void Application::flushActiveSketchToDocument() {
+    if (!m_document || !m_activeSketch) return;
+    if (m_activeSketchId >= 0) return;                // already in the Document
+    if (m_activeSketch->elementCount() == 0) return;  // nothing worth keeping
+    m_activeSketchId = m_document->addSketch(m_activeSketch);
+    markDirty();
+}
+
 void Application::saveProject() {
+    flushActiveSketchToDocument();
     // Seed the picker with the CURRENT project's name (a resave keeps its
     // name instead of silently reverting to "project.materializr").
     std::string suggest = m_currentProjectName;
@@ -3381,6 +3406,7 @@ void Application::saveProject() {
 }
 
 void Application::saveProjectQuick() {
+    flushActiveSketchToDocument();
     // An explicit save expresses "keep what's committed" — captureProjectHistory
     // cancels any live preview first, so a mid-preview save can't persist the
     // preview body and its phantom history step. (Historically that leaked and
