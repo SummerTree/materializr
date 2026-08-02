@@ -125,7 +125,9 @@ public:
     // arbitrary fraction of a cell in-plane. Anything that has to agree with
     // where clicks land — above all the grid the viewport DRAWS — must round
     // here rather than roll its own.
-    static gp_Pnt latticeAnchor(const gp_Pln& plane, const gp_Pnt& near,
+    // `nearPt`, not `near` — <windef.h> defines `near` as an empty macro, which
+    // silently erases the parameter on MSVC. See the definition in Sketch.cpp.
+    static gp_Pnt latticeAnchor(const gp_Pln& plane, const gp_Pnt& nearPt,
                                 double step);
 
     // Element removal
