@@ -442,6 +442,18 @@ if(MSVC)
     target_compile_definitions(materializr PRIVATE
         _USE_MATH_DEFINES NOMINMAX WIN32_LEAN_AND_MEAN)
     target_compile_options(materializr PRIVATE /bigobj)
+    # /EHa (asynchronous exceptions): the OCC_CONVERT_SIGNALS comment below
+    # assumed this was already on ("throws from the signal handler natively")
+    # but nothing ever actually passed it, so MSVC's default /EHsc only catches
+    # synchronous C++ throws — a hardware fault deep in OCCT (e.g. reading a
+    # truncated BREP file) surfaces as a raw SEH exception that skips every
+    # OCC_CATCH_SIGNALS/try-catch in this codebase entirely (only gtest's own
+    # SEH-aware runner caught it, reporting a failed test instead of OCCT's
+    # handler converting it to a catchable Standard_Failure). Global, via
+    # add_compile_options (not target_compile_options), so it also reaches
+    # every test executable in tests/ added below — those hit the same OCCT
+    # code paths and need the same fault-to-exception conversion.
+    add_compile_options(/EHa)
 endif()
 
 if(APPLE)
