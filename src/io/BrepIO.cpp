@@ -12,6 +12,10 @@
 #include <TopoDS_Iterator.hxx>
 #include <gp_Trsf.hxx>
 
+#if defined(_MSC_VER)
+#include <excpt.h>   // EXCEPTION_EXECUTE_HANDLER for readShapeGuarded
+#endif
+
 #include <cstdint>
 #include <fstream>
 #include <sstream>
@@ -179,23 +183,33 @@ bool brepHeaderCountsSane(const std::string& filePath, std::string& why) {
 // does not cover this path there, so the app died with the user's unsaved work.
 //
 // __try/__except catches it deterministically, which is the same containment
-// OSD gives us on Linux. It lives in its own leaf function because MSVC refuses
-// __try in a frame that needs C++ unwinding (C2712); the parameters are
-// references, so nothing here has a destructor to unwind.
+// OSD gives us on Linux.
+//
+// The call has to sit in its OWN function, one level down. MSVC rejects __try
+// in any frame that needs C++ unwinding (C2712), and it is not enough for the
+// parameters to be references: BRepTools::Read takes a defaulted
+// Message_ProgressRange, so calling it materialises a temporary with a
+// destructor in the caller's frame. Pushing the call into readShapeRaw leaves
+// the __try frame holding nothing but the call itself.
 //
 // Recovering from an access violation is a last line of defence, not a licence
 // to be careless — the guard above is what should keep us out of here. The
 // shape is discarded on this path, so nothing half-built escapes.
+static bool readShapeRaw(TopoDS_Shape& shape, const char* path,
+                         BRep_Builder& builder) {
+    return BRepTools::Read(shape, path, builder) == Standard_True;
+}
+
 static bool readShapeGuarded(TopoDS_Shape& shape, const char* path,
                              BRep_Builder& builder) {
 #if defined(_MSC_VER)
     __try {
-        return BRepTools::Read(shape, path, builder) == Standard_True;
+        return readShapeRaw(shape, path, builder);
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         return false;
     }
 #else
-    return BRepTools::Read(shape, path, builder) == Standard_True;
+    return readShapeRaw(shape, path, builder);
 #endif
 }
 
