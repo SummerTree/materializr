@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <fstream>
 #include <sstream>
+#include <vector>
 #include <string>
 
 #ifndef M_PI
@@ -99,12 +100,41 @@ bool brepHeaderCountsSane(const std::string& filePath, std::string& why) {
     // header run. Scan line-by-line; a section count can never exceed the file
     // size in bytes, so that's the reject threshold (generous — real records
     // are far bigger than a byte, so this never trips a valid file).
+    //
+    // A byte bound alone is not enough, though. A count that is small and
+    // plausible but larger than the data actually present is just as fatal:
+    // "TShapes 3" with no shape records behind it walks the reader off the end
+    // of a table it never populated and it dereferences the garbage —
+    //
+    //   #0 TopTools_ShapeSet::Read(TopoDS_Shape&, istream&, int)   <- SIGSEGV
+    //   #1 TopTools_ShapeSet::Read(istream&, Message_ProgressRange&)
+    //   #2 BRepTools::Read(...)
+    //
+    // — which on Linux is caught by OSD's signal translation but on Windows is
+    // an uncatchable SEH access violation that kills the process (verified on
+    // CI with the app's own OSD::SetSignal in place; see readShapeGuarded).
+    // Worse, it faults only sometimes, depending on what that memory holds.
+    //
+    // So bound each count by the LINES remaining after it as well. Every record
+    // in the ASCII format is newline-terminated, and the multi-line ones (a
+    // TShape spans several) only make this more conservative — a section
+    // claiming N records needs at least N more lines in the file, whatever
+    // those records are. That is a lower bound no valid file can violate, so it
+    // costs no legitimate file, and it is the check that catches the crash.
     static const char* kKeywords[] = {
         "Locations", "Curve2ds", "Curves", "Polygon3D",
         "PolygonOnTriangulations", "Surfaces", "Triangulations", "TShapes",
     };
+    struct Declared {
+        const char* keyword;
+        unsigned long long count;
+        std::uintmax_t afterLine;   // 1-based index of the line it appeared on
+    };
+    std::vector<Declared> declared;
+    std::uintmax_t lineNo = 0;
     std::string line;
     while (std::getline(in, line)) {
+        ++lineNo;
         for (const char* kw : kKeywords) {
             const std::size_t klen = std::char_traits<char>::length(kw);
             if (line.compare(0, klen, kw) != 0) continue;
@@ -118,10 +148,55 @@ bool brepHeaderCountsSane(const std::string& filePath, std::string& why) {
                       " count — refusing (likely a malformed/hostile file)";
                 return false;
             }
+            if (count > 0) declared.push_back({kw, count, lineNo});
             break;
         }
     }
+
+    // lineNo is now the file's total line count.
+    for (const Declared& d : declared) {
+        const std::uintmax_t remaining =
+            (lineNo > d.afterLine) ? (lineNo - d.afterLine) : 0;
+        if (d.count > remaining) {
+            why = std::string("BREP file is truncated: the header declares ") +
+                  std::to_string(d.count) + " " + d.keyword +
+                  " but only " + std::to_string(remaining) +
+                  " lines follow — refusing";
+            return false;
+        }
+    }
     return true;
+}
+
+// BRepTools::Read behind a fault barrier.
+//
+// BrepIO::import already runs under OCC_CATCH_SIGNALS + catch(...), and on
+// Linux that is enough: a fault inside the reader arrives as a catchable
+// Standard_Failure ("SIGSEGV 'segmentation violation' detected. Address 18.").
+// On Windows it is NOT. Measured on CI with OSD::SetSignal(Standard_False)
+// installed exactly as the app does at startup, a malformed file still ended
+// the process with "SEH exception with code 0xc0000005" — OCCT's translation
+// does not cover this path there, so the app died with the user's unsaved work.
+//
+// __try/__except catches it deterministically, which is the same containment
+// OSD gives us on Linux. It lives in its own leaf function because MSVC refuses
+// __try in a frame that needs C++ unwinding (C2712); the parameters are
+// references, so nothing here has a destructor to unwind.
+//
+// Recovering from an access violation is a last line of defence, not a licence
+// to be careless — the guard above is what should keep us out of here. The
+// shape is discarded on this path, so nothing half-built escapes.
+static bool readShapeGuarded(TopoDS_Shape& shape, const char* path,
+                             BRep_Builder& builder) {
+#if defined(_MSC_VER)
+    __try {
+        return BRepTools::Read(shape, path, builder) == Standard_True;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+#else
+    return BRepTools::Read(shape, path, builder) == Standard_True;
+#endif
 }
 
 } // namespace
@@ -138,7 +213,7 @@ ImportResult BrepIO::import(const std::string& filePath, Document& doc) {
         }
         TopoDS_Shape shape;
         BRep_Builder builder;
-        if (!BRepTools::Read(shape, filePath.c_str(), builder)) {
+        if (!readShapeGuarded(shape, filePath.c_str(), builder)) {
             result.errorMessage = "Failed to read BREP file: " + filePath;
             return result;
         }
