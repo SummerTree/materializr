@@ -344,7 +344,14 @@ bool ItemsPanel::renderContent() {
                 }
 
                 if (ImGui::BeginPopupContextItem("SketchContextMenu")) {
-                    if (ImGui::MenuItem("Edit Sketch")) {
+                    // The sketch currently being drawn: Edit Sketch would
+                    // re-enter it mid-edit (clobbering the live solver/undo
+                    // floor) and Delete would remove it from under the tool
+                    // that's still writing to it, silently reverting its
+                    // m_activeSketchId to stale and re-losing the geometry
+                    // this same save path exists to protect.
+                    bool isBeingDrawn = m_sketchModeActive && id == m_activeSketchId;
+                    if (ImGui::MenuItem("Edit Sketch", nullptr, false, !isBeingDrawn)) {
                         if (m_editSketch) m_editSketch(id);
                     }
                     if (ImGui::MenuItem("Export as SVG…")) {
@@ -362,8 +369,15 @@ bool ItemsPanel::renderContent() {
                     // Fold every OTHER coplanar sketch into this one (the app
                     // filters to the ones sharing this sketch's plane). Only
                     // offered when there's more than one sketch to fold.
+                    //
+                    // Pulls in EVERY other sketch id, so if the active sketch
+                    // is registered at all it gets swept into the fold no
+                    // matter which row is clicked — gate on that, not just
+                    // whether this row IS the active sketch.
+                    bool activeSketchInvolved = m_sketchModeActive && m_activeSketchId >= 0;
                     if (sketchIds.size() > 1 &&
-                        ImGui::MenuItem("Combine coplanar into this")) {
+                        ImGui::MenuItem("Combine coplanar into this", nullptr, false,
+                                        !activeSketchInvolved)) {
                         if (m_combineSketches) {
                             std::vector<int> ids{ id };
                             for (int other : sketchIds)
@@ -371,10 +385,10 @@ bool ItemsPanel::renderContent() {
                             m_combineSketches(ids);
                         }
                     }
-                    if (ImGui::MenuItem("Rename")) {
+                    if (ImGui::MenuItem("Rename", nullptr, false, !isBeingDrawn)) {
                         beginRename();
                     }
-                    if (ImGui::MenuItem("Delete")) {
+                    if (ImGui::MenuItem("Delete", nullptr, false, !isBeingDrawn)) {
                         m_document->removeSketch(id);
                         if (m_selection) m_selection->clear();
                         m_renamingId = -1;

@@ -18,6 +18,15 @@ public:
     void setDocument(Document* doc);
     void setSelectionManager(SelectionManager* sel);
     void setHistory(History* hist);
+    // The sketch currently being drawn, if any, can appear as a normal row
+    // here the moment a mid-edit save registers it with the Document — but
+    // it's still live in Application::m_activeSketch, uncoordinated with this
+    // panel. Delete/Edit Sketch on that row would desync the two (stale
+    // m_activeSketchId, clobbered undo floor); gate them while it's active.
+    void setActiveSketchContext(bool inSketchMode, int activeSketchId) {
+        m_sketchModeActive = inSketchMode;
+        m_activeSketchId = activeSketchId;
+    }
 
     // True if the panel was hovered last frame — the touch input layer uses this
     // to arm long-press (right-click) over the panel's rows for their context
@@ -99,6 +108,8 @@ private:
     std::function<void(int)> m_duplicateSketch;
     std::function<void(const std::vector<int>&)> m_combineSketches;
     std::function<void(int)> m_rotatePlane;
+    bool m_sketchModeActive = false;
+    int m_activeSketchId = -1;
     int m_renamingId = -1;
     char m_renameBuffer[128] = {};
     // Selected body ids, rebuilt once at the top of render() — renderBodyRow

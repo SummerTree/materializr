@@ -238,6 +238,10 @@ private:
     // Register the sketch currently being drawn into the Document so a save
     // taken mid-sketch actually contains it. Idempotent; see the definition.
     void flushActiveSketchToDocument();
+    // Call after a save that included a flushed sketch actually succeeds on
+    // disk — drops the now-redundant crash-recovery draft. See the definition
+    // for why this is separate from flushActiveSketchToDocument().
+    void acknowledgeSketchDraftCommitted();
     // Render the "home view" of the project (visible bodies only — no
     // sketches, planes, axes, grid or overlays; reset isometric camera,
     // zoom-fit) into an offscreen 512px square and PNG-encode it. Embedded
