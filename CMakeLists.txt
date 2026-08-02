@@ -66,7 +66,7 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(glm)
 
-# ImGui (docking branch), pinned to a commit.
+# ImGui (docking), pinned to a RELEASE TAG.
 #
 # GIT_TAG was `docking` — a BRANCH HEAD, so every configure resolved to whatever
 # that branch pointed at that day. ImGui is the entire UI and input layer,
@@ -75,13 +75,25 @@ FetchContent_MakeAvailable(glm)
 # two builds of the same Materializr tag could ship different ImGui, which makes
 # a release impossible to reproduce.
 #
-# This SHA is v1.92.9-docking-2, the commit the tree is already building and
-# testing against — pinning current reality, not a version change. Bump it
-# deliberately; keep it in step with android/app/jni/src/CMakeLists.txt.
+# It must be a TAG, not a branch commit. `docking` is rebased onto master
+# regularly, and every rebase orphans the commits that were on it: the SHA this
+# was first pinned to (81cfcb8c1) was unreachable in a fresh clone within hours
+# —
+#     $ git clone https://github.com/ocornut/imgui.git
+#     $ git cat-file -t 81cfcb8c1fed1e4dac8bcdc059ce811c17b6194c
+#     fatal: git cat-file: could not get object info
+#
+# — which made the whole project unbuildable from scratch. (GitHub's API still
+# serves orphaned commits, so a SHA that looks alive there can already be dead
+# to `git clone`. Check with a clone, not the API.) The same rebase is why the
+# ImGui our own build machine had cached, d460434, no longer exists either.
+#
+# Tags are immutable, so this is stable ground. Bump it deliberately; keep it in
+# step with android/app/jni/src/CMakeLists.txt.
 FetchContent_Declare(
     imgui
     GIT_REPOSITORY https://github.com/ocornut/imgui.git
-    GIT_TAG        81cfcb8c1fed1e4dac8bcdc059ce811c17b6194c # v1.92.9-docking-2
+    GIT_TAG        v1.92.8-docking # b61e56346a92cfcaf1f43a545ca37b0b32239654
 )
 FetchContent_MakeAvailable(imgui)
 
