@@ -245,6 +245,7 @@ add_executable(materializr
     src/core/Document.cpp
     src/core/History.cpp
     src/core/SelectionManager.cpp
+    src/core/MeshGuard.cpp
     src/core/VariableManager.cpp
     src/core/Material.cpp
     src/core/Verbose.cpp

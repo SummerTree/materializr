@@ -1373,6 +1373,12 @@ private:
     // m_edgeOpHasFaceDirs. Requires m_edgeOpEdges + m_edgeOpPreviousShape +
     // m_edgeOpMid/m_edgeOpDir to already be set.
     void computeEdgeOpFaceDirs();
+    // Refuse a modelling op whose selection includes an imported mesh, and say
+    // why. See core/MeshGuard.h — an import is a REFERENCE body: sketch on it
+    // and snap to it, but nothing rewrites its topology. Returns true when the
+    // caller should stop.
+    bool refuseMeshSelection(const char* opName);
+
     void beginInteractiveEdgeOp(EdgeOpType type);
     // Re-edit the FilletOp or ChamferOp at the given history index. Pulls the
     // existing radius/distance + edges + body id from the op, snapshots its

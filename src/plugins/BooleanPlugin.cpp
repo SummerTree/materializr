@@ -1,6 +1,7 @@
 #include "../plugin/PluginMacro.h"
 #include "../plugin/PluginContext.h"
 #include "../core/Document.h"
+#include "../core/MeshGuard.h"
 #include "../core/History.h"
 #include "../core/SelectionManager.h"
 #include "../core/EventBus.h"
@@ -24,6 +25,31 @@ std::vector<int> distinctSelectedBodies(materializr::PluginContext& ctx) {
         if (!found) bodies.push_back(s.bodyId);
     }
     return bodies;
+}
+
+// Reference bodies (imported meshes) are not boolean operands. An STL is a
+// tessellation — a 4,881-face solid where a modelled part has a dozen analytic
+// faces — so a fuse has to intersect thousands of facet pairs. It is not
+// invalid: measured on a real import it completed in 101 seconds and produced
+// an 8,745-face result. That is the problem. It runs on the main thread, so the
+// window stops painting and the app looks hung (Steve, 2026-08-03), and what
+// comes out the far side is another mesh, not a modelled body — no analytic
+// faces to fillet, sketch on, or edit afterwards.
+//
+// So refuse rather than offer a slow path to a useless result. An imported mesh
+// is there to measure and trace against; model the replacement alongside it.
+//
+// Gate the COMMANDS, not BooleanOp itself: a project saved before this could
+// contain a mesh boolean that already succeeded, and history replay has to
+// reproduce it faithfully or the file changes shape on load.
+bool refuseMeshOperands(materializr::PluginContext& ctx,
+                        const std::vector<int>& bodies) {
+    auto meshes = materializr::meshBodiesAmong(ctx.document(), bodies);
+    if (meshes.empty()) return false;
+    ctx.events().publish(materializr::ToastEvent{
+        materializr::meshRefusalMessage("A boolean", meshes.size(), bodies.size()),
+        6.0});
+    return true;
 }
 
 // Fold every body after the first into bodies[0] (target = the surviving first
@@ -87,6 +113,7 @@ REGISTER_PLUGIN(Boolean, [](materializr::PluginContext& ctx) {
         materializr::SelectionContext::MultipleBodies, 100,
         [](materializr::PluginContext& ctx) {
             auto b = distinctSelectedBodies(ctx);
+            if (refuseMeshOperands(ctx, b)) return;
             if (b.size() >= 2) runChainedBoolean(ctx, b, BooleanMode::Union);
         },
         nullptr,
@@ -97,6 +124,7 @@ REGISTER_PLUGIN(Boolean, [](materializr::PluginContext& ctx) {
         [](materializr::PluginContext& ctx) {
             // Order matters — open the modal to pick cutters vs kept bodies.
             auto b = distinctSelectedBodies(ctx);
+            if (refuseMeshOperands(ctx, b)) return;
             if (b.size() >= 2) {
                 g_subtractBodies = b;
                 g_subtractCutters.clear();
@@ -113,6 +141,7 @@ REGISTER_PLUGIN(Boolean, [](materializr::PluginContext& ctx) {
         materializr::SelectionContext::MultipleBodies, 102,
         [](materializr::PluginContext& ctx) {
             auto b = distinctSelectedBodies(ctx);
+            if (refuseMeshOperands(ctx, b)) return;
             if (b.size() >= 2) runChainedBoolean(ctx, b, BooleanMode::Intersect);
         },
         nullptr,

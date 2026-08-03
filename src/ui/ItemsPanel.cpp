@@ -658,6 +658,12 @@ bool ItemsPanel::renderBodyRow(int id, bool& colorChanged) {
     // The Selectable keeps a stable widget id via the enclosing PushID(id), so
     // decorating the visible label is safe.
     std::string label = name + "  \xC2\xB7 b" + std::to_string(id);
+    // Imported meshes are REFERENCE bodies — you sketch and snap against them,
+    // but every modelling op declines them (core/MeshGuard.h). Say so in the
+    // list, so the boundary is visible BEFORE a refusal, not just after: the
+    // row otherwise looks exactly like a modelled body.
+    const bool isMesh = m_document->isBodyMesh(id);
+    if (isMesh) label += "   \xE2\x97\x87 mesh";
     // Auto-scroll into view ONLY when this is the lone selected body and it's
     // newly selected (typically a viewport pick changing selection). With
     // multi-select every selected row would otherwise re-issue SetScrollHereY,
@@ -666,8 +672,17 @@ bool ItemsPanel::renderBodyRow(int id, bool& colorChanged) {
         m_selection && m_selection->selectedBodyCount() == 1) {
         ImGui::SetScrollHereY(0.5f);
     }
-    if (ImGui::Selectable(label.c_str(), isSelected, 0,
-                          ImVec2(nameW > 1.0f ? nameW : 0.0f, 0.0f))) {
+    if (isMesh) ImGui::PushStyleColor(ImGuiCol_Text, materializr::dimText());
+    const bool rowClicked =
+        ImGui::Selectable(label.c_str(), isSelected, 0,
+                          ImVec2(nameW > 1.0f ? nameW : 0.0f, 0.0f));
+    if (isMesh) ImGui::PopStyleColor();
+    if (isMesh && ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Imported mesh \xE2\x80\x94 a reference body.\n"
+                          "Sketch on it and snap to it; modelling operations "
+                          "(booleans, fillets, push/pull) decline it.");
+    }
+    if (rowClicked) {
         if (m_selection) {
             ImGuiIO& io = ImGui::GetIO();
             auto makeEntry = [this](int bid) {

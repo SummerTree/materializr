@@ -24,6 +24,7 @@ add_library(materializr_core STATIC
     ${CMAKE_SOURCE_DIR}/src/core/Document.cpp
     ${CMAKE_SOURCE_DIR}/src/core/History.cpp
     ${CMAKE_SOURCE_DIR}/src/core/SelectionManager.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/MeshGuard.cpp
     ${CMAKE_SOURCE_DIR}/src/modeling/ExtrudeOp.cpp
     ${CMAKE_SOURCE_DIR}/src/modeling/FilletOp.cpp
     ${CMAKE_SOURCE_DIR}/src/modeling/ChamferOp.cpp
@@ -531,6 +532,11 @@ add_test(NAME test_batch_transform_builder COMMAND test_batch_transform_builder)
 add_executable(test_face_centroid test_face_centroid.cpp)
 target_link_libraries(test_face_centroid PRIVATE materializr_core gtest gtest_main)
 add_test(NAME test_face_centroid COMMAND test_face_centroid)
+
+# test_mesh_guard — imported meshes are reference bodies; modelling ops decline.
+add_executable(test_mesh_guard test_mesh_guard.cpp)
+target_link_libraries(test_mesh_guard PRIVATE materializr_core gtest gtest_main)
+add_test(NAME test_mesh_guard COMMAND test_mesh_guard)
 
 # test_grid_snap — with snap-to-grid on, clicks land on the lattice and the
 # drawn grid IS that lattice. Needs TextSketchOp/SvgImport stubs (in the test).

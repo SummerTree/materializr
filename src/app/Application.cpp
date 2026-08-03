@@ -5017,7 +5017,22 @@ void Application::enterSketchOnFace(const TopoDS_Face& face, int sourceBodyId) {
     // Remember which body this face belongs to so a later Subtract (and other
     // body-relative ops) know what to cut from. Every face-sketch entry point
     // routes through here, so setting it here keeps the source body consistent.
-    m_activeSketch->setSourceBody(sourceBodyId);
+    //
+    // EXCEPT on a mesh body, which is a REFERENCE body: an imported STL is a
+    // tessellation, not a modelled solid. You sketch on it to trace and snap
+    // against real geometry — that still works, the face references gathered
+    // below are what provide it — but it is not a modelling host. It has no
+    // analytic topology to cut into, and it can never be re-derived, so a
+    // parametric link to it is a promise we cannot keep.
+    //
+    // Binding to it made every body-relative op aim at the mesh: drawing a
+    // profile on an STL face and extruding it pushed/pulled INTO the STL
+    // instead of making a new body (Steve, 2026-08-03). Left free-floating, the
+    // extrude takes the targetBody < 0 path and creates a new body, which is
+    // what tracing a reference part is for.
+    const bool meshHost = sourceBodyId >= 0 && m_document &&
+                          m_document->isBodyMesh(sourceBodyId);
+    m_activeSketch->setSourceBody(meshHost ? -1 : sourceBodyId);
 
     {
         // `pln` was computed above and already handles planar faces whose surface

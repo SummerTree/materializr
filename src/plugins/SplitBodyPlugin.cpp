@@ -1,6 +1,9 @@
 #include "../plugin/PluginMacro.h"
 #include "../plugin/PluginContext.h"
 #include "../core/Document.h"
+#include "../core/MeshGuard.h"
+#include "../core/EventBus.h"
+#include "../core/Events.h"
 #include "../core/History.h"
 #include "../core/SelectionManager.h"
 #include "../modeling/SplitBodyOp.h"
@@ -20,6 +23,16 @@ namespace {
 // world-origin z=0 plane misses any body resting above the XY plane, leaving the
 // splitter to return it unchanged.
 void doSplit(materializr::PluginContext& ctx, const gp_Dir& normal) {
+    // Reference bodies decline topology edits — see core/MeshGuard.h.
+    {
+        auto bodies = materializr::selectedBodyIds(ctx.selection());
+        auto meshes = materializr::meshBodiesAmong(ctx.document(), bodies);
+        if (!meshes.empty()) {
+            ctx.events().publish(materializr::ToastEvent{
+                materializr::meshRefusalMessage("Split", meshes.size(), bodies.size()), 6.0});
+            return;
+        }
+    }
     const auto& sel = ctx.selection().getSelection();
     if (sel.empty() || sel[0].bodyId < 0) return;
 

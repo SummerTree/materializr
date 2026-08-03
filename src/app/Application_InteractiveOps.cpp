@@ -11,6 +11,7 @@
 #include "viewport/Camera.h"
 #include "viewport/ShapeRenderer.h"
 #include "core/Document.h"
+#include "core/MeshGuard.h"
 #include "core/History.h"
 #include "core/SelectionManager.h"
 
@@ -202,7 +203,18 @@ void Application::computeEdgeOpFaceDirs() {
     }
 }
 
+bool Application::refuseMeshSelection(const char* opName) {
+    if (!m_document || !m_selection) return false;
+    const std::vector<int> bodies = materializr::selectedBodyIds(*m_selection);
+    if (bodies.empty()) return false;
+    const std::vector<int> meshes = materializr::meshBodiesAmong(*m_document, bodies);
+    if (meshes.empty()) return false;
+    showToast(materializr::meshRefusalMessage(opName, meshes.size(), bodies.size()), 6.0);
+    return true;
+}
+
 void Application::beginInteractiveEdgeOp(EdgeOpType type) {
+    if (refuseMeshSelection(type == EdgeOpType::Fillet ? "Fillet" : "Chamfer")) return;
     const auto& sel = m_selection->getSelection();
     int bodyId = -1;
     std::vector<TopoDS_Shape> edges;
@@ -897,6 +909,7 @@ bool Application::detectCylindricalResizeCandidate() {
 // multi-second operation, so the thread computes once on Apply.
 
 void Application::beginThread() {
+    if (refuseMeshSelection("Thread")) return;
     cancelActiveIops();
     // Threads need a true cylinder — a cone's helix would leave the surface.
     if (std::abs(m_resizeCylOriginalBottomR - m_resizeCylOriginalTopR) > 1e-5) {
@@ -1055,6 +1068,7 @@ void Application::cancelThread() {
 }
 
 void Application::beginResizeCylindrical() {
+    if (refuseMeshSelection("Resize")) return;
     cancelActiveIops();
     m_resizeCylPreviewFailed = false;
     if (m_resizeCylBodyId < 0) return;
@@ -1578,6 +1592,7 @@ Application::SketchRegionHit Application::pickSketchRegion(float screenX, float 
 }
 
 void Application::beginPushPull() {
+    if (refuseMeshSelection("Push/Pull")) return;
     cancelActiveIops();
     m_pushPullTargets.clear();
     m_pushPullPreviewBodyIds.clear();
@@ -2005,6 +2020,7 @@ void Application::cancelPushPull() {
 // ─── Move Face (in-plane slide → whole-body shear) ──────────────────────────
 
 void Application::beginMoveFace(FaceXform kind) {
+    if (refuseMeshSelection("Move Face")) return;
     cancelAllInteractivePreviews();
     m_moveFaceActive = false;
     m_moveFaceBodyId = -1;
@@ -2749,6 +2765,7 @@ static TopoDS_Wire outermostRegionWire(materializr::Sketch* sk,
 }
 
 void Application::beginLoft() {
+    if (refuseMeshSelection("Loft")) return;
     if (!m_selection || !m_document) return;
 
     // Snapshot every distinct selected sketch, in click order — with three
@@ -3204,6 +3221,7 @@ void Application::cancelLoft() {
 // Apply, undone on Cancel.
 
 void Application::beginBoundaryFill() {
+    if (refuseMeshSelection("Boundary Fill")) return;
     if (!m_selection || !m_document) return;
 
     std::vector<int> sketchIds;
