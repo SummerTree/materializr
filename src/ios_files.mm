@@ -241,6 +241,10 @@ std::string mobileOpenUri(const std::string& uri) {
     return ok ? tmp : std::string{};
 }
 
+// mobileOpenUri() above never substitutes a backup copy — it returns the real
+// document or fails — so an open here is never "via fallback".
+bool mobileLastOpenWasFallback() { return false; }
+
 // SDL's iOS backend raises/dismisses the system keyboard itself from
 // SDL_StartTextInput/SDL_StopTextInput — the Android IME workaround isn't
 // needed here.
