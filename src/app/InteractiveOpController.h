@@ -36,6 +36,9 @@ struct IopContext {
     // core/MeshGuard.h, already wired with the app's toast. Returns true when
     // it refused, in which case the caller must not start.
     std::function<bool(const char* opName)> refuseMesh;
+    // Grid snap, for gestures that quantise a drag (Move Face's slide).
+    bool  snapToGrid = false;
+    float gridStep = 0.0f;
 };
 
 // Base for "popup with live preview" modeling operations (Shell, Taper,

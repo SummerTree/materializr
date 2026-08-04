@@ -12,6 +12,12 @@
 #include "../modeling/DefeatureOp.h"
 #include "../modeling/ResizeCylindricalOp.h"
 #include "../modeling/MoveFaceOp.h"
+#include "../core/PlaneAxes.h"
+#include <BRepTools_WireExplorer.hxx>
+#include <BRepAdaptor_Curve.hxx>
+#include <BRepTools.hxx>
+#include <BRepBuilderAPI_Transform.hxx>
+#include <GeomLib_IsPlanarSurface.hxx>
 #include "../core/History.h"
 #include "../modeling/Sketch.h"
 #include <cstdio>
@@ -41,6 +47,16 @@
 namespace materializr {
 
 namespace {
+// Same test as Application::faceIsPlanar — a plane, or close enough that OCCT's
+// planarity check accepts it (a face can be planar without a Geom_Plane).
+bool faceIsPlanar(const TopoDS_Face& face) {
+    Handle(Geom_Surface) s = BRep_Tool::Surface(face);
+    if (s.IsNull()) return false;
+    if (s->IsKind(STANDARD_TYPE(Geom_Plane))) return true;
+    GeomLib_IsPlanarSurface tester(s, 1.0e-7);
+    return tester.IsPlanar();
+}
+
 // True if `face` shares an edge with a rounded (cylinder/torus = fillet) face of
 // `body`. That's the exact condition OCCT's offset can't open, so it's what the
 // Shell warning should key on — NOT merely "the body has fillets somewhere"
@@ -1085,6 +1101,624 @@ void MoveFaceController::configureFaceOp(MoveFaceOp& op) const {
             break;
     }
     op.setLoopMotion(m_st.moveFaceMoveOuter, m_st.moveFaceHoleSlant, m_st.moveFaceHoleVertical);
+}
+
+// ─── Move Face: lifecycle (slice 2b) ────────────────────────────────────────
+// Moved wholesale from Application_InteractiveOps. Everything these needed
+// from the app — document, selection, history, toast, mesh refusal, grid
+// snap — now arrives through IopContext, so the tool no longer reaches into
+// a 28k-line class. They are still plain methods rather than base overrides:
+// Move Face slides on-face sketches during the preview and RE-SELECTS the
+// moved face on commit instead of clearing, and the base offers no hook for
+// either. Adopting the base lifecycle is its own step.
+
+void MoveFaceController::beginMoveFace(const IopContext& ctx, FaceXform kind) {
+    if (ctx.refuseMesh("Move Face")) return;
+    
+    m_st.moveFaceActive = false;
+    m_st.moveFaceBodyId = -1;
+    m_st.moveFaceFace.Nullify();
+    m_st.faceXformKind = kind;
+    m_st.moveFaceVec = glm::vec3(0.0f);
+    m_st.moveFaceBase = glm::vec3(0.0f);
+    m_st.moveFaceAngle = m_st.moveFaceAngleBase = 0.0f;
+    m_st.moveFaceRotAccum = glm::mat3(1.0f);
+    m_st.moveFaceRotHasAccum = false;
+    m_st.moveFaceTwist = m_st.moveFaceTwistBase = 0.0f;
+    m_st.moveFaceIsTwist = false;
+    m_st.moveFaceScale = m_st.moveFaceScaleBase = 1.0f;
+    m_st.moveFaceScaleA = m_st.moveFaceScaleABase = 1.0f;
+    m_st.moveFaceScaleB = m_st.moveFaceScaleBBase = 1.0f;
+    m_st.moveFaceDragging = false;
+    m_st.moveHoleMode = false;
+    m_st.moveHoleWall.Nullify();
+
+    // Hole move: if the Move selection is a recognizable THROUGH-HOLE wall, slide
+    // the whole hole (MoveHoleOp) instead of shearing a face. buildVoid succeeds
+    // only on a real hole wall (an outer face / block side fails it), so this
+    // doesn't hijack ordinary Move Face. Translate only; pockets are refused.
+    if (kind == FaceXform::Translate) {
+        for (const auto& e : ctx.selection.getSelection()) {
+            if (e.type != SelectionType::Face || e.shape.IsNull()) continue;
+            TopoDS_Shape body;
+            try { body = ctx.doc.getBody(e.bodyId); } catch (...) { continue; }
+            if (body.IsNull()) continue;
+            TopoDS_Face wall = TopoDS::Face(e.shape);
+            TopoDS_Shape voidSolid; gp_Vec entryN; bool pocket = false;
+            TopoDS_Wire rim;
+            if (MoveHoleOp::buildVoid(body, wall, voidSolid, entryN, pocket, &rim)) {
+                // Gizmo set-up at the hole: plane = entry face, translate only.
+                m_st.moveHoleMode = true;
+                m_st.moveHoleOpMode = MoveHoleOp::Mode::Slide;
+                m_st.moveHoleRimEdge = TopoDS_Edge();
+                m_st.moveHoleWall = wall;
+                m_st.moveFaceBodyId = e.bodyId;
+                m_st.moveFacePreviousShape = body;
+                m_st.moveFaceN = glm::normalize(glm::vec3(entryN.X(), entryN.Y(), entryN.Z()));
+                try {
+                    GProp_GProps gp; BRepGProp::SurfaceProperties(wall, gp);
+                    gp_Pnt c = gp.CentreOfMass();
+                    m_st.moveFaceP0 = m_st.moveFacePivot = glm::vec3(c.X(), c.Y(), c.Z());
+                } catch (...) { m_st.moveFaceP0 = m_st.moveFacePivot = glm::vec3(0.0f); }
+                // Same canonical basis as the rim-edge path (PlaneAxes.h). The
+                // old cross(N, A) construction flips with the ENTRY NORMAL'S
+                // SIGN, and buildVoid's walk order decides that sign — a
+                // top-facing hole (N = world +Y) got its blue arrow along -Z,
+                // i.e. pointing the opposite way to the main gizmo's blue.
+                // Which of the two hole paths ran depended on whether the
+                // click landed on the rim EDGE or the WALL face, which is why
+                // the reversal seemed to come and go per selection. This
+                // branch is translate-only, so no rotate ring needs the
+                // handedness the canonical basis gives up.
+                materializr::inPlaneAxes(m_st.moveFaceN, m_st.moveFaceAxisA,
+                                         m_st.moveFaceAxisB);
+                m_st.moveFaceGrab = -1;
+                m_st.moveFaceHalfExtent = 1.0f;
+                // Move highlight: the hole's top rim, sampled as a world-space
+                // polyline in loop[0] so the existing yellow-silhouette renderer
+                // draws it following the drag (m_st.moveFaceMoveOuter → loop[0]
+                // translates by the move vector). No hole sub-loops.
+                m_st.moveFaceSilhouetteLoops.clear();
+                m_st.moveFaceHoleSlant.clear();
+                m_st.moveFaceHoleVertical.clear();
+                m_st.moveFaceMoveOuter = true;
+                m_st.moveFacePendingRebuild = false;
+                if (!rim.IsNull()) {
+                    std::vector<glm::vec3> pts;
+                    for (BRepTools_WireExplorer we(rim); we.More(); we.Next()) {
+                        BRepAdaptor_Curve crv(we.Current());
+                        double f = crv.FirstParameter(), l = crv.LastParameter();
+                        if (we.Current().Orientation() == TopAbs_REVERSED) std::swap(f, l);
+                        const int Nseg = 16;
+                        for (int i = 0; i < Nseg; ++i) {
+                            gp_Pnt p = crv.Value(f + (l - f) * (double(i) / Nseg));
+                            pts.emplace_back(p.X(), p.Y(), p.Z());
+                        }
+                    }
+                    if (!pts.empty()) m_st.moveFaceSilhouetteLoops.push_back(pts);
+                }
+                m_st.moveFaceActive = true;
+                return;
+            }
+            // Refuse ONLY when the pick is plausibly a bore wall. buildVoid
+            // reports "one mouth" for plenty of ordinary faces — a solid
+            // cylinder's flat top cap among them — and this used to toast and
+            // RETURN on all of them, so selecting a cylinder's top face and
+            // pressing Move refused with a message about holes instead of
+            // moving the face (Steve, 2026-08-04). A bore wall is curved; a
+            // cap is planar, so planar picks fall through to the ordinary face
+            // move. Square-hole walls are planar too and still reach the
+            // whole-hole slide above, because for them buildVoid SUCCEEDS.
+            if (pocket && !faceIsPlanar(wall)) {
+                ctx.toast("Only simple through-holes can be moved for now "
+                          "\xE2\x80\x94 not pockets, countersunk, or stepped holes.");
+                return;
+            }
+        }
+    }
+
+    // Sort the selection: the first PLANAR face slides (the moving face); every
+    // OTHER selected face is a candidate hole WALL (move that hole as a straight
+    // tube); selected EDGES are hole top rings (slant). Walls are matched to
+    // hole loops by shared edges below — NOT by surface type, because after any
+    // face op the wall is a ruled loft surface, not an analytic cylinder.
+    std::vector<TopoDS_Face> selectedFaces;
+    std::vector<TopoDS_Edge> selectedEdges;
+    for (const auto& e : ctx.selection.getSelection()) {
+        if (e.shape.IsNull()) continue;
+        if (e.type == SelectionType::Face) {
+            TopoDS_Face f = TopoDS::Face(e.shape);
+            Handle(Geom_Surface) s = BRep_Tool::Surface(f);
+            if (m_st.moveFaceFace.IsNull() && !s.IsNull() &&
+                s->IsKind(STANDARD_TYPE(Geom_Plane))) {
+                m_st.moveFaceBodyId = e.bodyId;
+                m_st.moveFaceFace = f;
+            } else {
+                selectedFaces.push_back(f); // potential hole wall
+            }
+        } else if (e.type == SelectionType::Edge) {
+            selectedEdges.push_back(TopoDS::Edge(e.shape));
+        }
+    }
+    if (m_st.moveFaceBodyId < 0 || m_st.moveFaceFace.IsNull()) return;
+    // Drop the chosen moving face from the wall candidates if it slipped in.
+    std::vector<TopoDS_Face> selectedCylinders;
+    for (const auto& f : selectedFaces)
+        if (!f.IsSame(m_st.moveFaceFace)) selectedCylinders.push_back(f);
+
+    // Move Face only makes sense on a FLAT face (the shear pins one plane and
+    // slides another). A curved face (cylinder side, fillet, sphere) has no
+    // single plane to slide, so refuse with guidance instead of shearing junk.
+    {
+        Handle(Geom_Surface) surf = BRep_Tool::Surface(m_st.moveFaceFace);
+        if (surf.IsNull() || !surf->IsKind(STANDARD_TYPE(Geom_Plane))) {
+            std::fprintf(stderr, "[MoveFace] declined: select a FLAT face\n");
+            ctx.toast("Move Face needs a flat face - pick a planar face.");
+            return;
+        }
+    }
+
+    try { m_st.moveFacePreviousShape = ctx.doc.getBody(m_st.moveFaceBodyId); }
+    catch (...) { return; }
+
+    // (The loft rebuild now lofts the outer loop AND subtracts a loft of each
+    // hole loop, so holed faces are allowed. Freeform / boolean bodies that
+    // crashed the old shear are handled safely too: the op only lofts local
+    // wires and refuses gracefully on release if the body isn't a clean prism —
+    // no crash.)
+
+    // Face plane (orientation-corrected outward normal + a point on it).
+    try {
+        BRepGProp_Face prop(m_st.moveFaceFace);
+        double u1, u2, v1, v2;
+        prop.Bounds(u1, u2, v1, v2);
+        gp_Pnt c; gp_Vec n;
+        prop.Normal((u1 + u2) * 0.5, (v1 + v2) * 0.5, c, n);
+        if (n.Magnitude() < 1e-9) return;
+        n.Normalize();
+        m_st.moveFaceP0 = glm::vec3(c.X(), c.Y(), c.Z());
+        m_st.moveFaceN  = glm::vec3(n.X(), n.Y(), n.Z());
+        // Pivot for Rotate/Scale = the face's area centroid (its "middle").
+        GProp_GProps gp; BRepGProp::SurfaceProperties(m_st.moveFaceFace, gp);
+        gp_Pnt ctr = gp.CentreOfMass();
+        m_st.moveFacePivot = glm::vec3(ctr.X(), ctr.Y(), ctr.Z());
+    } catch (...) { return; }
+
+    // Two in-plane arrow axes: project the world axis least aligned with N into
+    // the face plane → A; B = N × A. A box top gets clean world-aligned arrows.
+    {
+        glm::vec3 N = m_st.moveFaceN;
+        glm::vec3 ref = (std::abs(N.x) < 0.9f) ? glm::vec3(1, 0, 0) : glm::vec3(0, 1, 0);
+        glm::vec3 A = ref - glm::dot(ref, N) * N;
+        if (glm::length(A) < 1e-5f) {
+            ref = glm::vec3(0, 0, 1);
+            A = ref - glm::dot(ref, N) * N;
+        }
+        m_st.moveFaceAxisA = glm::normalize(A);
+        m_st.moveFaceAxisB = glm::normalize(glm::cross(N, m_st.moveFaceAxisA));
+    }
+    m_st.moveFaceGrab = -1;
+    m_st.moveFaceRotAxis = m_st.moveFaceAxisB; // default tilt axis until a ring is grabbed
+
+    // Sketches sitting ON this face slide along with it. Coincident = plane
+    // parallel to the face AND lying on it (same offset). Snapshot their planes
+    // so the live preview / cancel can restore them.
+    m_st.moveFaceSketchIds.clear();
+    m_st.moveFaceSketchPlanes0.clear();
+    {
+        gp_Vec fN(m_st.moveFaceN.x, m_st.moveFaceN.y, m_st.moveFaceN.z);
+        gp_Pnt fP(m_st.moveFaceP0.x, m_st.moveFaceP0.y, m_st.moveFaceP0.z);
+        for (int sid : ctx.doc.getAllSketchIds()) {
+            auto sk = ctx.doc.getSketch(sid);
+            if (!sk) continue;
+            const gp_Pln& sp = sk->getPlane();
+            gp_Vec sN(sp.Axis().Direction());
+            if (std::abs(sN.Dot(fN)) < 0.999) continue; // not parallel
+            gp_Vec d(sp.Location().X() - fP.X(), sp.Location().Y() - fP.Y(),
+                     sp.Location().Z() - fP.Z());
+            if (std::abs(d.Dot(fN)) > 0.05) continue;   // not on the face plane
+            m_st.moveFaceSketchIds.push_back(sid);
+            m_st.moveFaceSketchPlanes0.push_back(sp);
+        }
+    }
+
+    // Each loop of the face (outer outline first, then hole loops) captured as a
+    // world-space polyline for the drag-time ghost, plus a per-hole "vertical"
+    // flag (default false = slants). Loop order MUST match the op's enumeration
+    // (OuterWire, then TopExp wires) so flags + ghost line up.
+    m_st.moveFaceSilhouetteLoops.clear();
+    m_st.moveFaceHoleSlant.clear();
+    m_st.moveFaceHoleVertical.clear();
+    m_st.moveFaceMoveOuter = true; // a planar face is selected → the outline slides
+    m_st.moveFacePendingRebuild = false;
+    std::vector<TopoDS_Wire> innerWires;
+    try {
+        // Walk edges in CONNECTED order (WireExplorer) so the polyline doesn't
+        // zig-zag into a bowtie the way TopExp_Explorer's arbitrary order did.
+        auto sampleWire = [](const TopoDS_Wire& w) {
+            std::vector<glm::vec3> pts;
+            for (BRepTools_WireExplorer we(w); we.More(); we.Next()) {
+                const TopoDS_Edge& e = we.Current();
+                BRepAdaptor_Curve crv(e);
+                double f = crv.FirstParameter(), l = crv.LastParameter();
+                if (e.Orientation() == TopAbs_REVERSED) std::swap(f, l);
+                const int Nseg = 12;
+                for (int i = 0; i < Nseg; ++i) {
+                    gp_Pnt p = crv.Value(f + (l - f) * (double(i) / Nseg));
+                    pts.emplace_back(p.X(), p.Y(), p.Z());
+                }
+            }
+            return pts;
+        };
+        TopoDS_Wire outer = BRepTools::OuterWire(m_st.moveFaceFace);
+        if (!outer.IsNull())
+            m_st.moveFaceSilhouetteLoops.push_back(sampleWire(outer));
+        for (TopExp_Explorer wx(m_st.moveFaceFace, TopAbs_WIRE); wx.More(); wx.Next()) {
+            TopoDS_Wire w = TopoDS::Wire(wx.Current());
+            if (w.IsSame(outer)) continue;
+            m_st.moveFaceSilhouetteLoops.push_back(sampleWire(w));
+            m_st.moveFaceHoleSlant.push_back(false);    // stays put until opted in
+            m_st.moveFaceHoleVertical.push_back(false);
+            innerWires.push_back(w);
+        }
+
+        // hole index whose inner wire contains the given edge, else -1.
+        auto holeOfEdge = [&](const TopoDS_Edge& edge) -> int {
+            for (size_t hi = 0; hi < innerWires.size(); ++hi)
+                for (TopExp_Explorer we(innerWires[hi], TopAbs_EDGE); we.More(); we.Next())
+                    if (edge.IsSame(we.Current())) return static_cast<int>(hi);
+            return -1;
+        };
+        // Cylinder wall picked → that hole moves as a straight tube (vertical).
+        for (const TopoDS_Face& cyl : selectedCylinders) {
+            for (TopExp_Explorer ce(cyl, TopAbs_EDGE); ce.More(); ce.Next()) {
+                int hi = holeOfEdge(TopoDS::Edge(ce.Current()));
+                if (hi >= 0) { m_st.moveFaceHoleVertical[hi] = true; break; }
+            }
+        }
+        // Hole top edge picked → that hole slants (top ring follows).
+        for (const TopoDS_Edge& edge : selectedEdges) {
+            int hi = holeOfEdge(edge);
+            if (hi >= 0) m_st.moveFaceHoleSlant[hi] = true;
+        }
+    } catch (...) {
+        m_st.moveFaceSilhouetteLoops.clear();
+        m_st.moveFaceHoleSlant.clear();
+        m_st.moveFaceHoleVertical.clear();
+    }
+
+    // Face half-extent (max distance pivot→outline) so a drag of ~that length
+    // maps to ≈1 rad of tilt / a unit of scale — a size-independent feel.
+    m_st.moveFaceHalfExtent = 1.0f;
+    if (!m_st.moveFaceSilhouetteLoops.empty()) {
+        float mx = 0.0f;
+        for (const auto& p : m_st.moveFaceSilhouetteLoops[0])
+            mx = std::max(mx, glm::length(p - m_st.moveFacePivot));
+        if (mx > 1e-3f) m_st.moveFaceHalfExtent = mx;
+    }
+
+    // Hollow (shelled) body: the per-frame preview refuses (the loft engine
+    // can't shear a cavity), so the body won't follow the drag — but the
+    // commit reflows beneath the Shell and lands correctly. Say so up front
+    // instead of looking broken.
+    if (ctx.history.isBodyShelled(m_st.moveFaceBodyId))
+        ctx.toast("Hollow body: the preview stays put \xE2\x80\x94 the change "
+                  "applies when you release (re-shelled automatically).");
+
+    m_st.moveFaceActive = true;
+}
+
+bool MoveFaceController::beginMoveHoleFromEdges(const IopContext& ctx) {
+    std::vector<TopoDS_Edge> picked;
+    int bodyId = -1;
+    for (const auto& e : ctx.selection.getSelection()) {
+        if (e.type != SelectionType::Edge || e.shape.IsNull()) continue;
+        if (bodyId >= 0 && e.bodyId != bodyId) return false;  // one hole only
+        bodyId = e.bodyId;
+        picked.push_back(TopoDS::Edge(e.shape));
+    }
+    if (picked.empty() || bodyId < 0) return false;
+    if (ctx.refuseMesh("Move")) return true;   // handled: refused
+
+    TopoDS_Shape body;
+    try { body = ctx.doc.getBody(bodyId); } catch (...) { return false; }
+    if (body.IsNull()) return false;
+
+    const MoveHoleOp::EdgePick pick = MoveHoleOp::classifyRimEdges(body, picked);
+    if (!pick.ok) return false;      // not one hole's rim → caller falls through
+
+    
+    m_st.faceXformKind = FaceXform::Translate;
+    m_st.moveFaceVec = m_st.moveFaceBase = glm::vec3(0.0f);
+    m_st.moveFaceDragging = false;
+    m_st.moveFaceActive = true;
+    m_st.moveHoleMode = true;
+    m_st.moveHoleOpMode = pick.mode;
+    m_st.moveHoleRimEdge = pick.rimEdge;
+    m_st.moveHoleNearIsEntry = pick.nearIsEntry;
+    m_st.moveHoleWall = pick.wall;
+    m_st.moveFaceBodyId = bodyId;
+    m_st.moveFacePreviousShape = body;
+
+    // Sample a wire into a world-space polyline: used both to place the gizmo
+    // (its centroid) and to draw the yellow move highlight.
+    auto sampleEdge = [](const TopoDS_Edge& e, std::vector<glm::vec3>& out) {
+        BRepAdaptor_Curve crv(e);
+        double f = crv.FirstParameter(), l = crv.LastParameter();
+        if (e.Orientation() == TopAbs_REVERSED) std::swap(f, l);
+        const int Nseg = 16;
+        for (int i = 0; i < Nseg; ++i) {
+            gp_Pnt p = crv.Value(f + (l - f) * (double(i) / Nseg));
+            out.emplace_back(p.X(), p.Y(), p.Z());
+        }
+    };
+    // Wires must be walked in CONNECTION order (BRepTools_WireExplorer), not
+    // TopExp order, or the highlight polyline zig-zags across the rim.
+    auto sampleWire = [&](const TopoDS_Wire& w, std::vector<glm::vec3>& out) {
+        for (BRepTools_WireExplorer we(w); we.More(); we.Next())
+            sampleEdge(we.Current(), out);
+    };
+
+    // Slide the rim IN ITS OWN PLANE — the entry normal from buildVoid is the
+    // plane the drag lives in, exactly as the face-driven path uses it.
+    TopoDS_Shape v; gp_Vec n; bool pocket = false;
+    TopoDS_Wire entryRim, exitRim;
+    if (MoveHoleOp::buildVoid(body, pick.wall, v, n, pocket, &entryRim, &exitRim)) {
+        m_st.moveFaceN = glm::normalize(glm::vec3(n.X(), n.Y(), n.Z()));
+    }
+
+    // Anchor the gizmo on what is actually being dragged. Without this the
+    // whole block below never ran and the gizmo drew at the world origin, far
+    // from the hole — P0/pivot/axes kept their defaults.
+    const TopoDS_Wire& nearRim = pick.nearIsEntry ? entryRim : exitRim;
+    std::vector<glm::vec3> handle;   // the thing the user grabbed
+    if (pick.mode == MoveHoleOp::Mode::EdgeMove && !pick.rimEdge.IsNull())
+        sampleEdge(pick.rimEdge, handle);       // that one side
+    else if (!nearRim.IsNull())
+        sampleWire(nearRim, handle);            // that rim
+    else if (!entryRim.IsNull())
+        sampleWire(entryRim, handle);           // Slide: either mouth will do
+
+    if (!handle.empty()) {
+        glm::vec3 c(0.0f);
+        for (const glm::vec3& p : handle) c += p;
+        c /= float(handle.size());
+        m_st.moveFaceP0 = m_st.moveFacePivot = c;
+        // Gizmo scale: half the grabbed loop's own extent, so it reads as part
+        // of the hole rather than swamping a 3 mm bore.
+        float r = 0.0f;
+        for (const glm::vec3& p : handle) r = std::max(r, glm::length(p - c));
+        m_st.moveFaceHalfExtent = std::max(0.5f, r);
+    } else {
+        m_st.moveFaceP0 = m_st.moveFacePivot = glm::vec3(0.0f);
+        m_st.moveFaceHalfExtent = 1.0f;
+    }
+
+    // In-plane axes, CANONICAL. The face path derives axis B as cross(N, A),
+    // which flips sign with N — and buildVoid's entry normal points whichever
+    // way its walk happened to go, so an identical hole gave a green arrow
+    // along +Y or -Y depending on which mouth it called the entry. That reads
+    // as reversed controls (it bit x/y holes, where the entry resolved to the
+    // underside). Instead take the two WORLD axes most perpendicular to the
+    // rim plane, in X→Y→Z order, always positively oriented: the arrows then
+    // point along +X/+Y/+Z whichever rim you grab, matching the red/green/blue
+    // the gizmo colours them. Translate-only, so handedness doesn't matter.
+    materializr::inPlaneAxes(m_st.moveFaceN, m_st.moveFaceAxisA, m_st.moveFaceAxisB);
+    m_st.moveFaceGrab = -1;
+
+    // Highlight exactly what moves: the grabbed side for EdgeMove, the near rim
+    // for Tilt, so the drag doesn't lie about which end is pinned.
+    m_st.moveFaceSilhouetteLoops.clear();
+    m_st.moveFaceHoleSlant.clear();
+    m_st.moveFaceHoleVertical.clear();
+    m_st.moveFaceMoveOuter = true;
+    m_st.moveFacePendingRebuild = false;
+    if (!handle.empty()) m_st.moveFaceSilhouetteLoops.push_back(handle);
+
+    std::fprintf(stdout, "Hole move armed from rim edges: %s\n",
+                 pick.mode == MoveHoleOp::Mode::Tilt     ? "tilt" :
+                 pick.mode == MoveHoleOp::Mode::EdgeMove ? "edge" : "slide");
+    return true;
+}
+
+void MoveFaceController::updateMoveFace(const IopContext& ctx) {
+    if (!m_st.moveFaceActive || m_st.moveFaceBodyId < 0) return;
+
+    // Hole-move preview: re-cut the hole at the dragged position each frame.
+    if (m_st.moveHoleMode) {
+        ctx.doc.updateBody(m_st.moveFaceBodyId, m_st.moveFacePreviousShape);
+        ctx.markMeshesDirty();
+        gp_Vec mv(m_st.moveFaceVec.x, m_st.moveFaceVec.y, m_st.moveFaceVec.z);
+        if (mv.Magnitude() < 1e-9) return;
+        try {
+            MoveHoleOp op;
+            op.setBody(m_st.moveFaceBodyId);
+            op.setSeedWall(m_st.moveHoleWall);
+            // The PREVIEW has to run the same verb as the commit. It used to
+            // build a bare op, which defaults to Slide, so every drag showed the
+            // whole hole moving no matter what the selection picked — and then
+            // the result jumped to a tilt/reshape on release.
+            op.setMode(m_st.moveHoleOpMode);
+            op.setNearIsEntry(m_st.moveHoleNearIsEntry);
+            if (m_st.moveHoleOpMode == MoveHoleOp::Mode::EdgeMove)
+                op.setRimEdge(m_st.moveHoleRimEdge);
+            op.setMoveVector(mv);
+            if (!op.execute(ctx.doc))
+                ctx.doc.updateBody(m_st.moveFaceBodyId, m_st.moveFacePreviousShape);
+            ctx.markMeshesDirty();
+        } catch (...) {
+            ctx.doc.updateBody(m_st.moveFaceBodyId, m_st.moveFacePreviousShape);
+        }
+        return;
+    }
+
+    // Snap an in-plane face SLIDE to the grid step (issue #24): decompose the
+    // translation onto the face's in-plane axes and round each to the step, so
+    // the face moves in grid increments (like Extrude/Push-Pull). Only for a
+    // Translate — Rotate has its own degree snap and Scale is a percentage.
+    // m_st.moveFaceVec is recomputed absolutely from the drag each frame, so this
+    // never compounds.
+    if (m_st.faceXformKind == FaceXform::Translate && ctx.snapToGrid &&
+        ctx.gridStep > 0.0f) {
+        const float step = ctx.gridStep;
+        const float a = std::round(glm::dot(m_st.moveFaceVec, m_st.moveFaceAxisA) / step) * step;
+        const float b = std::round(glm::dot(m_st.moveFaceVec, m_st.moveFaceAxisB) / step) * step;
+        m_st.moveFaceVec = a * m_st.moveFaceAxisA + b * m_st.moveFaceAxisB;
+    }
+
+    // Always preview from the original snapshot so transforms don't compound.
+    ctx.doc.updateBody(m_st.moveFaceBodyId, m_st.moveFacePreviousShape);
+    ctx.markMeshesDirty();
+    if (!faceXformNontrivial()) { moveFaceSlideSketches(ctx, glm::vec3(0.0f)); return; }
+    try {
+        auto op = std::make_unique<MoveFaceOp>();
+        op->setBody(m_st.moveFaceBodyId);
+        op->setFace(m_st.moveFaceFace);
+        configureFaceOp(*op);
+        if (!op->execute(ctx.doc))
+            ctx.doc.updateBody(m_st.moveFaceBodyId, m_st.moveFacePreviousShape);
+        // Sketch follow in the preview is translate-only for now (rotate/scale
+        // sketches still follow on commit via the op's own transform).
+        if (m_st.faceXformKind == FaceXform::Translate) moveFaceSlideSketches(ctx, m_st.moveFaceVec);
+        ctx.markMeshesDirty();
+    } catch (...) {
+        ctx.doc.updateBody(m_st.moveFaceBodyId, m_st.moveFacePreviousShape);
+    }
+}
+
+void MoveFaceController::commitMoveFace(const IopContext& ctx) {
+    if (!m_st.moveFaceActive) { return; }
+
+    // Hole-move commit: restore the snapshot, then push one MoveHoleOp.
+    if (m_st.moveHoleMode) {
+        if (m_st.moveFaceBodyId >= 0 && !m_st.moveFacePreviousShape.IsNull())
+            ctx.doc.updateBody(m_st.moveFaceBodyId, m_st.moveFacePreviousShape);
+        gp_Vec mv(m_st.moveFaceVec.x, m_st.moveFaceVec.y, m_st.moveFaceVec.z);
+        if (mv.Magnitude() > 1e-9 && m_st.moveFaceBodyId >= 0 && !m_st.moveHoleWall.IsNull()) {
+            auto op = std::make_unique<MoveHoleOp>();
+            op->setBody(m_st.moveFaceBodyId);
+            op->setSeedWall(m_st.moveHoleWall);
+            op->setMode(m_st.moveHoleOpMode);
+            op->setNearIsEntry(m_st.moveHoleNearIsEntry);
+            if (m_st.moveHoleOpMode == MoveHoleOp::Mode::EdgeMove)
+                op->setRimEdge(m_st.moveHoleRimEdge);
+            op->setMoveVector(mv);
+            if (ctx.history.pushOperation(std::move(op), ctx.doc))
+                std::fprintf(stdout, "Hole move committed\n");
+        }
+        // The wall face identity changed; clear selection rather than chase it.
+        ctx.selection.clear();
+        m_st.moveHoleMode = false;
+        m_st.moveFaceActive = false;
+        m_st.moveHoleWall.Nullify();
+        ctx.markMeshesDirty();
+        return;
+    }
+
+    // Restore the original body + sketch planes before the real op runs (it
+    // snapshots the body from the doc and re-applies the slide atomically).
+    if (m_st.moveFaceBodyId >= 0 && !m_st.moveFacePreviousShape.IsNull())
+        ctx.doc.updateBody(m_st.moveFaceBodyId, m_st.moveFacePreviousShape);
+    moveFaceSlideSketches(ctx, glm::vec3(0.0f)); // restore sketches to snapshot
+
+    bool committed = false;
+    if (faceXformNontrivial() && m_st.moveFaceBodyId >= 0 && !m_st.moveFaceFace.IsNull()) {
+        auto op = std::make_unique<MoveFaceOp>();
+        op->setBody(m_st.moveFaceBodyId);
+        op->setFace(m_st.moveFaceFace);
+        configureFaceOp(*op);
+        op->setSketchIds(m_st.moveFaceSketchIds); // on-face sketches ride along
+        committed = ctx.history.pushOperation(std::move(op), ctx.doc);
+        if (committed)
+            std::fprintf(stdout, "Face %s committed\n",
+                         (m_st.faceXformKind == FaceXform::Rotate && m_st.moveFaceIsTwist) ? "twist"
+                         : m_st.faceXformKind == FaceXform::Rotate ? "tilt"
+                         : m_st.faceXformKind == FaceXform::Scale ? "scale" : "move");
+    }
+
+    // Re-select the moved face in the REBUILT body, so the highlight + the next
+    // op use live geometry. Without this the selection keeps the stale old-
+    // position face: the highlight lingers there, and a chained op lofts from
+    // that old wire (lands the body back where it started = "the op got undone").
+    if (committed) {
+        glm::vec3 want = m_st.moveFacePivot; // where the face centre ends up
+        if (m_st.faceXformKind == FaceXform::Translate) want += m_st.moveFaceVec;
+        TopoDS_Shape nb = ctx.doc.getBody(m_st.moveFaceBodyId);
+        TopoDS_Face best; double bestD = 1e300;
+        for (TopExp_Explorer fx(nb, TopAbs_FACE); fx.More(); fx.Next()) {
+            TopoDS_Face f = TopoDS::Face(fx.Current());
+            Handle(Geom_Surface) s = BRep_Tool::Surface(f);
+            if (s.IsNull() || !s->IsKind(STANDARD_TYPE(Geom_Plane))) continue;
+            try {
+                GProp_GProps gp; BRepGProp::SurfaceProperties(f, gp);
+                gp_Pnt c = gp.CentreOfMass();
+                double d = glm::length(glm::vec3(c.X(), c.Y(), c.Z()) - want);
+                if (d < bestD) { bestD = d; best = f; }
+            } catch (...) {}
+        }
+        if (!best.IsNull()) {
+            SelectionEntry entry;
+            entry.type = SelectionType::Face;
+            entry.bodyId = m_st.moveFaceBodyId;
+            entry.shape = best;
+            ctx.selection.select(entry);
+        } else {
+            ctx.selection.clear(); // fall back to clearing if we can't re-find it
+        }
+    }
+    m_st.moveFaceSketchIds.clear();
+    m_st.moveFaceSketchPlanes0.clear();
+    m_st.moveFaceActive = false;
+    m_st.moveHoleMode = false;
+    m_st.moveHoleWall.Nullify();
+    m_st.moveFaceBodyId = -1;
+    m_st.moveFaceFace.Nullify();
+    m_st.moveFacePreviousShape.Nullify();
+    m_st.moveFaceVec = glm::vec3(0.0f);
+    m_st.moveFaceBase = glm::vec3(0.0f);
+    m_st.moveFaceDragging = false;
+    m_st.moveFaceSilhouetteLoops.clear();
+    m_st.moveFaceHoleSlant.clear();
+    m_st.moveFaceHoleVertical.clear();
+    m_st.moveFaceMoveOuter = true;
+    m_st.moveFacePendingRebuild = false;
+    ctx.markMeshesDirty();
+}
+
+void MoveFaceController::cancelMoveFace(const IopContext& ctx) {
+    if (!m_st.moveFaceActive) return;
+    if (m_st.moveFaceBodyId >= 0 && !m_st.moveFacePreviousShape.IsNull())
+        ctx.doc.updateBody(m_st.moveFaceBodyId, m_st.moveFacePreviousShape);
+    moveFaceSlideSketches(ctx, glm::vec3(0.0f)); // restore sketches to snapshot
+    m_st.moveFaceSketchIds.clear();
+    m_st.moveFaceSketchPlanes0.clear();
+    m_st.moveFaceActive = false;
+    m_st.moveHoleMode = false;
+    m_st.moveHoleWall.Nullify();
+    m_st.moveFaceBodyId = -1;
+    m_st.moveFaceFace.Nullify();
+    m_st.moveFacePreviousShape.Nullify();
+    m_st.moveFaceVec = glm::vec3(0.0f);
+    m_st.moveFaceBase = glm::vec3(0.0f);
+    m_st.moveFaceDragging = false;
+    m_st.moveFaceSilhouetteLoops.clear();
+    m_st.moveFaceHoleSlant.clear();
+    m_st.moveFaceHoleVertical.clear();
+    m_st.moveFaceMoveOuter = true;
+    m_st.moveFacePendingRebuild = false;
+    ctx.markMeshesDirty();
+}
+
+void MoveFaceController::moveFaceSlideSketches(const IopContext& ctx, const glm::vec3& v) {
+    gp_Trsf t;
+    t.SetTranslation(gp_Vec(v.x, v.y, v.z));
+    for (size_t i = 0; i < m_st.moveFaceSketchIds.size(); ++i) {
+        if (auto sk = ctx.doc.getSketch(m_st.moveFaceSketchIds[i])) {
+            gp_Pln p = m_st.moveFaceSketchPlanes0[i];
+            if (v.x != 0.0f || v.y != 0.0f || v.z != 0.0f) p.Transform(t);
+            sk->setPlane(p);
+        }
+    }
 }
 
 } // namespace materializr

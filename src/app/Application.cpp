@@ -1061,7 +1061,8 @@ materializr::IopContext Application::iopContext() {
         // cornerCommitUi sits before toast/refuseMesh in IopContext.
         imTouchLayout() && !m_inSketchMode,
         [this](const char* m) { showToast(m); },
-        [this](const char* op) { return refuseMeshSelection(op); }};
+        [this](const char* op) { return refuseMeshSelection(op); },
+        m_snapToGrid, m_sketchGridStep};
 }
 
 // Seed the placement rotation (shared by the Text and SVG tools) so the

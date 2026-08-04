@@ -203,6 +203,14 @@ public:
     MoveFaceState& st() { return m_st; }
     const MoveFaceState& st() const { return m_st; }
 
+    // Lifecycle. Not base overrides yet — see the note in the .cpp.
+    void beginMoveFace(const IopContext& ctx, FaceXform kind);
+    bool beginMoveHoleFromEdges(const IopContext& ctx);
+    void updateMoveFace(const IopContext& ctx);
+    void commitMoveFace(const IopContext& ctx);
+    void cancelMoveFace(const IopContext& ctx);
+    void moveFaceSlideSketches(const IopContext& ctx, const glm::vec3& v);
+
     // Gesture maths — pure functions of the state, so they moved first.
     bool faceXformNontrivial() const;
     glm::mat3 faceRotTotal() const;

@@ -556,7 +556,11 @@ private:
     // The face transform this gesture applies (Move / Rotate / Scale share the
     // same loft engine + deferred silhouette; only the gizmo + drag math differ).
     using FaceXform = materializr::FaceXform;
-    void beginMoveFace(FaceXform kind = FaceXform::Translate);
+    // Thin delegates — the tool lives in MoveFaceController now (slice 2b).
+    void beginMoveFace(FaceXform kind = FaceXform::Translate) {
+        cancelAllInteractivePreviews();
+        m_moveFaceCtl.beginMoveFace(iopContext(), kind);
+    }
     // Configure a MoveFaceOp with the current gesture's kind + params, and test
     // whether the gesture has anything to apply (defined in the .cpp where the
     // op type is complete).
@@ -564,10 +568,12 @@ private:
     // Total tilt = the live ring drag composed onto the accumulated tilts.
     glm::mat3 faceRotTotal() const { return m_moveFaceCtl.faceRotTotal(); }
     void bakeFaceRotationDrag() { m_moveFaceCtl.bakeFaceRotationDrag(); }
-    void updateMoveFace();   // live shear preview against the snapshot
-    void commitMoveFace();
-    void cancelMoveFace();
-    void moveFaceSlideSketches(const glm::vec3& v); // restore + slide on-face sketches
+    void updateMoveFace() { m_moveFaceCtl.updateMoveFace(iopContext()); }
+    void commitMoveFace() { m_moveFaceCtl.commitMoveFace(iopContext()); }
+    void cancelMoveFace() { m_moveFaceCtl.cancelMoveFace(iopContext()); }
+    void moveFaceSlideSketches(const glm::vec3& v) {
+        m_moveFaceCtl.moveFaceSlideSketches(iopContext(), v);
+    }
     // Move Face's state now belongs to its controller (slice 2). This
     // reference keeps the existing call sites reading `m_mf.…` while the
     // lifecycle migrates; slice 3 removes it along with the last user.
@@ -1323,7 +1329,10 @@ private:
     // Start a hole move driven by an EDGE selection. The picked rim edges
     // choose the verb (see MoveHoleOp::classifyRimEdges). Returns false when
     // the selection isn't one hole's rim, so the caller falls through.
-    bool beginMoveHoleFromEdges();
+    bool beginMoveHoleFromEdges() {
+        cancelAllInteractivePreviews();
+        return m_moveFaceCtl.beginMoveHoleFromEdges(iopContext());
+    }
 
     void beginInteractiveEdgeOp(EdgeOpType type);
     // Re-edit the FilletOp or ChamferOp at the given history index. Pulls the
