@@ -1018,60 +1018,34 @@ void Application::renderViewport() {
             m_gizmo->render(view, proj);
         }
 
-        // Face gizmo: Move/Scale show two in-plane arrows; Rotate shows two
-        // rings (about the face centre) so a tilt reads as a rotation. The
-        // latched handle brightens.
-        if (m_mf.moveFaceActive) {
-            // Translate arrows take the colour of the WORLD axis each in-plane
-            // direction most aligns with — X=red, Y=green, Z=blue, matching the
-            // main move gizmo — so the two arrows read as the actual axes you can
-            // slide the face along. The grabbed one brightens; the other dims.
-            // Colour by the USER's axis, not the world's. The world is Y-up
-            // internally while everything the user reads is Z-up (user X =
-            // world X, user Y = world Z, user Z = world Y — see UserAxes.h),
-            // and this used to colour straight off the world axis. So a top
-            // face's in-plane directions came out red + BLUE, when in the
-            // user's own axes they are X and Y and should read red + GREEN
-            // (Steve, 2026-08-04). Green and blue are therefore swapped
-            // relative to the world mapping.
-            auto axisColor = [](const glm::vec3& d, bool grabbed) {
-                const glm::vec3 a = glm::abs(d);
-                glm::vec3 c = (a.x >= a.y && a.x >= a.z) ? glm::vec3(0.90f, 0.20f, 0.20f)  // world X = user X
-                            : (a.y >= a.z)               ? glm::vec3(0.30f, 0.40f, 0.95f)  // world Y = user Z
-                                                         : glm::vec3(0.20f, 0.90f, 0.20f); // world Z = user Y
-                return grabbed ? glm::clamp(c * 1.7f, glm::vec3(0.0f), glm::vec3(1.0f))
-                               : c * 0.6f;
+        // Controller 3D gizmo meshes (the Move Face arrows/rings/cubes). This
+        // MUST stay inside the FBO-bound 3D pass: the controller-overlay loop
+        // further down runs after unbind(), where a raw GL draw lands in the
+        // window framebuffer and the UI paints straight over it — see
+        // IopGizmo3D in IopViewport.h.
+        {
+            IopGizmo3D g3d;
+            // Colours arrive packed; Gizmo takes a float vec3, so unpack here
+            // — the controller side never sees either type.
+            auto unpack = [](unsigned c) {
+                return glm::vec3(((c      ) & 0xFF) / 255.0f,
+                                 ((c >>  8) & 0xFF) / 255.0f,
+                                 ((c >> 16) & 0xFF) / 255.0f);
             };
-            if (m_mf.faceXformKind == FaceXform::Rotate) {
-                // grab 0 tilts about axis B (RED ring), grab 1 about axis A
-                // (GREEN ring) — matched to the colored controls in the panel.
-                glm::vec3 red0  = m_mf.moveFaceGrab == 0 ? glm::vec3(1.0f, 0.32f, 0.32f)
-                                                      : glm::vec3(0.72f, 0.22f, 0.22f);
-                glm::vec3 grn1  = m_mf.moveFaceGrab == 1 ? glm::vec3(0.35f, 0.95f, 0.40f)
-                                                      : glm::vec3(0.24f, 0.66f, 0.28f);
-                m_gizmo->renderRingAbout(view, proj, m_mf.moveFacePivot, m_mf.moveFaceAxisB, red0);
-                m_gizmo->renderRingAbout(view, proj, m_mf.moveFacePivot, m_mf.moveFaceAxisA, grn1);
-                // Third ring: about the face NORMAL (lies IN the face plane) —
-                // grabbing it TWISTS the face rather than tilting it. Blue, the
-                // "third axis" colour; brightens when latched (grab 2).
-                glm::vec3 blu2 = m_mf.moveFaceGrab == 2 ? glm::vec3(0.45f, 0.62f, 1.0f)
-                                                     : glm::vec3(0.28f, 0.40f, 0.78f);
-                m_gizmo->renderRingAbout(view, proj, m_mf.moveFacePivot, m_mf.moveFaceN, blu2);
-            } else if (m_mf.faceXformKind == FaceXform::Scale) {
-                // Scale: cube handles (the regular scale-gizmo look). Axis A =
-                // red, axis B = green, matched to the non-uniform controls.
-                glm::vec3 rA = m_mf.moveFaceGrab == 0 ? glm::vec3(1.0f, 0.32f, 0.32f)
-                                                   : glm::vec3(0.72f, 0.22f, 0.22f);
-                glm::vec3 gB = m_mf.moveFaceGrab == 1 ? glm::vec3(0.35f, 0.95f, 0.40f)
-                                                   : glm::vec3(0.24f, 0.66f, 0.28f);
-                m_gizmo->renderCubeAlong(view, proj, m_mf.moveFacePivot, m_mf.moveFaceAxisA, rA);
-                m_gizmo->renderCubeAlong(view, proj, m_mf.moveFacePivot, m_mf.moveFaceAxisB, gB);
-            } else {
-                m_gizmo->renderArrowAlong(view, proj, m_mf.moveFaceP0, m_mf.moveFaceAxisA,
-                                          axisColor(m_mf.moveFaceAxisA, m_mf.moveFaceGrab == 0));
-                m_gizmo->renderArrowAlong(view, proj, m_mf.moveFaceP0, m_mf.moveFaceAxisB,
-                                          axisColor(m_mf.moveFaceAxisB, m_mf.moveFaceGrab == 1));
-            }
+            g3d.arrow = [&](const glm::vec3& at, const glm::vec3& d, unsigned c) {
+                m_gizmo->renderArrowAlong(view, proj, at, d, unpack(c));
+            };
+            g3d.ring = [&](const glm::vec3& at, const glm::vec3& a, unsigned c) {
+                m_gizmo->renderRingAbout(view, proj, at, a, unpack(c));
+            };
+            g3d.cube = [&](const glm::vec3& at, const glm::vec3& d, unsigned c) {
+                m_gizmo->renderCubeAlong(view, proj, at, d, unpack(c));
+            };
+            for (const auto* c : m_iops)
+                if (c->active()) c->drawGizmos3D(g3d);
+            // Not in m_iops yet (custom lifecycle — see FaceOpControllers.h);
+            // called directly, draws nothing when Move Face isn't active.
+            m_moveFaceCtl.drawGizmos3D(g3d);
         }
 
         // Render all stored sketches (visible only) plus the active sketch
@@ -1544,23 +1518,6 @@ void Application::renderViewport() {
                 };
                 ov.disc = [&](glm::vec2 c, float r, unsigned col) {
                     dl->AddCircleFilled(ImVec2(c.x, c.y), r, col);
-                };
-                // 3D gizmo meshes, bound to the real renderer. Colours arrive
-                // packed; Gizmo takes a float vec3, so unpack here — the
-                // controller side never sees either type.
-                auto unpack = [](unsigned c) {
-                    return glm::vec3(((c      ) & 0xFF) / 255.0f,
-                                     ((c >>  8) & 0xFF) / 255.0f,
-                                     ((c >> 16) & 0xFF) / 255.0f);
-                };
-                ov.arrow = [&](const glm::vec3& at, const glm::vec3& d, unsigned c) {
-                    m_gizmo->renderArrowAlong(view, proj, at, d, unpack(c));
-                };
-                ov.ring = [&](const glm::vec3& at, const glm::vec3& a, unsigned c) {
-                    m_gizmo->renderRingAbout(view, proj, at, a, unpack(c));
-                };
-                ov.cube = [&](const glm::vec3& at, const glm::vec3& d, unsigned c) {
-                    m_gizmo->renderCubeAlong(view, proj, at, d, unpack(c));
                 };
                 ov.label = [&](glm::vec2 at, const char* txt, unsigned col) {
                     ImVec2 ts = ImGui::CalcTextSize(txt);

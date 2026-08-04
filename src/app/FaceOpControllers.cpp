@@ -1734,4 +1734,70 @@ void MoveFaceController::moveFaceSlideSketches(const IopContext& ctx, const glm:
     }
 }
 
+// Face gizmo: Move/Scale show two in-plane arrows; Rotate shows two rings
+// (about the face centre) so a tilt reads as a rotation. The latched handle
+// brightens.
+void MoveFaceController::drawGizmos3D(const IopGizmo3D& g) const {
+    if (!m_st.moveFaceActive) return;
+    auto pack = [](const glm::vec3& c) -> unsigned {
+        auto b = [](float v) {
+            return static_cast<unsigned>(
+                glm::clamp(v, 0.0f, 1.0f) * 255.0f + 0.5f);
+        };
+        return 0xFF000000u | (b(c.b) << 16) | (b(c.g) << 8) | b(c.r);
+    };
+    // Translate arrows take the colour of the axis each in-plane direction
+    // most aligns with — coloured by the USER's axis, not the world's. The
+    // world is Y-up internally while everything the user reads is Z-up
+    // (user X = world X, user Y = world Z, user Z = world Y — see
+    // UserAxes.h), and this used to colour straight off the world axis. So a
+    // top face's in-plane directions came out red + BLUE, when in the user's
+    // own axes they are X and Y and should read red + GREEN (Steve,
+    // 2026-08-04). Green and blue are therefore swapped relative to the
+    // world mapping. The grabbed arrow brightens; the other dims.
+    auto axisColor = [&](const glm::vec3& d, bool grabbed) {
+        const glm::vec3 a = glm::abs(d);
+        glm::vec3 c = (a.x >= a.y && a.x >= a.z) ? glm::vec3(0.90f, 0.20f, 0.20f)  // world X = user X
+                    : (a.y >= a.z)               ? glm::vec3(0.30f, 0.40f, 0.95f)  // world Y = user Z
+                                                 : glm::vec3(0.20f, 0.90f, 0.20f); // world Z = user Y
+        return pack(grabbed ? glm::clamp(c * 1.7f, glm::vec3(0.0f), glm::vec3(1.0f))
+                            : c * 0.6f);
+    };
+    if (m_st.faceXformKind == FaceXform::Rotate) {
+        // grab 0 tilts about axis B (RED ring), grab 1 about axis A
+        // (GREEN ring) — matched to the colored controls in the panel.
+        const unsigned red0 = pack(m_st.moveFaceGrab == 0
+                                       ? glm::vec3(1.0f, 0.32f, 0.32f)
+                                       : glm::vec3(0.72f, 0.22f, 0.22f));
+        const unsigned grn1 = pack(m_st.moveFaceGrab == 1
+                                       ? glm::vec3(0.35f, 0.95f, 0.40f)
+                                       : glm::vec3(0.24f, 0.66f, 0.28f));
+        g.ring(m_st.moveFacePivot, m_st.moveFaceAxisB, red0);
+        g.ring(m_st.moveFacePivot, m_st.moveFaceAxisA, grn1);
+        // Third ring: about the face NORMAL (lies IN the face plane) —
+        // grabbing it TWISTS the face rather than tilting it. Blue, the
+        // "third axis" colour; brightens when latched (grab 2).
+        const unsigned blu2 = pack(m_st.moveFaceGrab == 2
+                                       ? glm::vec3(0.45f, 0.62f, 1.0f)
+                                       : glm::vec3(0.28f, 0.40f, 0.78f));
+        g.ring(m_st.moveFacePivot, m_st.moveFaceN, blu2);
+    } else if (m_st.faceXformKind == FaceXform::Scale) {
+        // Scale: cube handles (the regular scale-gizmo look). Axis A =
+        // red, axis B = green, matched to the non-uniform controls.
+        const unsigned rA = pack(m_st.moveFaceGrab == 0
+                                     ? glm::vec3(1.0f, 0.32f, 0.32f)
+                                     : glm::vec3(0.72f, 0.22f, 0.22f));
+        const unsigned gB = pack(m_st.moveFaceGrab == 1
+                                     ? glm::vec3(0.35f, 0.95f, 0.40f)
+                                     : glm::vec3(0.24f, 0.66f, 0.28f));
+        g.cube(m_st.moveFacePivot, m_st.moveFaceAxisA, rA);
+        g.cube(m_st.moveFacePivot, m_st.moveFaceAxisB, gB);
+    } else {
+        g.arrow(m_st.moveFaceP0, m_st.moveFaceAxisA,
+                axisColor(m_st.moveFaceAxisA, m_st.moveFaceGrab == 0));
+        g.arrow(m_st.moveFaceP0, m_st.moveFaceAxisB,
+                axisColor(m_st.moveFaceAxisB, m_st.moveFaceGrab == 1));
+    }
+}
+
 } // namespace materializr

@@ -88,6 +88,10 @@ public:
     }
     // Draw the handles. Called with the foreground draw list already selected.
     virtual void drawOverlay(const IopOverlay& ov) const { (void)ov; }
+    // Draw the op's real 3D gizmo meshes. Unlike drawOverlay this runs during
+    // the 3D pass with the viewport FBO still bound — see IopGizmo3D for why
+    // the two phases must not be mixed up.
+    virtual void drawGizmos3D(const IopGizmo3D& g) const { (void)g; }
 
     // True while a handle is latched. The viewport suppresses camera orbit and
     // face picking on this — previously read off ScaleFace's dragAxis()

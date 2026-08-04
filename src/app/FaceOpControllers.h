@@ -217,6 +217,10 @@ public:
     void bakeFaceRotationDrag();          // fold a released ring drag in
     void configureFaceOp(MoveFaceOp& op) const;
 
+    // The face gizmo (slice 3). Checks its own active flag — this controller
+    // isn't in m_iops yet, so Application_Viewport calls it unconditionally.
+    void drawGizmos3D(const IopGizmo3D& g) const override;
+
 protected:
     const char* title() const override { return "Move Face"; }
     int onBegin(const IopContext&) override { return -1; }  // slice 2: not yet

@@ -49,14 +49,18 @@ struct IopOverlay {
     // Text with its own backing plate, offset clear of the anchor — the
     // percentage readouts every handle draws.
     std::function<void(glm::vec2 at, const char* text, unsigned rgba)> label;
+};
 
-    // ─── 3D gizmo meshes ─────────────────────────────────────────────────────
-    // Scale Face's handles are flat lines and dots, which the 2D primitives
-    // above cover. Move Face's are the real gizmo geometry — depth-tested
-    // cones, torus rings and cubes, camera-scaled — drawn by the Gizmo
-    // renderer. Exposed as three calls rather than handing controllers the
-    // Gizmo itself, so the "no engine types cross this line" rule holds:
-    // position and direction are world-space, colour is packed 0xAABBGGRR.
+// The REAL 3D gizmo meshes — depth-tested cones, torus rings and cubes drawn
+// by the Gizmo renderer, camera-scaled. Separate from IopOverlay because the
+// two run in different halves of the frame: drawGizmos3D() is invoked during
+// the 3D pass, while the offscreen viewport FBO is still bound, so the meshes
+// land in the scene and depth-test against it. drawOverlay() runs later,
+// after unbind(), while the ImGui draw list is being built — a raw GL call
+// there hits the WINDOW framebuffer and the UI paints straight over it
+// (these three calls used to live on IopOverlay, and drew exactly nothing).
+// Same boundary rule: world-space glm vectors in, colour packed 0xAABBGGRR.
+struct IopGizmo3D {
     std::function<void(const glm::vec3& at, const glm::vec3& dir,
                        unsigned rgba)> arrow;
     std::function<void(const glm::vec3& at, const glm::vec3& axis,
