@@ -48,7 +48,7 @@ REGISTER_PLUGIN(Loft, [](materializr::PluginContext& ctx) {
         }
 
         if (sketchIds.size() < 2) {
-            ctx.requestInteractiveOp("LoftPickSecond");
+            ctx.requestInteractiveOp(materializr::InteractiveOp::LoftPickSecond);
             return;
         }
 
@@ -56,7 +56,7 @@ REGISTER_PLUGIN(Loft, [](materializr::PluginContext& ctx) {
         // with reorder + per-section Flip, Solid/Shell, Smooth/Ruled, live
         // preview, Apply / Cancel) — same architecture as Linear/Radial
         // Pattern.
-        ctx.requestInteractiveOp("Loft");
+        ctx.requestInteractiveOp(materializr::InteractiveOp::Loft);
     };
 
     const char* tooltip =

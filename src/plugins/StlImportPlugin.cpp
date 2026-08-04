@@ -11,7 +11,7 @@
 REGISTER_PLUGIN(StlImport, [](materializr::PluginContext& ctx) {
     ctx.registerIOFormat({"STL", {"stl"}, /*canImport=*/true, /*canExport=*/false,
         [](materializr::PluginContext& ctx, const std::string&) {
-            ctx.requestInteractiveOp("StlImport");
+            ctx.requestInteractiveOp(materializr::InteractiveOp::StlImport);
             return true;
         },
         nullptr});

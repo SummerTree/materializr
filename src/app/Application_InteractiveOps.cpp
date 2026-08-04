@@ -2858,7 +2858,7 @@ void Application::cancelPattern() {
 // ─── Loft (interactive popup) ──────────────────────────────────────────────
 //
 // LoftPlugin walks the selection and, when 2+ distinct sketches are present,
-// fires requestInteractiveOp("Loft"). The main frame loop dispatches that to
+// fires requestInteractiveOp(InteractiveOp::Loft). The main frame loop dispatches that to
 // beginLoft(), which snapshots one profile section per selected sketch (the
 // outer wire of each sketch's outermost region, in click order — that order
 // is the skinning order) and opens the popup. updateLoft re-pushes a preview
@@ -3350,7 +3350,7 @@ void Application::cancelLoft() {
 
 // ─── Boundary Fill (interactive popup) ──────────────────────────────────────
 //
-// BoundaryFillPlugin fires requestInteractiveOp("BoundaryFill") with 2+
+// BoundaryFillPlugin fires requestInteractiveOp(InteractiveOp::BoundaryFill) with 2+
 // closed sketches selected. Same live-preview scaffolding as Loft: one
 // BoundaryFillOp is pushed as the preview, re-pushed on toggle, committed on
 // Apply, undone on Cancel.
@@ -3441,7 +3441,7 @@ void Application::cancelBoundaryFill() {
 // ─── Construction Plane (interactive popup) ────────────────────────────────
 //
 // Same architecture as Loft: ConstructionPlanePlugin fires a plain
-// requestInteractiveOp("ConstructionPlane"). Application reads the current
+// requestInteractiveOp(InteractiveOp::ConstructionPlane). Application reads the current
 // selection (a planar face unlocks the "Parallel to face" option), opens a
 // live-previewed popup with XY/XZ/YZ + offset, then commits a single
 // ConstructionPlaneOp on Apply or undoes the preview on Cancel.

@@ -207,6 +207,7 @@ add_executable(materializr
     src/app/Application_Viewport.cpp
     src/app/Window.cpp
     src/plugin/PluginContext.cpp
+    src/plugin/InteractiveOp.cpp
     src/plugin/PluginRegistry.cpp
     src/plugins/ForceLink.cpp
     src/plugins/CoreCommandsPlugin.cpp
@@ -435,6 +436,18 @@ if(WIN32)
     # GL loader (opengl32.dll only provides GL 1.1). GLEW comes from vcpkg.
     find_package(GLEW REQUIRED)
     target_link_libraries(materializr PRIVATE GLEW::GLEW)
+endif()
+
+# -Wswitch ONLY (not -Wall): a switch over an enum class that misses an
+# enumerator is a build warning. The interactive-op dispatch (see
+# plugin/InteractiveOp.h) relies on exactly this — it deliberately has no
+# `default:`, so adding an op and forgetting to handle it is caught here
+# instead of shipping a button that silently does nothing. Nothing else is
+# turned on: -Wall over 28k lines of existing code would bury the one warning
+# that's meant to be load-bearing. MSVC's nearest equivalent (C4062) is left
+# off; the Linux/macOS CI legs cover the check for everyone.
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(materializr PRIVATE -Wswitch)
 endif()
 
 if(MSVC)

@@ -17,6 +17,6 @@
 REGISTER_PLUGIN(Revolve, [](materializr::PluginContext& ctx) {
     ctx.registerCommand({"Revolve", "",
         [](materializr::PluginContext& c) {
-            c.requestInteractiveOp("Revolve");
+            c.requestInteractiveOp(materializr::InteractiveOp::Revolve);
         }});
 })

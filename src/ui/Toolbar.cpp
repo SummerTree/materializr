@@ -441,15 +441,15 @@ void Toolbar::renderPrimitivesMenu() {
         "10 mm / R5 mm shape at the world origin.");
     if (ImGui::BeginPopup("PrimitivesMenu")) {
         if (ImGui::MenuItem("Box"))
-            m_pluginCtx->requestInteractiveOp("PrimitiveBox");
+            m_pluginCtx->requestInteractiveOp(InteractiveOp::PrimitiveBox);
         if (ImGui::MenuItem("Cylinder"))
-            m_pluginCtx->requestInteractiveOp("PrimitiveCylinder");
+            m_pluginCtx->requestInteractiveOp(InteractiveOp::PrimitiveCylinder);
         if (ImGui::MenuItem("Sphere"))
-            m_pluginCtx->requestInteractiveOp("PrimitiveSphere");
+            m_pluginCtx->requestInteractiveOp(InteractiveOp::PrimitiveSphere);
         if (ImGui::MenuItem("Cone"))
-            m_pluginCtx->requestInteractiveOp("PrimitiveCone");
+            m_pluginCtx->requestInteractiveOp(InteractiveOp::PrimitiveCone);
         if (ImGui::MenuItem("Torus"))
-            m_pluginCtx->requestInteractiveOp("PrimitiveTorus");
+            m_pluginCtx->requestInteractiveOp(InteractiveOp::PrimitiveTorus);
         ImGui::EndPopup();
     }
 }
@@ -488,17 +488,17 @@ void Toolbar::renderAddPlaneMenu() {
     tip("Create a construction plane derived from the current selection.");
     if (ImGui::BeginPopup("AddPlaneMenu")) {
         if (midplane && ImGui::MenuItem("Midplane (between the 2 selected)"))
-            m_pluginCtx->requestInteractiveOp("Midplane");
+            m_pluginCtx->requestInteractiveOp(InteractiveOp::Midplane);
         if (haveCyl) {
             if (ImGui::MenuItem("Tangent to cylinder"))
-                m_pluginCtx->requestInteractiveOp("TangentPlane");
+                m_pluginCtx->requestInteractiveOp(InteractiveOp::TangentPlane);
             if (ImGui::MenuItem("Perpendicular to cylinder axis"))
-                m_pluginCtx->requestInteractiveOp("PlaneNormalToAxis");
+                m_pluginCtx->requestInteractiveOp(InteractiveOp::PlaneNormalToAxis);
             if (ImGui::MenuItem("Through cylinder axis (longitudinal)"))
-                m_pluginCtx->requestInteractiveOp("PlaneThroughAxis");
+                m_pluginCtx->requestInteractiveOp(InteractiveOp::PlaneThroughAxis);
         } else if (haveAxis || straightEdge) {
             if (ImGui::MenuItem(straightEdge ? "Normal to edge" : "Normal to axis"))
-                m_pluginCtx->requestInteractiveOp("PlaneNormalToAxis");
+                m_pluginCtx->requestInteractiveOp(InteractiveOp::PlaneNormalToAxis);
         }
         ImGui::EndPopup();
     }
@@ -539,15 +539,15 @@ void Toolbar::renderAddAxisMenu() {
     tip("Create a construction axis derived from the current selection.");
     if (ImGui::BeginPopup("AddAxisMenu")) {
         if (haveCyl && ImGui::MenuItem("From cylinder axis"))
-            m_pluginCtx->requestInteractiveOp("AxisFromCylinder");
+            m_pluginCtx->requestInteractiveOp(InteractiveOp::AxisFromCylinder);
         if (straightEdge && ImGui::MenuItem("Along edge"))
-            m_pluginCtx->requestInteractiveOp("AxisAlongEdge");
+            m_pluginCtx->requestInteractiveOp(InteractiveOp::AxisAlongEdge);
         if (twoVerts && ImGui::MenuItem("Through two vertices"))
-            m_pluginCtx->requestInteractiveOp("AxisTwoPoints");
+            m_pluginCtx->requestInteractiveOp(InteractiveOp::AxisTwoPoints);
         if (faceNormal && ImGui::MenuItem("Normal to face"))
-            m_pluginCtx->requestInteractiveOp("AxisNormalToFace");
+            m_pluginCtx->requestInteractiveOp(InteractiveOp::AxisNormalToFace);
         if (twoPlanes && ImGui::MenuItem("Intersection of two planes"))
-            m_pluginCtx->requestInteractiveOp("AxisTwoPlanes");
+            m_pluginCtx->requestInteractiveOp(InteractiveOp::AxisTwoPlanes);
         ImGui::EndPopup();
     }
 }

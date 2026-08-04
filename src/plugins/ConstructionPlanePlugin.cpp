@@ -42,7 +42,7 @@ REGISTER_PLUGIN(ConstructionPlane, [](materializr::PluginContext& ctx) {
     // (subscribed below) which flips this plugin's dirty flag so the next
     // frame's render pass picks up the new plane.
     auto action = [](materializr::PluginContext& c) {
-        c.requestInteractiveOp("ConstructionPlane");
+        c.requestInteractiveOp(materializr::InteractiveOp::ConstructionPlane);
     };
     ctx.registerToolbarButton({"Construction Plane", "Create",
         materializr::SelectionContext::Always, 50,

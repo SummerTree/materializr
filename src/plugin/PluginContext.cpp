@@ -22,13 +22,13 @@ bool PluginContext::isInSketchMode() const {
     return m_sketchModeFlag && *m_sketchModeFlag;
 }
 
-void PluginContext::requestInteractiveOp(const std::string& name) {
-    m_pendingInteractiveOp = name;
+void PluginContext::requestInteractiveOp(InteractiveOp op) {
+    m_pendingInteractiveOp = op;
 }
 
-std::string PluginContext::takeRequestedInteractiveOp() {
-    std::string taken;
-    taken.swap(m_pendingInteractiveOp);
+InteractiveOp PluginContext::takeRequestedInteractiveOp() {
+    const InteractiveOp taken = m_pendingInteractiveOp;
+    m_pendingInteractiveOp = InteractiveOp::None;
     return taken;
 }
 

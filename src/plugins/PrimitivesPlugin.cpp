@@ -17,13 +17,13 @@ REGISTER_PLUGIN(Primitives, [](materializr::PluginContext& ctx) {
     using namespace materializr;
 
     ctx.registerCommand({"New Box", "",
-        [](PluginContext& c) { c.requestInteractiveOp("PrimitiveBox"); }});
+        [](PluginContext& c) { c.requestInteractiveOp(materializr::InteractiveOp::PrimitiveBox); }});
     ctx.registerCommand({"New Cylinder", "",
-        [](PluginContext& c) { c.requestInteractiveOp("PrimitiveCylinder"); }});
+        [](PluginContext& c) { c.requestInteractiveOp(materializr::InteractiveOp::PrimitiveCylinder); }});
     ctx.registerCommand({"New Sphere", "",
-        [](PluginContext& c) { c.requestInteractiveOp("PrimitiveSphere"); }});
+        [](PluginContext& c) { c.requestInteractiveOp(materializr::InteractiveOp::PrimitiveSphere); }});
     ctx.registerCommand({"New Cone", "",
-        [](PluginContext& c) { c.requestInteractiveOp("PrimitiveCone"); }});
+        [](PluginContext& c) { c.requestInteractiveOp(materializr::InteractiveOp::PrimitiveCone); }});
     ctx.registerCommand({"New Torus", "",
-        [](PluginContext& c) { c.requestInteractiveOp("PrimitiveTorus"); }});
+        [](PluginContext& c) { c.requestInteractiveOp(materializr::InteractiveOp::PrimitiveTorus); }});
 })

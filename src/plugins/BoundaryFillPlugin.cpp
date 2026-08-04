@@ -11,7 +11,7 @@
 // weave through itself.
 REGISTER_PLUGIN(BoundaryFill, [](materializr::PluginContext& ctx) {
     auto action = [](materializr::PluginContext& c) {
-        c.requestInteractiveOp("BoundaryFill");
+        c.requestInteractiveOp(materializr::InteractiveOp::BoundaryFill);
     };
 
     const char* tooltip =

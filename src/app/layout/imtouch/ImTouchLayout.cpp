@@ -954,15 +954,15 @@ void Application::renderImTouchLayout() {
                 if (m_pluginContext &&
                     ImGui::BeginMenu(MZ_ICON_PRIMITIVE "  Primitive")) {
                     if (ImGui::MenuItem("Box"))
-                        m_pluginContext->requestInteractiveOp("PrimitiveBox");
+                        m_pluginContext->requestInteractiveOp(InteractiveOp::PrimitiveBox);
                     if (ImGui::MenuItem("Cylinder"))
-                        m_pluginContext->requestInteractiveOp("PrimitiveCylinder");
+                        m_pluginContext->requestInteractiveOp(InteractiveOp::PrimitiveCylinder);
                     if (ImGui::MenuItem("Sphere"))
-                        m_pluginContext->requestInteractiveOp("PrimitiveSphere");
+                        m_pluginContext->requestInteractiveOp(InteractiveOp::PrimitiveSphere);
                     if (ImGui::MenuItem("Cone"))
-                        m_pluginContext->requestInteractiveOp("PrimitiveCone");
+                        m_pluginContext->requestInteractiveOp(InteractiveOp::PrimitiveCone);
                     if (ImGui::MenuItem("Torus"))
-                        m_pluginContext->requestInteractiveOp("PrimitiveTorus");
+                        m_pluginContext->requestInteractiveOp(InteractiveOp::PrimitiveTorus);
                     ImGui::EndMenu();
                 }
                 if (ImGui::BeginMenu(MZ_ICON_FOCUS "  Construction")) {

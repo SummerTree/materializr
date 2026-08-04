@@ -35,7 +35,7 @@ static std::unique_ptr<RefImageState> g_state;
 
 REGISTER_PLUGIN(RefImage, [](materializr::PluginContext& ctx) {
     auto action = [](materializr::PluginContext& c) {
-        c.requestInteractiveOp("ImportRefImage");
+        c.requestInteractiveOp(materializr::InteractiveOp::ImportRefImage);
     };
     ctx.registerToolbarButton({"Reference Image", "Create",
         materializr::SelectionContext::Always, 55,

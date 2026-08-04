@@ -7198,35 +7198,39 @@ void Application::run() {
             // needs Application's popup machinery (e.g. PatternPlugin asking for
             // the Linear / Radial pattern popup). Dispatch any pending request.
             if (m_pluginContext) {
-                std::string pending = m_pluginContext->takeRequestedInteractiveOp();
-                if (!pending.empty()) {
-                    if      (pending == "LinearPattern") beginPattern(PatternKind::Linear);
-                    else if (pending == "RadialPattern") beginPattern(PatternKind::Radial);
-                    else if (pending == "Loft")          beginLoft();
-                    else if (pending == "BoundaryFill")  beginBoundaryFill();
-                    else if (pending == "LoftPickSecond") m_loftPickHintPending = true;
-                    else if (pending == "ConstructionPlane") beginConstructionPlane();
-                    else if (pending == "ImportRefImage")    beginRefImageImport();
-                    else if (pending == "ConstructionAxis")  beginConstructionAxis();
-                    else if (pending == "Revolve")           beginRevolve();
-                    else if (pending == "Midplane")          beginConstructionPlaneMode(4);
-                    else if (pending == "PlaneNormalToAxis") beginConstructionPlaneMode(5);
-                    else if (pending == "TangentPlane")      beginConstructionPlaneMode(6);
-                    else if (pending == "PlaneThroughAxis")  beginConstructionPlaneMode(7);
-                    else if (pending == "AxisFromCylinder")  beginConstructionAxisMode(3);
-                    else if (pending == "AxisAlongEdge")     beginConstructionAxisMode(4);
-                    else if (pending == "AxisTwoPoints")     beginConstructionAxisMode(5);
-                    else if (pending == "AxisNormalToFace")  beginConstructionAxisMode(6);
-                    else if (pending == "AxisTwoPlanes")     beginConstructionAxisMode(7);
-                    else if (pending == "PrimitiveBox")      beginPrimitivePopup(0);
-                    else if (pending == "PrimitiveCylinder") beginPrimitivePopup(1);
-                    else if (pending == "PrimitiveSphere")   beginPrimitivePopup(2);
-                    else if (pending == "PrimitiveCone")     beginPrimitivePopup(3);
-                    else if (pending == "PrimitiveTorus")    beginPrimitivePopup(4);
-                    else if (pending == "StlImport")         beginStlImportDialog();
-                    // Unknown ids are silently ignored — future plugins can
-                    // ship their own without modifying Application by routing
-                    // through whatever new dispatcher is added here.
+                // Typed dispatch (was a chain of string compares — see
+                // plugin/InteractiveOp.h and discussion #72). NO default: on
+                // purpose — a new InteractiveOp that nobody handles here is a
+                // -Wswitch warning at build time, where the string version
+                // silently produced a button that did nothing.
+                const InteractiveOp pending =
+                    m_pluginContext->takeRequestedInteractiveOp();
+                switch (pending) {
+                    case InteractiveOp::None: break;
+                    case InteractiveOp::LinearPattern:  beginPattern(PatternKind::Linear); break;
+                    case InteractiveOp::RadialPattern:  beginPattern(PatternKind::Radial); break;
+                    case InteractiveOp::Loft:           beginLoft();           break;
+                    case InteractiveOp::BoundaryFill:   beginBoundaryFill();   break;
+                    case InteractiveOp::LoftPickSecond: m_loftPickHintPending = true; break;
+                    case InteractiveOp::ConstructionPlane: beginConstructionPlane(); break;
+                    case InteractiveOp::ImportRefImage: beginRefImageImport(); break;
+                    case InteractiveOp::ConstructionAxis: beginConstructionAxis(); break;
+                    case InteractiveOp::Revolve:        beginRevolve();        break;
+                    case InteractiveOp::Midplane:          beginConstructionPlaneMode(4); break;
+                    case InteractiveOp::PlaneNormalToAxis: beginConstructionPlaneMode(5); break;
+                    case InteractiveOp::TangentPlane:      beginConstructionPlaneMode(6); break;
+                    case InteractiveOp::PlaneThroughAxis:  beginConstructionPlaneMode(7); break;
+                    case InteractiveOp::AxisFromCylinder:  beginConstructionAxisMode(3); break;
+                    case InteractiveOp::AxisAlongEdge:     beginConstructionAxisMode(4); break;
+                    case InteractiveOp::AxisTwoPoints:     beginConstructionAxisMode(5); break;
+                    case InteractiveOp::AxisNormalToFace:  beginConstructionAxisMode(6); break;
+                    case InteractiveOp::AxisTwoPlanes:     beginConstructionAxisMode(7); break;
+                    case InteractiveOp::PrimitiveBox:      beginPrimitivePopup(0); break;
+                    case InteractiveOp::PrimitiveCylinder: beginPrimitivePopup(1); break;
+                    case InteractiveOp::PrimitiveSphere:   beginPrimitivePopup(2); break;
+                    case InteractiveOp::PrimitiveCone:     beginPrimitivePopup(3); break;
+                    case InteractiveOp::PrimitiveTorus:    beginPrimitivePopup(4); break;
+                    case InteractiveOp::StlImport:         beginStlImportDialog(); break;
                 }
             }
 

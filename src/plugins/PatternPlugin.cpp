@@ -14,7 +14,7 @@ REGISTER_PLUGIN(Pattern, [](materializr::PluginContext& ctx) {
     ctx.registerToolbarButton({"Linear Pattern", "Pattern",
         materializr::SelectionContext::HasBodies, 300,
         [](materializr::PluginContext& ctx) {
-            ctx.requestInteractiveOp("LinearPattern");
+            ctx.requestInteractiveOp(materializr::InteractiveOp::LinearPattern);
         }, nullptr,
         "Open a popup to copy the selected body along an axis a fixed distance "
         "apart. Pick X / Y / Z, count, and spacing with a live preview."});
@@ -22,7 +22,7 @@ REGISTER_PLUGIN(Pattern, [](materializr::PluginContext& ctx) {
     ctx.registerToolbarButton({"Circular Pattern", "Pattern",
         materializr::SelectionContext::HasBodies, 301,
         [](materializr::PluginContext& ctx) {
-            ctx.requestInteractiveOp("RadialPattern");
+            ctx.requestInteractiveOp(materializr::InteractiveOp::RadialPattern);
         }, nullptr,
         "Open a popup to copy the selected body around an axis. Pick the axis "
         "(X / Y / Z), count, total angle, and click in the viewport to pick the "

@@ -528,7 +528,7 @@ void Application::renderConstructionMenuItems() {
     // what to pick instead of vanishing.
     if (ImGui::BeginMenu("Plane")) {
         if (m_pluginContext && ImGui::MenuItem("New Plane..."))
-            m_pluginContext->requestInteractiveOp("ConstructionPlane");
+            m_pluginContext->requestInteractiveOp(InteractiveOp::ConstructionPlane);
         ImGui::Separator();
         if (!anyPlane) {
             ImGui::MenuItem("Select what to derive from:", nullptr, false, false);
@@ -537,24 +537,24 @@ void Application::renderConstructionMenuItems() {
             ImGui::MenuItem("an edge or axis  - normal plane", nullptr, false, false);
         } else {
             if (midplane && ImGui::MenuItem("Midplane (between the 2 selected)"))
-                m_pluginContext->requestInteractiveOp("Midplane");
+                m_pluginContext->requestInteractiveOp(InteractiveOp::Midplane);
             if (haveCyl) {
                 if (ImGui::MenuItem("Tangent to cylinder"))
-                    m_pluginContext->requestInteractiveOp("TangentPlane");
+                    m_pluginContext->requestInteractiveOp(InteractiveOp::TangentPlane);
                 if (ImGui::MenuItem("Perpendicular to cylinder axis"))
-                    m_pluginContext->requestInteractiveOp("PlaneNormalToAxis");
+                    m_pluginContext->requestInteractiveOp(InteractiveOp::PlaneNormalToAxis);
                 if (ImGui::MenuItem("Through cylinder axis (longitudinal)"))
-                    m_pluginContext->requestInteractiveOp("PlaneThroughAxis");
+                    m_pluginContext->requestInteractiveOp(InteractiveOp::PlaneThroughAxis);
             } else if (haveAxis || straightEdge) {
                 if (ImGui::MenuItem(straightEdge ? "Normal to edge" : "Normal to axis"))
-                    m_pluginContext->requestInteractiveOp("PlaneNormalToAxis");
+                    m_pluginContext->requestInteractiveOp(InteractiveOp::PlaneNormalToAxis);
             }
         }
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Axis")) {
         if (m_pluginContext && ImGui::MenuItem("New Axis..."))
-            m_pluginContext->requestInteractiveOp("ConstructionAxis");
+            m_pluginContext->requestInteractiveOp(InteractiveOp::ConstructionAxis);
         ImGui::Separator();
         if (!anyAxis) {
             ImGui::MenuItem("Select what to derive from:", nullptr, false, false);
@@ -562,15 +562,15 @@ void Application::renderConstructionMenuItems() {
             ImGui::MenuItem("2 vertices / a flat face / 2 planes", nullptr, false, false);
         } else {
             if (haveCyl && ImGui::MenuItem("From cylinder axis"))
-                m_pluginContext->requestInteractiveOp("AxisFromCylinder");
+                m_pluginContext->requestInteractiveOp(InteractiveOp::AxisFromCylinder);
             if (straightEdge && ImGui::MenuItem("Along edge"))
-                m_pluginContext->requestInteractiveOp("AxisAlongEdge");
+                m_pluginContext->requestInteractiveOp(InteractiveOp::AxisAlongEdge);
             if (twoVerts && ImGui::MenuItem("Through two vertices"))
-                m_pluginContext->requestInteractiveOp("AxisTwoPoints");
+                m_pluginContext->requestInteractiveOp(InteractiveOp::AxisTwoPoints);
             if (faceNormal && ImGui::MenuItem("Normal to face"))
-                m_pluginContext->requestInteractiveOp("AxisNormalToFace");
+                m_pluginContext->requestInteractiveOp(InteractiveOp::AxisNormalToFace);
             if (midplane && ImGui::MenuItem("Intersection of two planes"))
-                m_pluginContext->requestInteractiveOp("AxisTwoPlanes");
+                m_pluginContext->requestInteractiveOp(InteractiveOp::AxisTwoPlanes);
         }
         ImGui::EndMenu();
     }

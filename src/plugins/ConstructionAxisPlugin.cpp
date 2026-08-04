@@ -40,7 +40,7 @@ REGISTER_PLUGIN(ConstructionAxis, [](materializr::PluginContext& ctx) {
     // to Application's interactive-op popup (same routing the plane plugin
     // uses, with a different op name so the host can dispatch).
     auto action = [](materializr::PluginContext& c) {
-        c.requestInteractiveOp("ConstructionAxis");
+        c.requestInteractiveOp(materializr::InteractiveOp::ConstructionAxis);
     };
     ctx.registerToolbarButton({"Construction Axis", "Create",
         materializr::SelectionContext::Always, 51,
