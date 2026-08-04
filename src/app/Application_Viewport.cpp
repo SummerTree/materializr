@@ -1026,11 +1026,19 @@ void Application::renderViewport() {
             // direction most aligns with — X=red, Y=green, Z=blue, matching the
             // main move gizmo — so the two arrows read as the actual axes you can
             // slide the face along. The grabbed one brightens; the other dims.
+            // Colour by the USER's axis, not the world's. The world is Y-up
+            // internally while everything the user reads is Z-up (user X =
+            // world X, user Y = world Z, user Z = world Y — see UserAxes.h),
+            // and this used to colour straight off the world axis. So a top
+            // face's in-plane directions came out red + BLUE, when in the
+            // user's own axes they are X and Y and should read red + GREEN
+            // (Steve, 2026-08-04). Green and blue are therefore swapped
+            // relative to the world mapping.
             auto axisColor = [](const glm::vec3& d, bool grabbed) {
                 const glm::vec3 a = glm::abs(d);
-                glm::vec3 c = (a.x >= a.y && a.x >= a.z) ? glm::vec3(0.90f, 0.20f, 0.20f)  // X
-                            : (a.y >= a.z)               ? glm::vec3(0.20f, 0.90f, 0.20f)  // Y
-                                                         : glm::vec3(0.30f, 0.40f, 0.95f); // Z
+                glm::vec3 c = (a.x >= a.y && a.x >= a.z) ? glm::vec3(0.90f, 0.20f, 0.20f)  // world X = user X
+                            : (a.y >= a.z)               ? glm::vec3(0.30f, 0.40f, 0.95f)  // world Y = user Z
+                                                         : glm::vec3(0.20f, 0.90f, 0.20f); // world Z = user Y
                 return grabbed ? glm::clamp(c * 1.7f, glm::vec3(0.0f), glm::vec3(1.0f))
                                : c * 0.6f;
             };
