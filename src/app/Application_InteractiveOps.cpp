@@ -1991,7 +1991,16 @@ void Application::beginMoveFace(FaceXform kind) {
                 m_mf.moveFaceActive = true;
                 return;
             }
-            if (pocket) {
+            // Refuse ONLY when the pick is plausibly a bore wall. buildVoid
+            // reports "one mouth" for plenty of ordinary faces — a solid
+            // cylinder's flat top cap among them — and this used to toast and
+            // RETURN on all of them, so selecting a cylinder's top face and
+            // pressing Move refused with a message about holes instead of
+            // moving the face (Steve, 2026-08-04). A bore wall is curved; a
+            // cap is planar, so planar picks fall through to the ordinary face
+            // move. Square-hole walls are planar too and still reach the
+            // whole-hole slide above, because for them buildVoid SUCCEEDS.
+            if (pocket && !faceIsPlanar(wall)) {
                 showToast("Only simple through-holes can be moved for now "
                           "\xE2\x80\x94 not pockets, countersunk, or stepped holes.");
                 return;
