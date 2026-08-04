@@ -27,6 +27,15 @@ struct IopContext {
     // The layout hosts Confirm/Cancel outside the panel (im-touch corner
     // FABs) — renderPanel skips its own buttons; Enter/Esc still work.
     bool cornerCommitUi = false;
+
+    // A transient message to the user. Controllers that refuse a selection
+    // need to say why; the five panel-only ones never did, which is why this
+    // wasn't here before Move Face.
+    std::function<void(const char*)> toast;
+    // "This selection is an imported mesh, so decline" — the shared guard from
+    // core/MeshGuard.h, already wired with the app's toast. Returns true when
+    // it refused, in which case the caller must not start.
+    std::function<bool(const char* opName)> refuseMesh;
 };
 
 // Base for "popup with live preview" modeling operations (Shell, Taper,

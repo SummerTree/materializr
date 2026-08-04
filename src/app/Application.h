@@ -560,18 +560,19 @@ private:
     // Configure a MoveFaceOp with the current gesture's kind + params, and test
     // whether the gesture has anything to apply (defined in the .cpp where the
     // op type is complete).
-    void configureFaceOp(MoveFaceOp& op) const;
-    bool faceXformNontrivial() const;
+    bool faceXformNontrivial() const { return m_moveFaceCtl.faceXformNontrivial(); }
     // Total tilt = the live ring drag composed onto the accumulated tilts.
-    glm::mat3 faceRotTotal() const;
-    void bakeFaceRotationDrag(); // fold a released ring drag into the accumulator
+    glm::mat3 faceRotTotal() const { return m_moveFaceCtl.faceRotTotal(); }
+    void bakeFaceRotationDrag() { m_moveFaceCtl.bakeFaceRotationDrag(); }
     void updateMoveFace();   // live shear preview against the snapshot
     void commitMoveFace();
     void cancelMoveFace();
     void moveFaceSlideSketches(const glm::vec3& v); // restore + slide on-face sketches
-    // The whole Move Face gesture in one value (app/MoveFaceState.h) — 35
-    // members used to live here.
-    materializr::MoveFaceState m_mf;
+    // Move Face's state now belongs to its controller (slice 2). This
+    // reference keeps the existing call sites reading `m_mf.…` while the
+    // lifecycle migrates; slice 3 removes it along with the last user.
+    materializr::MoveFaceController m_moveFaceCtl;
+    materializr::MoveFaceState& m_mf = m_moveFaceCtl.st();
     void beginInteractiveExtrude(const TopoDS_Shape& profile,
                                  ExtrudeMode mode = ExtrudeMode::NewBody,
                                  int targetBody = -1,

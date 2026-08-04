@@ -2213,91 +2213,13 @@ void Application::moveFaceSlideSketches(const glm::vec3& v) {
     }
 }
 
-namespace {
-// Rotation matrix (column-major glm) about a unit-ish axis by `angle` radians.
-glm::mat3 rodrigues(const glm::vec3& axisIn, float angle) {
-    glm::vec3 a = glm::normalize(axisIn);
-    float c = std::cos(angle), s = std::sin(angle), t = 1.0f - c;
-    float ax = a.x, ay = a.y, az = a.z;
-    return glm::mat3(
-        glm::vec3(c + ax*ax*t,      ay*ax*t + az*s,  az*ax*t - ay*s),   // col 0
-        glm::vec3(ax*ay*t - az*s,   c + ay*ay*t,     az*ay*t + ax*s),   // col 1
-        glm::vec3(ax*az*t + ay*s,   ay*az*t - ax*s,  c + az*az*t));     // col 2
-}
-} // namespace
 
-glm::mat3 Application::faceRotTotal() const {
-    return rodrigues(m_mf.moveFaceRotAxis, m_mf.moveFaceAngle) * m_mf.moveFaceRotAccum;
-}
 
 // Bake the just-released ring drag into the accumulated tilt (so the next ring
 // drag stacks on top), then reset the live angle.
-void Application::bakeFaceRotationDrag() {
-    // Twist isn't a tilt-matrix accumulation — nothing to bake for it.
-    if (m_mf.moveFaceIsTwist) return;
-    if (m_mf.faceXformKind != FaceXform::Rotate || std::abs(m_mf.moveFaceAngle) < 1e-5f)
-        return;
-    m_mf.moveFaceRotAccum = rodrigues(m_mf.moveFaceRotAxis, m_mf.moveFaceAngle) * m_mf.moveFaceRotAccum;
-    m_mf.moveFaceRotHasAccum = true;
-    m_mf.moveFaceAngle = 0.0f;
-    m_mf.moveFaceAngleBase = 0.0f;
-}
 
 // Configure an op with the current gesture (Move / Rotate / Scale) + hole flags.
-void Application::configureFaceOp(MoveFaceOp& op) const {
-    switch (m_mf.faceXformKind) {
-        case FaceXform::Translate:
-            op.setKind(MoveFaceOp::Kind::Translate);
-            op.setMoveVector(gp_Vec(m_mf.moveFaceVec.x, m_mf.moveFaceVec.y, m_mf.moveFaceVec.z));
-            break;
-        case FaceXform::Rotate: {
-            if (m_mf.moveFaceIsTwist) { // third ring = twist about the normal
-                op.setKind(MoveFaceOp::Kind::Twist);
-                op.setTwist(m_mf.moveFaceTwist);
-                break;
-            }
-            op.setKind(MoveFaceOp::Kind::Rotate);
-            // Composed rotation (live drag ∘ accumulated tilts) as a gp_Trsf
-            // about the pivot, so stacked tilts about both axes apply at once.
-            glm::mat3 R = faceRotTotal();
-            glm::vec3 Tt = m_mf.moveFacePivot - R * m_mf.moveFacePivot;
-            gp_Trsf trsf;
-            trsf.SetValues(R[0][0], R[1][0], R[2][0], Tt.x,
-                           R[0][1], R[1][1], R[2][1], Tt.y,
-                           R[0][2], R[1][2], R[2][2], Tt.z);
-            op.setRotationExplicit(trsf);
-            break;
-        }
-        case FaceXform::Scale:
-            op.setKind(MoveFaceOp::Kind::Scale);
-            if (m_mf.moveFaceScaleUniform) {
-                op.setScaleFactor(m_mf.moveFaceScale);
-            } else {
-                op.setScaleNonUniform(
-                    gp_Dir(m_mf.moveFaceAxisA.x, m_mf.moveFaceAxisA.y, m_mf.moveFaceAxisA.z),
-                    gp_Dir(m_mf.moveFaceAxisB.x, m_mf.moveFaceAxisB.y, m_mf.moveFaceAxisB.z),
-                    m_mf.moveFaceScaleA, m_mf.moveFaceScaleB);
-            }
-            break;
-    }
-    op.setLoopMotion(m_mf.moveFaceMoveOuter, m_mf.moveFaceHoleSlant, m_mf.moveFaceHoleVertical);
-}
 
-bool Application::faceXformNontrivial() const {
-    switch (m_mf.faceXformKind) {
-        case FaceXform::Translate: return glm::length(m_mf.moveFaceVec) > 1e-4f;
-        case FaceXform::Rotate:
-            return m_mf.moveFaceIsTwist
-                ? std::abs(m_mf.moveFaceTwist) > 1e-4f
-                : (std::abs(m_mf.moveFaceAngle) > 1e-4f || m_mf.moveFaceRotHasAccum);
-        case FaceXform::Scale:
-            return m_mf.moveFaceScaleUniform
-                ? std::abs(m_mf.moveFaceScale - 1.0f) > 1e-4f
-                : (std::abs(m_mf.moveFaceScaleA - 1.0f) > 1e-4f ||
-                   std::abs(m_mf.moveFaceScaleB - 1.0f) > 1e-4f);
-    }
-    return false;
-}
 
 void Application::updateMoveFace() {
     if (!m_mf.moveFaceActive || m_mf.moveFaceBodyId < 0) return;
@@ -2352,7 +2274,7 @@ void Application::updateMoveFace() {
         auto op = std::make_unique<MoveFaceOp>();
         op->setBody(m_mf.moveFaceBodyId);
         op->setFace(m_mf.moveFaceFace);
-        configureFaceOp(*op);
+        m_moveFaceCtl.configureFaceOp(*op);
         if (!op->execute(*m_document))
             m_document->updateBody(m_mf.moveFaceBodyId, m_mf.moveFacePreviousShape);
         // Sketch follow in the preview is translate-only for now (rotate/scale
@@ -2404,7 +2326,7 @@ void Application::commitMoveFace() {
         auto op = std::make_unique<MoveFaceOp>();
         op->setBody(m_mf.moveFaceBodyId);
         op->setFace(m_mf.moveFaceFace);
-        configureFaceOp(*op);
+        m_moveFaceCtl.configureFaceOp(*op);
         op->setSketchIds(m_mf.moveFaceSketchIds); // on-face sketches ride along
         committed = m_history->pushOperation(std::move(op), *m_document);
         if (committed)

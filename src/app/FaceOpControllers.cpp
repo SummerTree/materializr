@@ -11,6 +11,7 @@
 #include "../modeling/ProjectSketchOp.h"
 #include "../modeling/DefeatureOp.h"
 #include "../modeling/ResizeCylindricalOp.h"
+#include "../modeling/MoveFaceOp.h"
 #include "../core/History.h"
 #include "../modeling/Sketch.h"
 #include <cstdio>
@@ -1008,6 +1009,82 @@ void ResizeCylindricalController::onCleanup() {
     m_pick = CylindricalPick{};
     m_deferred = false;
     m_inputFocus = true;
+}
+
+// ─── Move Face ───────────────────────────────────────────────────────────────
+// Slice 2: the gesture maths moves first — these four read nothing but the
+// state, so they port with a rename and no behaviour change. The lifecycle
+// (begin/update/commit) still runs on Application and calls back through
+// the accessors until slice 3.
+
+bool MoveFaceController::faceXformNontrivial() const {
+    switch (m_st.faceXformKind) {
+        case FaceXform::Translate: return glm::length(m_st.moveFaceVec) > 1e-4f;
+        case FaceXform::Rotate:
+            return m_st.moveFaceIsTwist
+                ? std::abs(m_st.moveFaceTwist) > 1e-4f
+                : (std::abs(m_st.moveFaceAngle) > 1e-4f || m_st.moveFaceRotHasAccum);
+        case FaceXform::Scale:
+            return m_st.moveFaceScaleUniform
+                ? std::abs(m_st.moveFaceScale - 1.0f) > 1e-4f
+                : (std::abs(m_st.moveFaceScaleA - 1.0f) > 1e-4f ||
+                   std::abs(m_st.moveFaceScaleB - 1.0f) > 1e-4f);
+    }
+    return false;
+}
+
+glm::mat3 MoveFaceController::faceRotTotal() const {
+    return rodrigues(m_st.moveFaceRotAxis, m_st.moveFaceAngle) * m_st.moveFaceRotAccum;
+}
+
+void MoveFaceController::bakeFaceRotationDrag() {
+    // Twist isn't a tilt-matrix accumulation — nothing to bake for it.
+    if (m_st.moveFaceIsTwist) return;
+    if (m_st.faceXformKind != FaceXform::Rotate || std::abs(m_st.moveFaceAngle) < 1e-5f)
+        return;
+    m_st.moveFaceRotAccum = rodrigues(m_st.moveFaceRotAxis, m_st.moveFaceAngle) * m_st.moveFaceRotAccum;
+    m_st.moveFaceRotHasAccum = true;
+    m_st.moveFaceAngle = 0.0f;
+    m_st.moveFaceAngleBase = 0.0f;
+}
+
+void MoveFaceController::configureFaceOp(MoveFaceOp& op) const {
+    switch (m_st.faceXformKind) {
+        case FaceXform::Translate:
+            op.setKind(MoveFaceOp::Kind::Translate);
+            op.setMoveVector(gp_Vec(m_st.moveFaceVec.x, m_st.moveFaceVec.y, m_st.moveFaceVec.z));
+            break;
+        case FaceXform::Rotate: {
+            if (m_st.moveFaceIsTwist) { // third ring = twist about the normal
+                op.setKind(MoveFaceOp::Kind::Twist);
+                op.setTwist(m_st.moveFaceTwist);
+                break;
+            }
+            op.setKind(MoveFaceOp::Kind::Rotate);
+            // Composed rotation (live drag ∘ accumulated tilts) as a gp_Trsf
+            // about the pivot, so stacked tilts about both axes apply at once.
+            glm::mat3 R = faceRotTotal();
+            glm::vec3 Tt = m_st.moveFacePivot - R * m_st.moveFacePivot;
+            gp_Trsf trsf;
+            trsf.SetValues(R[0][0], R[1][0], R[2][0], Tt.x,
+                           R[0][1], R[1][1], R[2][1], Tt.y,
+                           R[0][2], R[1][2], R[2][2], Tt.z);
+            op.setRotationExplicit(trsf);
+            break;
+        }
+        case FaceXform::Scale:
+            op.setKind(MoveFaceOp::Kind::Scale);
+            if (m_st.moveFaceScaleUniform) {
+                op.setScaleFactor(m_st.moveFaceScale);
+            } else {
+                op.setScaleNonUniform(
+                    gp_Dir(m_st.moveFaceAxisA.x, m_st.moveFaceAxisA.y, m_st.moveFaceAxisA.z),
+                    gp_Dir(m_st.moveFaceAxisB.x, m_st.moveFaceAxisB.y, m_st.moveFaceAxisB.z),
+                    m_st.moveFaceScaleA, m_st.moveFaceScaleB);
+            }
+            break;
+    }
+    op.setLoopMotion(m_st.moveFaceMoveOuter, m_st.moveFaceHoleSlant, m_st.moveFaceHoleVertical);
 }
 
 } // namespace materializr

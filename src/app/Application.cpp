@@ -1057,7 +1057,11 @@ materializr::IopContext Application::iopContext() {
         [this](std::function<void()> t) { m_deferredHeavyTask = std::move(t); },
         // im-touch hosts the Confirm/Cancel as corner FABs — the scaffold
         // then skips its in-panel buttons (Enter/Esc still work).
-        imTouchLayout() && !m_inSketchMode};
+        // NOTE: aggregate init, so this list must stay in DECLARATION order —
+        // cornerCommitUi sits before toast/refuseMesh in IopContext.
+        imTouchLayout() && !m_inSketchMode,
+        [this](const char* m) { showToast(m); },
+        [this](const char* op) { return refuseMeshSelection(op); }};
 }
 
 // Seed the placement rotation (shared by the Text and SVG tools) so the

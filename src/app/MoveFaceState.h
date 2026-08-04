@@ -6,8 +6,21 @@
 #include <gp_Pln.hxx>
 #include <glm/glm.hpp>
 #include <vector>
+#include <cmath>
 
 namespace materializr {
+
+// Rotation matrix (column-major glm) about a unit-ish axis by `angle` radians.
+inline glm::mat3 rodrigues(const glm::vec3& axisIn, float angle) {
+    glm::vec3 a = glm::normalize(axisIn);
+    float c = std::cos(angle), s = std::sin(angle), t = 1.0f - c;
+    float ax = a.x, ay = a.y, az = a.z;
+    return glm::mat3(
+        glm::vec3(c + ax*ax*t,      ay*ax*t + az*s,  az*ax*t - ay*s),   // col 0
+        glm::vec3(ax*ay*t - az*s,   c + ay*ay*t,     az*ay*t + ax*s),   // col 1
+        glm::vec3(ax*az*t + ay*s,   ay*az*t - ax*s,  c + az*az*t));     // col 2
+}
+
 
 // Which transform the face gizmo is applying. Was a nested enum on
 // Application; it belongs with the state it describes.

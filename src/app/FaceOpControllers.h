@@ -1,6 +1,11 @@
 #pragma once
 #include "InteractiveOpController.h"
 #include "CylindricalPick.h"
+#include "MoveFaceState.h"
+
+// Global scope, like the other modeling ops — forward-declared for
+// configureFaceOp's signature so this header stays cheap to include.
+class MoveFaceOp;
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Shape.hxx>
 #include <glm/glm.hpp>
@@ -179,6 +184,41 @@ private:
     char   m_topBuf[32] = "0.0";
     bool   m_inputFocus = true;
     bool   m_deferred   = false;   // threaded body: no live preview
+};
+
+// ─── Move Face ───────────────────────────────────────────────────────────────
+// Slide / tilt+twist / scale a face, with the body re-shaping to follow, plus
+// the hole sub-modes (Slide, Tilt, EdgeMove) that reuse the same gizmo.
+//
+// MIGRATION IN PROGRESS (slice 2 of 3). The controller owns the state now;
+// Application still holds a reference to it under its old name and still runs
+// the lifecycle. That keeps ~520 existing references compiling while the logic
+// moves across, instead of a single unreviewable jump. Slice 3 moves the gizmo
+// draw + drag into drawOverlay/onViewportInput and drops the reference.
+class MoveFaceController : public InteractiveOpController {
+public:
+    // Transitional: Application_Viewport still draws and drags this gizmo, and
+    // Application still runs begin/update/commit. Goes away with slice 3 — the
+    // same way ScaleFace's public frame did once it owned its own input.
+    MoveFaceState& st() { return m_st; }
+    const MoveFaceState& st() const { return m_st; }
+
+    // Gesture maths — pure functions of the state, so they moved first.
+    bool faceXformNontrivial() const;
+    glm::mat3 faceRotTotal() const;
+    void bakeFaceRotationDrag();          // fold a released ring drag in
+    void configureFaceOp(MoveFaceOp& op) const;
+
+protected:
+    const char* title() const override { return "Move Face"; }
+    int onBegin(const IopContext&) override { return -1; }  // slice 2: not yet
+    std::unique_ptr<Operation> buildOp(const IopContext&) override {
+        return nullptr;
+    }
+    void panelBody(const IopContext&, bool&) override {}
+
+private:
+    MoveFaceState m_st;
 };
 
 } // namespace materializr
