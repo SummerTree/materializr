@@ -466,6 +466,13 @@ bool MoveHoleOp::execute(Document& doc) {
         fuse.Build();
         if (!fuse.IsDone() || fuse.Shape().IsNull()) return false;
 
+        // buildVoid labels the mouths by its own walk order, so "entry" is not
+        // necessarily the rim the user grabbed. Tilt/EdgeMove move the NEAR rim
+        // and pin the far one; swap them when the pick says the near mouth is
+        // the exit, or the hole leans away from the end that was dragged.
+        const TopoDS_Wire& nearRim = m_nearIsEntry ? entryRim : exitRim;
+        const TopoDS_Wire& farRim  = m_nearIsEntry ? exitRim  : entryRim;
+
         TopoDS_Shape movedVoid;
         if (m_mode == Mode::EdgeMove) {
             // Reshape the near rim, then loft it to the untouched far rim: the
@@ -473,18 +480,18 @@ bool MoveHoleOp::execute(Document& doc) {
             // the re-cut below is unchanged.
             TopoDS_Wire edited;
             std::string why;
-            if (!editRimWire(entryRim, m_rimEdge, move, edited, &why)) {
+            if (!editRimWire(nearRim, m_rimEdge, move, edited, &why)) {
                 std::fprintf(stderr, "[MoveHole] edge move refused: %s\n",
                              why.c_str());
                 return false;
             }
-            movedVoid = buildTiltedVoid(edited, exitRim, gp_Vec(0, 0, 0));
+            movedVoid = buildTiltedVoid(edited, farRim, gp_Vec(0, 0, 0));
             if (movedVoid.IsNull()) {
                 std::fprintf(stderr, "[MoveHole] edge move: loft failed\n");
                 return false;
             }
         } else if (m_mode == Mode::Tilt) {
-            movedVoid = buildTiltedVoid(entryRim, exitRim, move);
+            movedVoid = buildTiltedVoid(nearRim, farRim, move);
             if (movedVoid.IsNull()) {
                 std::fprintf(stderr, "[MoveHole] tilt: could not loft the "
                                      "oblique void\n");
@@ -540,15 +547,27 @@ OperationDiff MoveHoleOp::captureDiff() const {
 std::string MoveHoleOp::serializeParams() const {
     // body + move vector as plain numbers; the seed wall as an ordinal index
     // into the INPUT shape's canonical face map (see SubShapeIndex.h).
-    char buf[160];
-    std::snprintf(buf, sizeof(buf), "body=%d;move=%.9g,%.9g,%.9g",
-                  m_bodyId, m_move.X(), m_move.Y(), m_move.Z());
+    // The MODE travels too. Without it a tilted or reshaped hole reloads as a
+    // plain slide — the geometry silently changes on reopen, which is exactly
+    // what full replay exists to prevent. Old blobs have no mode= and default
+    // to Slide, which is what they were.
+    char buf[200];
+    std::snprintf(buf, sizeof(buf), "body=%d;move=%.9g,%.9g,%.9g;mode=%d;near=%d",
+                  m_bodyId, m_move.X(), m_move.Y(), m_move.Z(),
+                  static_cast<int>(m_mode), m_nearIsEntry ? 1 : 0);
     std::string blob = buf;
     if (!m_previousShape.IsNull() && !m_seedWall.IsNull()) {
         std::vector<TopoDS_Shape> faces{m_seedWall};
         std::string idx = SubShapeIndex::serialize(m_previousShape, faces,
                                                    TopAbs_FACE);
         if (!idx.empty()) blob += ";wall=" + idx;
+    }
+    if (m_mode == Mode::EdgeMove && !m_previousShape.IsNull() &&
+        !m_rimEdge.IsNull()) {
+        std::vector<TopoDS_Shape> edges{m_rimEdge};
+        std::string idx = SubShapeIndex::serialize(m_previousShape, edges,
+                                                   TopAbs_EDGE);
+        if (!idx.empty()) blob += ";rim=" + idx;
     }
     return blob;
 }
@@ -571,6 +590,17 @@ bool MoveHoleOp::deserializeParams(const std::string& blob) {
             any = true;
         } else if (key == "wall") {
             m_seedWallIndices = SubShapeIndex::parse(val);
+            any = true;
+        } else if (key == "mode") {
+            const int m = std::atoi(val.c_str());
+            if (m >= 0 && m <= static_cast<int>(Mode::EdgeMove))
+                m_mode = static_cast<Mode>(m);
+            any = true;
+        } else if (key == "near") {
+            m_nearIsEntry = std::atoi(val.c_str()) != 0;
+            any = true;
+        } else if (key == "rim") {
+            m_rimEdgeIndices = SubShapeIndex::parse(val);
             any = true;
         }
         pos = end + 1;
@@ -596,6 +626,20 @@ bool MoveHoleOp::rehydrateFromReload(const ReloadState& state, Document& /*doc*/
         return false;
     }
     m_seedWall = TopoDS::Face(resolved[0]);
+
+    // EdgeMove additionally needs the dragged rim edge back. If it won't
+    // resolve, replaying as a slide would move the whole hole somewhere the
+    // user never put it — decline instead and let it reload baked.
+    if (m_mode == Mode::EdgeMove) {
+        std::vector<TopoDS_Shape> edges;
+        if (m_rimEdgeIndices.empty() ||
+            !SubShapeIndex::resolveAll(m_previousShape, m_rimEdgeIndices,
+                                       TopAbs_EDGE, edges) ||
+            edges.empty()) {
+            return false;
+        }
+        m_rimEdge = TopoDS::Edge(edges[0]);
+    }
     return true;
 }
 

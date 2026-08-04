@@ -386,3 +386,78 @@ TEST(HoleEdgePick, PlainBoxEdgeOffersNothing) {
     ASSERT_FALSE(corner.IsNull());
     EXPECT_FALSE(MoveHoleOp::classifyRimEdges(in, {corner}).ok);
 }
+
+// classifyRimEdges reporting the right mouth is only half the job — the OP has
+// to act on it. It didn't: nearIsEntry was computed, returned, and dropped on
+// the floor, so Tilt always moved buildVoid's "entry" rim whichever end the
+// user grabbed. Grab the bottom and the TOP would swing away.
+TEST(TiltOp, NearRimFlagDecidesWhichEndMoves) {
+    Holed f;
+    ASSERT_FALSE(f.wall.IsNull());
+
+    auto tiltWith = [&](bool nearIsEntry) {
+        Holed g;   // fresh body each time
+        MoveHoleOp op;
+        op.setBody(g.bodyId);
+        op.setSeedWall(g.wall);
+        op.setMode(MoveHoleOp::Mode::Tilt);
+        op.setNearIsEntry(nearIsEntry);
+        op.setMoveVector(gp_Vec(12.0, 0.0, 0.0));
+        EXPECT_TRUE(op.execute(g.doc)) << "tilt refused (near=" << nearIsEntry << ")";
+        return g.doc.getBody(g.bodyId);
+    };
+
+    const TopoDS_Shape a = tiltWith(true);
+    const TopoDS_Shape b = tiltWith(false);
+    ASSERT_FALSE(a.IsNull());
+    ASSERT_FALSE(b.IsNull());
+    EXPECT_TRUE(BRepCheck_Analyzer(a).IsValid());
+    EXPECT_TRUE(BRepCheck_Analyzer(b).IsValid());
+
+    // The bore leans 12 mm in +x. Whichever mouth is "near" is the one that
+    // ends up at x≈32; the other stays at x≈20. The two runs must disagree at
+    // BOTH ends, otherwise the flag changed nothing.
+    const bool aTopMoved = !insideSolid(a, 32, 20, 19) && insideSolid(a, 20, 20, 19);
+    const bool aBotMoved = !insideSolid(a, 32, 20, 1)  && insideSolid(a, 20, 20, 1);
+    const bool bTopMoved = !insideSolid(b, 32, 20, 19) && insideSolid(b, 20, 20, 19);
+    const bool bBotMoved = !insideSolid(b, 32, 20, 1)  && insideSolid(b, 20, 20, 1);
+    std::printf("  near=entry: topMoved=%d botMoved=%d\n"
+                "  near=exit : topMoved=%d botMoved=%d\n",
+                (int)aTopMoved, (int)aBotMoved, (int)bTopMoved, (int)bBotMoved);
+
+    EXPECT_NE(aTopMoved, bTopMoved) << "flipping nearIsEntry moved the same end";
+    EXPECT_NE(aBotMoved, bBotMoved) << "flipping nearIsEntry pinned the same end";
+    // Exactly one end moves in each case — a tilt, not a slide.
+    EXPECT_NE(aTopMoved, aBotMoved) << "near=entry slid the whole bore";
+    EXPECT_NE(bTopMoved, bBotMoved) << "near=exit slid the whole bore";
+}
+
+// A tilted hole that reloads as a slide is silent data loss: the bore springs
+// back to vertical and lands somewhere the user never put it. The mode and the
+// grabbed mouth have to survive serialization.
+TEST(MoveHoleSerialize, ModeAndNearFlagRoundTrip) {
+    MoveHoleOp src;
+    src.setBody(3);
+    src.setMode(MoveHoleOp::Mode::Tilt);
+    src.setNearIsEntry(false);
+    src.setMoveVector(gp_Vec(1.5, -2.5, 0.0));
+    const std::string blob = src.serializeParams();
+    std::printf("  blob: %s\n", blob.c_str());
+
+    MoveHoleOp dst;
+    ASSERT_TRUE(dst.deserializeParams(blob));
+    EXPECT_EQ(dst.mode(), MoveHoleOp::Mode::Tilt);
+    EXPECT_FALSE(dst.nearIsEntry());
+    EXPECT_EQ(dst.getBodyId(), 3);
+    EXPECT_NEAR(dst.getMoveVector().X(), 1.5, 1e-9);
+    EXPECT_NEAR(dst.getMoveVector().Y(), -2.5, 1e-9);
+}
+
+// Projects saved before the mode was written must still load, as slides —
+// which is what they were.
+TEST(MoveHoleSerialize, OldBlobWithoutModeLoadsAsSlide) {
+    MoveHoleOp dst;
+    ASSERT_TRUE(dst.deserializeParams("body=1;move=4,0,0"));
+    EXPECT_EQ(dst.mode(), MoveHoleOp::Mode::Slide);
+    EXPECT_TRUE(dst.nearIsEntry());
+}

@@ -44,6 +44,12 @@ public:
     // Which rim edge EdgeMove drags. Ignored by the other modes.
     void setRimEdge(const TopoDS_Edge& e) { m_rimEdge = e; }
     Mode mode() const { return m_mode; }
+    // Which mouth the user actually grabbed. buildVoid names the two rims
+    // "entry" and "exit" by its OWN walk order, which has nothing to do with
+    // which one was clicked — so Tilt and EdgeMove must be told, or they move
+    // the far rim and pin the near one (looks plausible, leans the wrong way).
+    void setNearIsEntry(bool nearIsEntry) { m_nearIsEntry = nearIsEntry; }
+    bool nearIsEntry() const { return m_nearIsEntry; }
 
     int getBodyId() const { return m_bodyId; }
     gp_Vec getMoveVector() const { return m_move; }
@@ -125,9 +131,13 @@ private:
     gp_Vec m_move{0.0, 0.0, 0.0};
     Mode m_mode = Mode::Slide;
     TopoDS_Edge m_rimEdge;
+    bool m_nearIsEntry = true;
     bool m_wasPocket = false;
     TopoDS_Shape m_previousShape; // for undo
     // Seed wall as ordinal index/indices into the input shape (parsed on load,
     // resolved against the reloaded previous shape in rehydrateFromReload).
     std::vector<int> m_seedWallIndices;
+    // Same trick for EdgeMove's dragged rim edge, so a reshaped hole reloads as
+    // a reshape instead of silently degrading to a slide.
+    std::vector<int> m_rimEdgeIndices;
 };

@@ -576,6 +576,9 @@ private:
     // being dragged when it's EdgeMove.
     MoveHoleOp::Mode m_moveHoleOpMode = MoveHoleOp::Mode::Slide;
     TopoDS_Edge m_moveHoleRimEdge;
+    // Which mouth of the bore the user grabbed (buildVoid's own entry/exit
+    // naming is unrelated to what was clicked — see MoveHoleOp::setNearIsEntry).
+    bool m_moveHoleNearIsEntry = true;
     TopoDS_Face m_moveHoleWall;              // the clicked hole-wall seed face
     int  m_moveFaceBodyId = -1;
     TopoDS_Face  m_moveFaceFace;

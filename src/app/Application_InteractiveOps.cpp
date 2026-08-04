@@ -2047,16 +2047,82 @@ bool Application::beginMoveHoleFromEdges() {
     m_moveHoleMode = true;
     m_moveHoleOpMode = pick.mode;
     m_moveHoleRimEdge = pick.rimEdge;
+    m_moveHoleNearIsEntry = pick.nearIsEntry;
     m_moveHoleWall = pick.wall;
     m_moveFaceBodyId = bodyId;
     m_moveFacePreviousShape = body;
 
+    // Sample a wire into a world-space polyline: used both to place the gizmo
+    // (its centroid) and to draw the yellow move highlight.
+    auto sampleEdge = [](const TopoDS_Edge& e, std::vector<glm::vec3>& out) {
+        BRepAdaptor_Curve crv(e);
+        double f = crv.FirstParameter(), l = crv.LastParameter();
+        if (e.Orientation() == TopAbs_REVERSED) std::swap(f, l);
+        const int Nseg = 16;
+        for (int i = 0; i < Nseg; ++i) {
+            gp_Pnt p = crv.Value(f + (l - f) * (double(i) / Nseg));
+            out.emplace_back(p.X(), p.Y(), p.Z());
+        }
+    };
+    // Wires must be walked in CONNECTION order (BRepTools_WireExplorer), not
+    // TopExp order, or the highlight polyline zig-zags across the rim.
+    auto sampleWire = [&](const TopoDS_Wire& w, std::vector<glm::vec3>& out) {
+        for (BRepTools_WireExplorer we(w); we.More(); we.Next())
+            sampleEdge(we.Current(), out);
+    };
+
     // Slide the rim IN ITS OWN PLANE — the entry normal from buildVoid is the
     // plane the drag lives in, exactly as the face-driven path uses it.
     TopoDS_Shape v; gp_Vec n; bool pocket = false;
-    if (MoveHoleOp::buildVoid(body, pick.wall, v, n, pocket)) {
+    TopoDS_Wire entryRim, exitRim;
+    if (MoveHoleOp::buildVoid(body, pick.wall, v, n, pocket, &entryRim, &exitRim)) {
         m_moveFaceN = glm::normalize(glm::vec3(n.X(), n.Y(), n.Z()));
     }
+
+    // Anchor the gizmo on what is actually being dragged. Without this the
+    // whole block below never ran and the gizmo drew at the world origin, far
+    // from the hole — P0/pivot/axes kept their defaults.
+    const TopoDS_Wire& nearRim = pick.nearIsEntry ? entryRim : exitRim;
+    std::vector<glm::vec3> handle;   // the thing the user grabbed
+    if (pick.mode == MoveHoleOp::Mode::EdgeMove && !pick.rimEdge.IsNull())
+        sampleEdge(pick.rimEdge, handle);       // that one side
+    else if (!nearRim.IsNull())
+        sampleWire(nearRim, handle);            // that rim
+    else if (!entryRim.IsNull())
+        sampleWire(entryRim, handle);           // Slide: either mouth will do
+
+    if (!handle.empty()) {
+        glm::vec3 c(0.0f);
+        for (const glm::vec3& p : handle) c += p;
+        c /= float(handle.size());
+        m_moveFaceP0 = m_moveFacePivot = c;
+        // Gizmo scale: half the grabbed loop's own extent, so it reads as part
+        // of the hole rather than swamping a 3 mm bore.
+        float r = 0.0f;
+        for (const glm::vec3& p : handle) r = std::max(r, glm::length(p - c));
+        m_moveFaceHalfExtent = std::max(0.5f, r);
+    } else {
+        m_moveFaceP0 = m_moveFacePivot = glm::vec3(0.0f);
+        m_moveFaceHalfExtent = 1.0f;
+    }
+
+    const glm::vec3 N = m_moveFaceN;
+    glm::vec3 ref = (std::abs(N.x) < 0.9f) ? glm::vec3(1, 0, 0) : glm::vec3(0, 1, 0);
+    glm::vec3 A = ref - glm::dot(ref, N) * N;
+    if (glm::length(A) < 1e-5f) { ref = glm::vec3(0, 0, 1); A = ref - glm::dot(ref, N) * N; }
+    m_moveFaceAxisA = glm::normalize(A);
+    m_moveFaceAxisB = glm::normalize(glm::cross(N, m_moveFaceAxisA));
+    m_moveFaceGrab = -1;
+
+    // Highlight exactly what moves: the grabbed side for EdgeMove, the near rim
+    // for Tilt, so the drag doesn't lie about which end is pinned.
+    m_moveFaceSilhouetteLoops.clear();
+    m_moveFaceHoleSlant.clear();
+    m_moveFaceHoleVertical.clear();
+    m_moveFaceMoveOuter = true;
+    m_moveFacePendingRebuild = false;
+    if (!handle.empty()) m_moveFaceSilhouetteLoops.push_back(handle);
+
     std::fprintf(stdout, "Hole move armed from rim edges: %s\n",
                  pick.mode == MoveHoleOp::Mode::Tilt     ? "tilt" :
                  pick.mode == MoveHoleOp::Mode::EdgeMove ? "edge" : "slide");
@@ -2457,6 +2523,14 @@ void Application::updateMoveFace() {
             MoveHoleOp op;
             op.setBody(m_moveFaceBodyId);
             op.setSeedWall(m_moveHoleWall);
+            // The PREVIEW has to run the same verb as the commit. It used to
+            // build a bare op, which defaults to Slide, so every drag showed the
+            // whole hole moving no matter what the selection picked — and then
+            // the result jumped to a tilt/reshape on release.
+            op.setMode(m_moveHoleOpMode);
+            op.setNearIsEntry(m_moveHoleNearIsEntry);
+            if (m_moveHoleOpMode == MoveHoleOp::Mode::EdgeMove)
+                op.setRimEdge(m_moveHoleRimEdge);
             op.setMoveVector(mv);
             if (!op.execute(*m_document))
                 m_document->updateBody(m_moveFaceBodyId, m_moveFacePreviousShape);
@@ -2514,6 +2588,7 @@ void Application::commitMoveFace() {
             op->setBody(m_moveFaceBodyId);
             op->setSeedWall(m_moveHoleWall);
             op->setMode(m_moveHoleOpMode);
+            op->setNearIsEntry(m_moveHoleNearIsEntry);
             if (m_moveHoleOpMode == MoveHoleOp::Mode::EdgeMove)
                 op->setRimEdge(m_moveHoleRimEdge);
             op->setMoveVector(mv);
