@@ -1287,15 +1287,28 @@ void MoveFaceController::beginMoveFace(const IopContext& ctx, FaceXform kind) {
     // Two in-plane arrow axes: project the world axis least aligned with N into
     // the face plane → A; B = N × A. A box top gets clean world-aligned arrows.
     {
-        glm::vec3 N = m_st.moveFaceN;
-        glm::vec3 ref = (std::abs(N.x) < 0.9f) ? glm::vec3(1, 0, 0) : glm::vec3(0, 1, 0);
-        glm::vec3 A = ref - glm::dot(ref, N) * N;
-        if (glm::length(A) < 1e-5f) {
-            ref = glm::vec3(0, 0, 1);
-            A = ref - glm::dot(ref, N) * N;
+        const glm::vec3 N = m_st.moveFaceN;
+        if (kind == FaceXform::Translate) {
+            // Slide: canonical basis (core/PlaneAxes.h). B = N x A is HANDED,
+            // so it flips with the face normal's sign — and a normal's sign is
+            // incidental. That put one arrow along a NEGATIVE world axis on
+            // half the orientations, which is what "the arrow does nothing / is
+            // reversed" kept meaning. Same fix the hole path got in 64a0c7f.
+            inPlaneAxes(N, m_st.moveFaceAxisA, m_st.moveFaceAxisB);
+        } else {
+            // Rotate and Scale KEEP the handed basis: the ring sweep is
+            // computed so that rotAxis x u = +N for both rings, so A and B
+            // must stay right-handed about the normal or the red ring's
+            // direction reads inverted against the green one.
+            glm::vec3 ref = (std::abs(N.x) < 0.9f) ? glm::vec3(1, 0, 0) : glm::vec3(0, 1, 0);
+            glm::vec3 A = ref - glm::dot(ref, N) * N;
+            if (glm::length(A) < 1e-5f) {
+                ref = glm::vec3(0, 0, 1);
+                A = ref - glm::dot(ref, N) * N;
+            }
+            m_st.moveFaceAxisA = glm::normalize(A);
+            m_st.moveFaceAxisB = glm::normalize(glm::cross(N, m_st.moveFaceAxisA));
         }
-        m_st.moveFaceAxisA = glm::normalize(A);
-        m_st.moveFaceAxisB = glm::normalize(glm::cross(N, m_st.moveFaceAxisA));
     }
     m_st.moveFaceGrab = -1;
     m_st.moveFaceRotAxis = m_st.moveFaceAxisB; // default tilt axis until a ring is grabbed
