@@ -113,6 +113,10 @@ protected:
 private:
     // Drag delta (percent) onto one axis; respects the Uniform link.
     void applyHandleDrag(int axis, float dPct, const IopContext& ctx);
+    // Largest scale this MODE can actually deliver. Pinch intersects the body
+    // with a frustum, so it can only remove material — past 100% the op
+    // succeeds and changes nothing. Extend fuses a tip on and grows.
+    float maxPct() const { return m_mode == 1 ? 100.0f : 200.0f; }
 
     TopoDS_Face m_face;
     float m_pctU = 30.0f;

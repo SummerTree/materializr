@@ -715,7 +715,9 @@ std::unique_ptr<Operation> ScaleFaceController::buildOp(const IopContext&) {
 void ScaleFaceController::applyHandleDrag(int axis, float dPct,
                                           const IopContext& ctx) {
     float& pct = (axis == 0) ? m_pctU : m_pctV;
-    pct = std::min(200.0f, std::max(5.0f, pct + dPct));
+    // Same per-mode ceiling as the panel — dragging the handle past what the
+    // mode can do just made the arrow keep travelling with nothing happening.
+    pct = std::min(maxPct(), std::max(5.0f, pct + dPct));
     if (m_uniform) {
         m_pctU = pct;
         m_pctV = pct;
@@ -813,14 +815,14 @@ void ScaleFaceController::panelBody(const IopContext& ctx, bool& changed) {
     if (m_uniform) {
         ImGui::TextDisabled("Scale: %.0f %%", m_pctU);
         if (materializr::stepperRow("scaleStep", &m_pctU,
-                                    /*allowNegative=*/true, 5.0f, 200.0f,
+                                    /*allowNegative=*/true, 5.0f, maxPct(),
                                     /*zeroValue=*/100.0f)) {
             m_pctV = m_pctU;
             changed = true;
         }
         if (ctx.cornerCommitUi &&
             touchui::amountField("scaleAmt", nullptr, &m_pctU, "%", 0,
-                                 /*allowSign=*/false, 5.0f, 200.0f)) {
+                                 /*allowSign=*/false, 5.0f, maxPct())) {
             m_pctV = m_pctU;
             changed = true;
         }
@@ -834,22 +836,22 @@ void ScaleFaceController::panelBody(const IopContext& ctx, bool& changed) {
         ImGui::TextColored(redCol, "Red line");
         ImGui::SameLine(); ImGui::TextDisabled("%.0f %%", m_pctU);
         if (materializr::stepperRow("scaleUStep", &m_pctU,
-                                    /*allowNegative=*/true, 5.0f, 200.0f,
+                                    /*allowNegative=*/true, 5.0f, maxPct(),
                                     /*zeroValue=*/100.0f))
             changed = true;
         if (ctx.cornerCommitUi &&
             touchui::amountField("scaleUAmt", nullptr, &m_pctU, "%", 0,
-                                 /*allowSign=*/false, 5.0f, 200.0f))
+                                 /*allowSign=*/false, 5.0f, maxPct()))
             changed = true;
         ImGui::TextColored(blueCol, "Blue line");
         ImGui::SameLine(); ImGui::TextDisabled("%.0f %%", m_pctV);
         if (materializr::stepperRow("scaleVStep", &m_pctV,
-                                    /*allowNegative=*/true, 5.0f, 200.0f,
+                                    /*allowNegative=*/true, 5.0f, maxPct(),
                                     /*zeroValue=*/100.0f))
             changed = true;
         if (ctx.cornerCommitUi &&
             touchui::amountField("scaleVAmt", nullptr, &m_pctV, "%", 0,
-                                 /*allowSign=*/false, 5.0f, 200.0f))
+                                 /*allowSign=*/false, 5.0f, maxPct()))
             changed = true;
     }
     ImGui::TextDisabled("Or drag the two arrows on the face.");
@@ -871,8 +873,19 @@ void ScaleFaceController::panelBody(const IopContext& ctx, bool& changed) {
     ImGui::SameLine();
     if (ImGui::RadioButton("Pinch existing", m_mode == 1)) {
         m_mode = 1;
+        // Pinch tops out at 100%; carry an over-100 value down rather than
+        // leaving a number on screen the op will ignore.
+        m_pctU = std::min(m_pctU, maxPct());
+        m_pctV = std::min(m_pctV, maxPct());
         changed = true;
     }
+    // Why the ceiling moves with the mode: Pinch intersects the body with a
+    // frustum, and an intersection can only ever REMOVE material — asking for
+    // 150% there returns success and changes nothing (test_scale_face_range).
+    // Extend fuses a tip on, so it grows. Steve hit this as "scale only makes
+    // a face smaller"; capping the input is what makes the panel honest.
+    if (m_mode == 1)
+        ImGui::TextDisabled("Pinch only shrinks \xE2\x80\x94 use Extend tip to grow.");
 }
 
 void ScaleFaceController::onCleanup() {
