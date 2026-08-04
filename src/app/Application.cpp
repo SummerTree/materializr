@@ -1108,7 +1108,7 @@ void Application::cancelAllInteractivePreviews() {
     // not the original). (Steve: "switching tools, the action that was
     // never committed gets a weird half-cancel I can't undo".)
     if (m_edgeOpActive) cancelInteractiveEdgeOp();
-    if (m_moveFaceActive) cancelMoveFace();
+    if (m_mf.moveFaceActive) cancelMoveFace();
 }
 
 // im-touch corner-hosted action commit UI — see Application.h. EdgeOp and
@@ -1116,7 +1116,7 @@ void Application::cancelAllInteractivePreviews() {
 // listed explicitly here (same set cancelAllInteractivePreviews covers).
 bool Application::imTouchActionCorner() const {
     return imTouchLayout() && !m_inSketchMode &&
-           (anyInteractivePreviewActive() || m_edgeOpActive || m_moveFaceActive);
+           (anyInteractivePreviewActive() || m_edgeOpActive || m_mf.moveFaceActive);
 }
 
 void Application::confirmActiveAction() {
@@ -1131,7 +1131,7 @@ void Application::confirmActiveAction() {
         return;
     }
     if (m_edgeOpActive)    { commitInteractiveEdgeOp(); return; }
-    if (m_moveFaceActive)  { commitMoveFace(); return; }
+    if (m_mf.moveFaceActive)  { commitMoveFace(); return; }
     auto ctx = iopContext();
     for (auto* c : m_iops)
         if (c->active()) { c->commit(ctx); return; }
@@ -1143,7 +1143,7 @@ void Application::cancelActiveAction() {
     if (m_patternActive)   { cancelPattern(); return; }
     if (m_threadActive)    { cancelThread(); return; }
     if (m_edgeOpActive)    { cancelInteractiveEdgeOp(); return; }
-    if (m_moveFaceActive)  { cancelMoveFace(); return; }
+    if (m_mf.moveFaceActive)  { cancelMoveFace(); return; }
     auto ctx = iopContext();
     for (auto* c : m_iops)
         if (c->active()) { c->cancel(ctx); return; }
@@ -2899,7 +2899,7 @@ void Application::handleShortcuts() {
         } else if (false) {
         } else if (m_edgeOpActive) {
             cancelInteractiveEdgeOp();
-        } else if (m_moveFaceActive) {
+        } else if (m_mf.moveFaceActive) {
             cancelMoveFace();
         } else if (m_extruding) {
             cancelInteractiveExtrude();
@@ -2961,7 +2961,7 @@ void Application::handleShortcuts() {
         updatePushPull();
         commitPushPull();
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_Enter) && m_moveFaceActive) {
+    if (ImGui::IsKeyPressed(ImGuiKey_Enter) && m_mf.moveFaceActive) {
         commitMoveFace();
     }
     if (ImGui::IsKeyPressed(ImGuiKey_Home)) {
@@ -6414,7 +6414,7 @@ void Application::writeProjectRecoveryIfDue() {
     // below-tip save would silently drop the redo tail).
     if (m_history && m_history->canRedo()) return;
     if (anyInteractivePreviewActive() || m_inSketchMode || m_edgeOpActive ||
-        m_moveFaceActive) return;
+        m_mf.moveFaceActive) return;
     const int bodies = m_document ? m_document->bodyCount() : 0;
     const int curStep = m_history ? m_history->currentStep() : -1;
     if (bodies == 0 && curStep < 0) return;    // empty new document: nothing to lose
@@ -6688,7 +6688,7 @@ void Application::run() {
             // wasteful on the iGPU, a battery/thermal sink on mobile.
             bool interactive =
                 m_inSketchMode || m_pushPullActive || m_gizmoDragging ||
-                m_edgeOpActive || m_moveFaceActive ||
+                m_edgeOpActive || m_mf.moveFaceActive ||
                 m_revolveActive;
             if (!interactive)
                 for (auto* c : m_iops) if (c && c->active()) { interactive = true; break; }
@@ -6706,7 +6706,7 @@ void Application::run() {
                 if (m_pushPullActive)          st += "pushpull ";
                 if (m_gizmoDragging)           st += "gizmo ";
                 if (m_edgeOpActive)            st += "edgeop ";
-                if (m_moveFaceActive)          st += "moveface ";
+                if (m_mf.moveFaceActive)          st += "moveface ";
                 if (m_revolveActive)           st += "revolve ";
                 if (m_deferredHeavyTask)       st += "heavy ";
                 if (!m_toastText.empty())      st += "toast ";
@@ -6892,7 +6892,7 @@ void Application::run() {
                 if (m_history && m_history->canRedo()) {
                     // hold off — keep checking each interval
                 } else if (anyInteractivePreviewActive() || m_inSketchMode ||
-                           m_edgeOpActive || m_moveFaceActive) {
+                           m_edgeOpActive || m_mf.moveFaceActive) {
                     // hold off — an autosave must never cancel (or serialize) a
                     // live tool preview / an in-progress sketch out from under
                     // the user (a half-baked uncommitted-sketch state has

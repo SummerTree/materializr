@@ -1,5 +1,6 @@
 #pragma once
 #include "modeling/MoveHoleOp.h"
+#include "app/MoveFaceState.h"
 #include "../platform_defs.h"
 
 #include <memory>
@@ -554,7 +555,7 @@ private:
     // ── Move Face (face transform → body follows via loft; see MoveFaceOp) ──
     // The face transform this gesture applies (Move / Rotate / Scale share the
     // same loft engine + deferred silhouette; only the gizmo + drag math differ).
-    enum class FaceXform { Translate, Rotate, Scale };
+    using FaceXform = materializr::FaceXform;
     void beginMoveFace(FaceXform kind = FaceXform::Translate);
     // Configure a MoveFaceOp with the current gesture's kind + params, and test
     // whether the gesture has anything to apply (defined in the .cpp where the
@@ -568,79 +569,9 @@ private:
     void commitMoveFace();
     void cancelMoveFace();
     void moveFaceSlideSketches(const glm::vec3& v); // restore + slide on-face sketches
-    bool m_moveFaceActive = false;
-    // Hole-move sub-mode of the Move tool: the same translate gizmo drives a
-    // MoveHoleOp (slide a through-hole across its face) instead of a face shear.
-    // Set when the Move selection is a recognizable hole wall (see beginMoveFace).
-    bool m_moveHoleMode = false;
-    // Which hole verb the current interactive move commits, and the rim side
-    // being dragged when it's EdgeMove.
-    MoveHoleOp::Mode m_moveHoleOpMode = MoveHoleOp::Mode::Slide;
-    TopoDS_Edge m_moveHoleRimEdge;
-    // Which mouth of the bore the user grabbed (buildVoid's own entry/exit
-    // naming is unrelated to what was clicked — see MoveHoleOp::setNearIsEntry).
-    bool m_moveHoleNearIsEntry = true;
-    TopoDS_Face m_moveHoleWall;              // the clicked hole-wall seed face
-    int  m_moveFaceBodyId = -1;
-    TopoDS_Face  m_moveFaceFace;
-    TopoDS_Shape m_moveFacePreviousShape;    // snapshot for preview / restore
-    glm::vec3 m_moveFaceP0{0.0f};            // a point on the face plane
-    glm::vec3 m_moveFaceN{0.0f, 0.0f, 1.0f}; // face plane normal (outward)
-    glm::vec3 m_moveFaceVec{0.0f};           // accumulated in-plane slide
-    glm::vec3 m_moveFaceBase{0.0f};          // slide banked before the current drag
-    glm::vec3 m_moveFaceDragStart{0.0f};     // plane hit-point at drag start
-    bool m_moveFaceDragging = false;
-    // Two in-plane arrow axes + which one a drag latched (0=A, 1=B, -1=none).
-    glm::vec3 m_moveFaceAxisA{1.0f, 0.0f, 0.0f};
-    glm::vec3 m_moveFaceAxisB{0.0f, 1.0f, 0.0f};
-    int  m_moveFaceGrab = -1;
-    FaceXform m_faceXformKind = FaceXform::Translate;
-    glm::vec3 m_moveFacePivot{0.0f};  // face centroid (rotate/scale pivot)
-    float m_moveFaceAngle = 0.0f;     // accumulated tilt (radians, Rotate)
-    float m_moveFaceAngleBase = 0.0f; // tilt banked before the current drag
-    float m_moveFaceScale = 1.0f;     // accumulated uniform factor (Scale)
-    float m_moveFaceScaleBase = 1.0f;
-    // Non-uniform scale: separate factors along the two in-plane axes. When
-    // uniform (default), both track m_moveFaceScale.
-    bool  m_moveFaceScaleUniform = true;
-    float m_moveFaceScaleA = 1.0f, m_moveFaceScaleB = 1.0f;
-    float m_moveFaceScaleABase = 1.0f, m_moveFaceScaleBBase = 1.0f;
-    glm::vec3 m_moveFaceRotAxis{1.0f, 0.0f, 0.0f}; // tilt axis latched this drag
-    float m_moveFaceRotStartAngle = 0.0f; // cursor angle in the ring plane at drag start
-    // Composed tilt from prior ring drags this session (about the fixed axes),
-    // so you can stack 5° about one then 10° about the other. The live tilt is
-    // rodrigues(rotAxis, angle) * accum; on each ring release the drag is baked
-    // into accum and the angle resets.
-    glm::mat3 m_moveFaceRotAccum{1.0f};
-    bool m_moveFaceRotHasAccum = false;
-    float m_moveFaceHalfExtent = 1.0f; // face size, maps drag distance → angle/scale
-    bool  m_moveFaceRotSnap = true;    // snap tilt to whole degrees (default on)
-    // TWIST = the THIRD rotation ring, about the face NORMAL (lies in the face
-    // plane). Lives under FaceXform::Rotate: grabbing this ring (grab 2) spins
-    // the face relative to its base and commits a MoveFaceOp::Kind::Twist —
-    // distinct from the two tilt rings. Mutually exclusive with a tilt within a
-    // session (m_moveFaceIsTwist picks which op the gesture builds).
-    float m_moveFaceTwist = 0.0f;      // accumulated twist (radians) about the normal
-    float m_moveFaceTwistBase = 0.0f;  // twist banked before the current drag
-    float m_moveFaceTwistStart = 0.0f; // cursor angle in the face plane at drag start
-    bool  m_moveFaceIsTwist = false;   // this Rotate gesture is a twist, not a tilt
-    // DEFERRED REBUILD: the body rebuild is deferred to mouse-release, so the
-    // drag only moves ghost SILHOUETTES of the face's loops. Loop 0 = outer
-    // outline, 1..N = hole loops (same order as the op enumerates them). Each is
-    // drawn translated by m_moveFaceVec only if that loop is flagged to move.
-    std::vector<std::vector<glm::vec3>> m_moveFaceSilhouetteLoops;
-    bool m_moveFacePendingRebuild = false;
-    // Per-loop motion, derived from the SELECTION. moveOuter = a planar face is
-    // selected (outline slides, holes slant). holeVertical[i] = that hole's
-    // cylindrical face was Ctrl-selected → it moves as a straight tube. One per
-    // hole, in loop order (matches m_moveFaceSilhouetteLoops[1..]).
-    bool m_moveFaceMoveOuter = true;
-    std::vector<bool> m_moveFaceHoleSlant;     // top edge picked → top ring follows
-    std::vector<bool> m_moveFaceHoleVertical;  // cylinder wall picked → tube follows
-    // Sketches sitting ON the moved face — they slide with it. Original planes
-    // snapshotted so the live preview / cancel can restore them.
-    std::vector<int>    m_moveFaceSketchIds;
-    std::vector<gp_Pln> m_moveFaceSketchPlanes0;
+    // The whole Move Face gesture in one value (app/MoveFaceState.h) — 35
+    // members used to live here.
+    materializr::MoveFaceState m_mf;
     void beginInteractiveExtrude(const TopoDS_Shape& profile,
                                  ExtrudeMode mode = ExtrudeMode::NewBody,
                                  int targetBody = -1,

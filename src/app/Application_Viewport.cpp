@@ -797,7 +797,7 @@ void Application::renderViewport() {
             m_inSketchMode || m_extruding || m_edgeOpActive ||
             m_pushPullActive || anyIopActive() ||
             m_patternActive || m_loftActive || m_planeOpActive ||
-            m_sketchPatternActive || m_revolveActive || m_moveFaceActive;
+            m_sketchPatternActive || m_revolveActive || m_mf.moveFaceActive;
         bool gizmoShown = false;
         if (m_selection->hasSelectedBodies() && !m_selection->navigationOnly() &&
             !anyInteractiveOpActive) {
@@ -1021,7 +1021,7 @@ void Application::renderViewport() {
         // Face gizmo: Move/Scale show two in-plane arrows; Rotate shows two
         // rings (about the face centre) so a tilt reads as a rotation. The
         // latched handle brightens.
-        if (m_moveFaceActive) {
+        if (m_mf.moveFaceActive) {
             // Translate arrows take the colour of the WORLD axis each in-plane
             // direction most aligns with — X=red, Y=green, Z=blue, matching the
             // main move gizmo — so the two arrows read as the actual axes you can
@@ -1034,35 +1034,35 @@ void Application::renderViewport() {
                 return grabbed ? glm::clamp(c * 1.7f, glm::vec3(0.0f), glm::vec3(1.0f))
                                : c * 0.6f;
             };
-            if (m_faceXformKind == FaceXform::Rotate) {
+            if (m_mf.faceXformKind == FaceXform::Rotate) {
                 // grab 0 tilts about axis B (RED ring), grab 1 about axis A
                 // (GREEN ring) — matched to the colored controls in the panel.
-                glm::vec3 red0  = m_moveFaceGrab == 0 ? glm::vec3(1.0f, 0.32f, 0.32f)
+                glm::vec3 red0  = m_mf.moveFaceGrab == 0 ? glm::vec3(1.0f, 0.32f, 0.32f)
                                                       : glm::vec3(0.72f, 0.22f, 0.22f);
-                glm::vec3 grn1  = m_moveFaceGrab == 1 ? glm::vec3(0.35f, 0.95f, 0.40f)
+                glm::vec3 grn1  = m_mf.moveFaceGrab == 1 ? glm::vec3(0.35f, 0.95f, 0.40f)
                                                       : glm::vec3(0.24f, 0.66f, 0.28f);
-                m_gizmo->renderRingAbout(view, proj, m_moveFacePivot, m_moveFaceAxisB, red0);
-                m_gizmo->renderRingAbout(view, proj, m_moveFacePivot, m_moveFaceAxisA, grn1);
+                m_gizmo->renderRingAbout(view, proj, m_mf.moveFacePivot, m_mf.moveFaceAxisB, red0);
+                m_gizmo->renderRingAbout(view, proj, m_mf.moveFacePivot, m_mf.moveFaceAxisA, grn1);
                 // Third ring: about the face NORMAL (lies IN the face plane) —
                 // grabbing it TWISTS the face rather than tilting it. Blue, the
                 // "third axis" colour; brightens when latched (grab 2).
-                glm::vec3 blu2 = m_moveFaceGrab == 2 ? glm::vec3(0.45f, 0.62f, 1.0f)
+                glm::vec3 blu2 = m_mf.moveFaceGrab == 2 ? glm::vec3(0.45f, 0.62f, 1.0f)
                                                      : glm::vec3(0.28f, 0.40f, 0.78f);
-                m_gizmo->renderRingAbout(view, proj, m_moveFacePivot, m_moveFaceN, blu2);
-            } else if (m_faceXformKind == FaceXform::Scale) {
+                m_gizmo->renderRingAbout(view, proj, m_mf.moveFacePivot, m_mf.moveFaceN, blu2);
+            } else if (m_mf.faceXformKind == FaceXform::Scale) {
                 // Scale: cube handles (the regular scale-gizmo look). Axis A =
                 // red, axis B = green, matched to the non-uniform controls.
-                glm::vec3 rA = m_moveFaceGrab == 0 ? glm::vec3(1.0f, 0.32f, 0.32f)
+                glm::vec3 rA = m_mf.moveFaceGrab == 0 ? glm::vec3(1.0f, 0.32f, 0.32f)
                                                    : glm::vec3(0.72f, 0.22f, 0.22f);
-                glm::vec3 gB = m_moveFaceGrab == 1 ? glm::vec3(0.35f, 0.95f, 0.40f)
+                glm::vec3 gB = m_mf.moveFaceGrab == 1 ? glm::vec3(0.35f, 0.95f, 0.40f)
                                                    : glm::vec3(0.24f, 0.66f, 0.28f);
-                m_gizmo->renderCubeAlong(view, proj, m_moveFacePivot, m_moveFaceAxisA, rA);
-                m_gizmo->renderCubeAlong(view, proj, m_moveFacePivot, m_moveFaceAxisB, gB);
+                m_gizmo->renderCubeAlong(view, proj, m_mf.moveFacePivot, m_mf.moveFaceAxisA, rA);
+                m_gizmo->renderCubeAlong(view, proj, m_mf.moveFacePivot, m_mf.moveFaceAxisB, gB);
             } else {
-                m_gizmo->renderArrowAlong(view, proj, m_moveFaceP0, m_moveFaceAxisA,
-                                          axisColor(m_moveFaceAxisA, m_moveFaceGrab == 0));
-                m_gizmo->renderArrowAlong(view, proj, m_moveFaceP0, m_moveFaceAxisB,
-                                          axisColor(m_moveFaceAxisB, m_moveFaceGrab == 1));
+                m_gizmo->renderArrowAlong(view, proj, m_mf.moveFaceP0, m_mf.moveFaceAxisA,
+                                          axisColor(m_mf.moveFaceAxisA, m_mf.moveFaceGrab == 0));
+                m_gizmo->renderArrowAlong(view, proj, m_mf.moveFaceP0, m_mf.moveFaceAxisB,
+                                          axisColor(m_mf.moveFaceAxisB, m_mf.moveFaceGrab == 1));
             }
         }
 
@@ -3470,7 +3470,7 @@ void Application::renderViewport() {
                 m_sketchTool->getMode() != SketchToolMode::Select)
                 allowLongPress = false;
             if (m_pushPullActive || m_extruding || m_edgeOpActive ||
-                m_moveFaceActive ||
+                m_mf.moveFaceActive ||
                 anyIopActive())
                 allowLongPress = false;
             if (m_window) m_window->setTouchOverViewport(allowLongPress);
@@ -3585,7 +3585,7 @@ void Application::renderViewport() {
             // the gate never fires and the op "doesn't work".
             const bool toolWantsDrag =
                 m_inSketchMode || m_pushPullActive || m_extruding ||
-                m_edgeOpActive || m_moveFaceActive ||
+                m_edgeOpActive || m_mf.moveFaceActive ||
                 anyIopActive();
             if (materializr::touchMode()) {
                 // Touch has no hover and the one finger is the only pointer, so the
@@ -3972,7 +3972,7 @@ void Application::renderViewport() {
             // Move Face: intersect the cursor ray with the face's plane, latch
             // the nearer of the two in-plane arrows at drag start, then slide
             // ONLY along that arrow's axis (the whole body shears live).
-            if (m_moveFaceActive && !camDragging &&
+            if (m_mf.moveFaceActive && !camDragging &&
                 ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
                 ImVec2 mp = ImGui::GetMousePos();
                 ImVec2 wp = ImGui::GetItemRectMin();
@@ -3989,44 +3989,44 @@ void Application::renderViewport() {
                 glm::vec4 np = invVP * glm::vec4(nx, ny, -1.0f, 1.0f);
                 glm::vec4 fp = invVP * glm::vec4(nx, ny,  1.0f, 1.0f);
                 glm::vec3 ro(np / np.w), rd = glm::normalize(glm::vec3(fp / fp.w) - ro);
-                float denom = glm::dot(rd, m_moveFaceN);
+                float denom = glm::dot(rd, m_mf.moveFaceN);
                 if (std::abs(denom) > 1e-6f) {
-                    float t = glm::dot(m_moveFaceP0 - ro, m_moveFaceN) / denom;
+                    float t = glm::dot(m_mf.moveFaceP0 - ro, m_mf.moveFaceN) / denom;
                     glm::vec3 hit = ro + rd * t;
                     // Cursor angle around the pivot in a ring's rotation plane
                     // (normal = rotAxis): intersect the ray with that plane and
                     // measure atan2 in the (u, N) basis. Used for ring-sweep tilt.
                     auto ringCursorAngle = [&](glm::vec3 rotAxis, glm::vec3 u) -> float {
                         float dn = glm::dot(rd, rotAxis);
-                        if (std::abs(dn) < 1e-5f) return m_moveFaceRotStartAngle;
-                        float tt = glm::dot(m_moveFacePivot - ro, rotAxis) / dn;
-                        glm::vec3 d = (ro + rd * tt) - m_moveFacePivot;
-                        return std::atan2(glm::dot(d, m_moveFaceN), glm::dot(d, u));
+                        if (std::abs(dn) < 1e-5f) return m_mf.moveFaceRotStartAngle;
+                        float tt = glm::dot(m_mf.moveFacePivot - ro, rotAxis) / dn;
+                        glm::vec3 d = (ro + rd * tt) - m_mf.moveFacePivot;
+                        return std::atan2(glm::dot(d, m_mf.moveFaceN), glm::dot(d, u));
                     };
                     // Twist ring lies IN the face plane (about the normal): the
                     // cursor's angle is measured in the (axisA, axisB) basis of
                     // the point where the ray meets the face plane.
                     auto twistCursorAngle = [&]() -> float {
-                        float dn = glm::dot(rd, m_moveFaceN);
-                        if (std::abs(dn) < 1e-5f) return m_moveFaceTwistStart;
-                        float tt = glm::dot(m_moveFacePivot - ro, m_moveFaceN) / dn;
-                        glm::vec3 d = (ro + rd * tt) - m_moveFacePivot;
-                        return std::atan2(glm::dot(d, m_moveFaceAxisB),
-                                          glm::dot(d, m_moveFaceAxisA));
+                        float dn = glm::dot(rd, m_mf.moveFaceN);
+                        if (std::abs(dn) < 1e-5f) return m_mf.moveFaceTwistStart;
+                        float tt = glm::dot(m_mf.moveFacePivot - ro, m_mf.moveFaceN) / dn;
+                        glm::vec3 d = (ro + rd * tt) - m_mf.moveFacePivot;
+                        return std::atan2(glm::dot(d, m_mf.moveFaceAxisB),
+                                          glm::dot(d, m_mf.moveFaceAxisA));
                     };
-                    if (!m_moveFaceDragging) {
-                        if (m_faceXformKind == FaceXform::Rotate) {
+                    if (!m_mf.moveFaceDragging) {
+                        if (m_mf.faceXformKind == FaceXform::Rotate) {
                             // Ring-aware latch: sample each ring's actual circle
                             // and grab the nearer one (the arrow-tip proxy used
                             // before biased toward one ring). Ring radius mirrors
                             // the gizmo: camDist * 0.15 * kRingRadius(0.75).
                             float ringR = 0.1125f * glm::length(
-                                glm::vec3(cam.getPosition()) - m_moveFacePivot);
+                                glm::vec3(cam.getPosition()) - m_mf.moveFacePivot);
                             auto ringDist = [&](glm::vec3 u, glm::vec3 v) -> float {
                                 float best = 1e18f;
                                 for (int i = 0; i < 32; ++i) {
                                     float a = 6.2831853f * i / 32.0f;
-                                    glm::vec3 p = m_moveFacePivot +
+                                    glm::vec3 p = m_mf.moveFacePivot +
                                         ringR * (std::cos(a) * u + std::sin(a) * v);
                                     ImVec2 s; if (!w2s(p, s)) continue;
                                     float dx = s.x - mp.x, dy = s.y - mp.y;
@@ -4036,24 +4036,24 @@ void Application::renderViewport() {
                             };
                             // grab 0 = ring about axis B (plane A,N); 1 = about A;
                             // 2 = ring about the NORMAL (plane A,B) = the twist.
-                            float dRingB = ringDist(m_moveFaceAxisA, m_moveFaceN);
-                            float dRingA = ringDist(m_moveFaceAxisB, m_moveFaceN);
-                            float dRingN = ringDist(m_moveFaceAxisA, m_moveFaceAxisB);
-                            m_moveFaceGrab = 0; float bestRing = dRingB;
-                            if (dRingA < bestRing) { bestRing = dRingA; m_moveFaceGrab = 1; }
-                            if (dRingN < bestRing) { bestRing = dRingN; m_moveFaceGrab = 2; }
+                            float dRingB = ringDist(m_mf.moveFaceAxisA, m_mf.moveFaceN);
+                            float dRingA = ringDist(m_mf.moveFaceAxisB, m_mf.moveFaceN);
+                            float dRingN = ringDist(m_mf.moveFaceAxisA, m_mf.moveFaceAxisB);
+                            m_mf.moveFaceGrab = 0; float bestRing = dRingB;
+                            if (dRingA < bestRing) { bestRing = dRingA; m_mf.moveFaceGrab = 1; }
+                            if (dRingN < bestRing) { bestRing = dRingN; m_mf.moveFaceGrab = 2; }
                         } else {
                             // Latch the arrow/cube whose shaft is nearest the cursor.
                             float armLen = 0.25f * glm::length(
                                 glm::vec3(cam.getTarget()) - glm::vec3(cam.getPosition()));
                             if (armLen < 1.0f) armLen = 8.0f;
                             auto sd = [&](glm::vec3 axis) -> float {
-                                ImVec2 s; if (!w2s(m_moveFaceP0 + axis * armLen * 0.6f, s)) return 1e18f;
+                                ImVec2 s; if (!w2s(m_mf.moveFaceP0 + axis * armLen * 0.6f, s)) return 1e18f;
                                 float dx = s.x - mp.x, dy = s.y - mp.y; return dx*dx + dy*dy;
                             };
-                            float dA = std::min(sd(m_moveFaceAxisA), sd(-m_moveFaceAxisA));
-                            float dB = std::min(sd(m_moveFaceAxisB), sd(-m_moveFaceAxisB));
-                            m_moveFaceGrab = (dA <= dB) ? 0 : 1;
+                            float dA = std::min(sd(m_mf.moveFaceAxisA), sd(-m_mf.moveFaceAxisA));
+                            float dB = std::min(sd(m_mf.moveFaceAxisB), sd(-m_mf.moveFaceAxisB));
+                            m_mf.moveFaceGrab = (dA <= dB) ? 0 : 1;
                             // Once per gesture: which arrow latched and the
                             // frame it moves in. Left in on purpose — arrow
                             // no-ops are order-dependent and impossible to
@@ -4061,110 +4061,110 @@ void Application::renderViewport() {
                             std::fprintf(stdout,
                                 "Move drag latch: grab=%c hole=%d A=(%.2f,%.2f,%.2f) "
                                 "B=(%.2f,%.2f,%.2f) N=(%.2f,%.2f,%.2f) P0=(%.1f,%.1f,%.1f)\n",
-                                m_moveFaceGrab == 0 ? 'A' : 'B', (int)m_moveHoleMode,
-                                m_moveFaceAxisA.x, m_moveFaceAxisA.y, m_moveFaceAxisA.z,
-                                m_moveFaceAxisB.x, m_moveFaceAxisB.y, m_moveFaceAxisB.z,
-                                m_moveFaceN.x, m_moveFaceN.y, m_moveFaceN.z,
-                                m_moveFaceP0.x, m_moveFaceP0.y, m_moveFaceP0.z);
+                                m_mf.moveFaceGrab == 0 ? 'A' : 'B', (int)m_mf.moveHoleMode,
+                                m_mf.moveFaceAxisA.x, m_mf.moveFaceAxisA.y, m_mf.moveFaceAxisA.z,
+                                m_mf.moveFaceAxisB.x, m_mf.moveFaceAxisB.y, m_mf.moveFaceAxisB.z,
+                                m_mf.moveFaceN.x, m_mf.moveFaceN.y, m_mf.moveFaceN.z,
+                                m_mf.moveFaceP0.x, m_mf.moveFaceP0.y, m_mf.moveFaceP0.z);
                         }
-                        m_moveFaceDragStart = hit;
-                        m_moveFaceBase = m_moveFaceVec;
-                        m_moveFaceAngleBase = m_moveFaceAngle;
-                        m_moveFaceScaleBase = m_moveFaceScale;
-                        m_moveFaceScaleABase = m_moveFaceScaleA;
-                        m_moveFaceScaleBBase = m_moveFaceScaleB;
-                        if (m_faceXformKind == FaceXform::Rotate) {
-                            if (m_moveFaceGrab == 2) {
+                        m_mf.moveFaceDragStart = hit;
+                        m_mf.moveFaceBase = m_mf.moveFaceVec;
+                        m_mf.moveFaceAngleBase = m_mf.moveFaceAngle;
+                        m_mf.moveFaceScaleBase = m_mf.moveFaceScale;
+                        m_mf.moveFaceScaleABase = m_mf.moveFaceScaleA;
+                        m_mf.moveFaceScaleBBase = m_mf.moveFaceScaleB;
+                        if (m_mf.faceXformKind == FaceXform::Rotate) {
+                            if (m_mf.moveFaceGrab == 2) {
                                 // Twist ring: latch the cursor's angle in the
                                 // face plane; the twist tracks the sweep.
-                                m_moveFaceIsTwist = true;
-                                m_moveFaceTwistBase = m_moveFaceTwist;
-                                m_moveFaceTwistStart = twistCursorAngle();
+                                m_mf.moveFaceIsTwist = true;
+                                m_mf.moveFaceTwistBase = m_mf.moveFaceTwist;
+                                m_mf.moveFaceTwistStart = twistCursorAngle();
                             } else {
-                                m_moveFaceIsTwist = false;
+                                m_mf.moveFaceIsTwist = false;
                                 // Latch the tilt axis + the cursor's starting
                                 // angle around the ring; the tilt tracks the sweep.
-                                m_moveFaceRotAxis = (m_moveFaceGrab == 0) ? m_moveFaceAxisB
-                                                                          : m_moveFaceAxisA;
+                                m_mf.moveFaceRotAxis = (m_mf.moveFaceGrab == 0) ? m_mf.moveFaceAxisB
+                                                                          : m_mf.moveFaceAxisA;
                                 // u chosen so rotAxis × u = +N for BOTH rings (else
                                 // the red ring's sweep reads inverted vs the green).
-                                glm::vec3 u = (m_moveFaceGrab == 0) ? -m_moveFaceAxisA
-                                                                   : m_moveFaceAxisB;
-                                m_moveFaceRotStartAngle = ringCursorAngle(m_moveFaceRotAxis, u);
+                                glm::vec3 u = (m_mf.moveFaceGrab == 0) ? -m_mf.moveFaceAxisA
+                                                                   : m_mf.moveFaceAxisB;
+                                m_mf.moveFaceRotStartAngle = ringCursorAngle(m_mf.moveFaceRotAxis, u);
                             }
                         }
-                        m_moveFaceDragging = true;
+                        m_mf.moveFaceDragging = true;
                     }
-                    glm::vec3 axis = (m_moveFaceGrab == 0) ? m_moveFaceAxisA : m_moveFaceAxisB;
-                    float along = glm::dot(hit - m_moveFaceDragStart, axis);
-                    if (m_faceXformKind == FaceXform::Translate) {
+                    glm::vec3 axis = (m_mf.moveFaceGrab == 0) ? m_mf.moveFaceAxisA : m_mf.moveFaceAxisB;
+                    float along = glm::dot(hit - m_mf.moveFaceDragStart, axis);
+                    if (m_mf.faceXformKind == FaceXform::Translate) {
                         // Snap the slide to whole grid steps when the grid is on.
                         if (m_snapToGrid && m_sketchGridStep > 0.0f)
                             along = std::round(along / m_sketchGridStep) * m_sketchGridStep;
-                        m_moveFaceVec = m_moveFaceBase + axis * along;
-                    } else if (m_faceXformKind == FaceXform::Rotate && m_moveFaceIsTwist) {
+                        m_mf.moveFaceVec = m_mf.moveFaceBase + axis * along;
+                    } else if (m_mf.faceXformKind == FaceXform::Rotate && m_mf.moveFaceIsTwist) {
                         // Twist: sweep the cursor around the normal ring (in the
                         // face plane). The change in its angle since drag-start
                         // IS the twist about the normal.
                         float cur = twistCursorAngle();
-                        float delta = cur - m_moveFaceTwistStart;
+                        float delta = cur - m_mf.moveFaceTwistStart;
                         delta = std::atan2(std::sin(delta), std::cos(delta)); // wrap ±π
-                        m_moveFaceTwist = m_moveFaceTwistBase + delta;
-                        if (m_moveFaceRotSnap) {
+                        m_mf.moveFaceTwist = m_mf.moveFaceTwistBase + delta;
+                        if (m_mf.moveFaceRotSnap) {
                             float step = 1.0f / 57.2957795f;
-                            m_moveFaceTwist = std::round(m_moveFaceTwist / step) * step;
+                            m_mf.moveFaceTwist = std::round(m_mf.moveFaceTwist / step) * step;
                         }
-                    } else if (m_faceXformKind == FaceXform::Rotate) {
+                    } else if (m_mf.faceXformKind == FaceXform::Rotate) {
                         // Sweep the cursor AROUND the ring: the tilt = the change
                         // in the cursor's angle in the ring plane since the drag
                         // started (a real rotation gizmo, not a linear pull).
-                        glm::vec3 u = (m_moveFaceGrab == 0) ? -m_moveFaceAxisA
-                                                            : m_moveFaceAxisB;
-                        float cur = ringCursorAngle(m_moveFaceRotAxis, u);
-                        float delta = cur - m_moveFaceRotStartAngle;
+                        glm::vec3 u = (m_mf.moveFaceGrab == 0) ? -m_mf.moveFaceAxisA
+                                                            : m_mf.moveFaceAxisB;
+                        float cur = ringCursorAngle(m_mf.moveFaceRotAxis, u);
+                        float delta = cur - m_mf.moveFaceRotStartAngle;
                         delta = std::atan2(std::sin(delta), std::cos(delta)); // wrap to ±π
-                        m_moveFaceAngle = m_moveFaceAngleBase + delta;
-                        if (m_moveFaceRotSnap) { // snap to whole degrees
+                        m_mf.moveFaceAngle = m_mf.moveFaceAngleBase + delta;
+                        if (m_mf.moveFaceRotSnap) { // snap to whole degrees
                             float step = 1.0f / 57.2957795f;
-                            m_moveFaceAngle = std::round(m_moveFaceAngle / step) * step;
+                            m_mf.moveFaceAngle = std::round(m_mf.moveFaceAngle / step) * step;
                         }
                     } else { // Scale
-                        float ext = std::max(m_moveFaceHalfExtent, 1e-3f);
-                        if (m_moveFaceScaleUniform) {
-                            m_moveFaceScale = std::max(0.1f,
-                                m_moveFaceScaleBase + along / ext);
-                        } else if (m_moveFaceGrab == 0) { // axis A handle
-                            m_moveFaceScaleA = std::max(0.1f,
-                                m_moveFaceScaleABase + along / ext);
+                        float ext = std::max(m_mf.moveFaceHalfExtent, 1e-3f);
+                        if (m_mf.moveFaceScaleUniform) {
+                            m_mf.moveFaceScale = std::max(0.1f,
+                                m_mf.moveFaceScaleBase + along / ext);
+                        } else if (m_mf.moveFaceGrab == 0) { // axis A handle
+                            m_mf.moveFaceScaleA = std::max(0.1f,
+                                m_mf.moveFaceScaleABase + along / ext);
                         } else {                          // axis B handle
-                            m_moveFaceScaleB = std::max(0.1f,
-                                m_moveFaceScaleBBase + along / ext);
+                            m_mf.moveFaceScaleB = std::max(0.1f,
+                                m_mf.moveFaceScaleBBase + along / ext);
                         }
                     }
                     // Deferred: don't rebuild the body mid-drag — only the ghost
                     // silhouette moves (drawn below). Flag a rebuild for release.
-                    m_moveFacePendingRebuild = true;
+                    m_mf.moveFacePendingRebuild = true;
                 }
-            } else if (m_moveFaceActive && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+            } else if (m_mf.moveFaceActive && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
                 // Released: now run the (single) rebuild so the body catches up
                 // to where the silhouette was dragged.
-                if (m_moveFacePendingRebuild) {
+                if (m_mf.moveFacePendingRebuild) {
                     bakeFaceRotationDrag(); // fold a ring drag into the accumulator
                     updateMoveFace();
-                    m_moveFacePendingRebuild = false;
+                    m_mf.moveFacePendingRebuild = false;
                 }
-                if (m_moveFaceDragging)
+                if (m_mf.moveFaceDragging)
                     std::fprintf(stdout, "Move drag release: vec=(%.2f,%.2f,%.2f)\n",
-                                 m_moveFaceVec.x, m_moveFaceVec.y, m_moveFaceVec.z);
-                m_moveFaceDragging = false; // released — next drag re-latches
-                m_moveFaceGrab = -1;
+                                 m_mf.moveFaceVec.x, m_mf.moveFaceVec.y, m_mf.moveFaceVec.z);
+                m_mf.moveFaceDragging = false; // released — next drag re-latches
+                m_mf.moveFaceGrab = -1;
             }
 
             // Ghost silhouette: each moving face loop drawn as a yellow outline,
             // transformed by the current gesture (slide / tilt / scale). During
             // a drag this is the only thing that moves; the body rebuilds on
             // release.
-            if (m_moveFaceActive && !m_moveFaceSilhouetteLoops.empty() &&
+            if (m_mf.moveFaceActive && !m_mf.moveFaceSilhouetteLoops.empty() &&
                 faceXformNontrivial()) {
                 ImVec2 wp = ImGui::GetItemRectMin();
                 ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -4177,48 +4177,48 @@ void Application::renderViewport() {
                 };
                 // Apply the current gesture transform to a ghost point.
                 auto xf = [&](const glm::vec3& p) -> glm::vec3 {
-                    if (m_faceXformKind == FaceXform::Translate)
-                        return p + m_moveFaceVec;
-                    if (m_faceXformKind == FaceXform::Scale) {
-                        glm::vec3 d = p - m_moveFacePivot;
-                        if (m_moveFaceScaleUniform)
-                            return m_moveFacePivot + d * m_moveFaceScale;
+                    if (m_mf.faceXformKind == FaceXform::Translate)
+                        return p + m_mf.moveFaceVec;
+                    if (m_mf.faceXformKind == FaceXform::Scale) {
+                        glm::vec3 d = p - m_mf.moveFacePivot;
+                        if (m_mf.moveFaceScaleUniform)
+                            return m_mf.moveFacePivot + d * m_mf.moveFaceScale;
                         // Non-uniform: scale along each in-plane axis.
-                        float dA = glm::dot(d, m_moveFaceAxisA);
-                        float dB = glm::dot(d, m_moveFaceAxisB);
-                        float dN = glm::dot(d, m_moveFaceN);
-                        return m_moveFacePivot + m_moveFaceAxisA * (dA * m_moveFaceScaleA)
-                                               + m_moveFaceAxisB * (dB * m_moveFaceScaleB)
-                                               + m_moveFaceN * dN;
+                        float dA = glm::dot(d, m_mf.moveFaceAxisA);
+                        float dB = glm::dot(d, m_mf.moveFaceAxisB);
+                        float dN = glm::dot(d, m_mf.moveFaceN);
+                        return m_mf.moveFacePivot + m_mf.moveFaceAxisA * (dA * m_mf.moveFaceScaleA)
+                                               + m_mf.moveFaceAxisB * (dB * m_mf.moveFaceScaleB)
+                                               + m_mf.moveFaceN * dN;
                     }
-                    if (m_moveFaceIsTwist) {
+                    if (m_mf.moveFaceIsTwist) {
                         // Twist: spin the top loop about the face normal through
                         // the pivot (Rodrigues) — shows the final top orientation.
-                        glm::vec3 d = p - m_moveFacePivot;
-                        float c = std::cos(m_moveFaceTwist), s = std::sin(m_moveFaceTwist);
-                        const glm::vec3& k = m_moveFaceN;
+                        glm::vec3 d = p - m_mf.moveFacePivot;
+                        float c = std::cos(m_mf.moveFaceTwist), s = std::sin(m_mf.moveFaceTwist);
+                        const glm::vec3& k = m_mf.moveFaceN;
                         glm::vec3 r = d * c + glm::cross(k, d) * s +
                                       k * glm::dot(k, d) * (1.0f - c);
-                        return m_moveFacePivot + r;
+                        return m_mf.moveFacePivot + r;
                     }
                     // Composed tilt (live ring ∘ accumulated tilts) about pivot.
-                    return m_moveFacePivot + faceRotTotal() * (p - m_moveFacePivot);
+                    return m_mf.moveFacePivot + faceRotTotal() * (p - m_mf.moveFacePivot);
                 };
                 const ImU32 col = IM_COL32(255, 235, 64, 230);
-                for (size_t k = 0; k < m_moveFaceSilhouetteLoops.size(); ++k) {
+                for (size_t k = 0; k < m_mf.moveFaceSilhouetteLoops.size(); ++k) {
                     // These are the TOP rings. Outline moves with the face; a
                     // hole's top ring moves only if that hole slants or is a
                     // vertical tube (else it stays put, undrawn).
-                    bool holeRides = m_moveFaceMoveOuter &&
-                                     m_faceXformKind == FaceXform::Rotate;
+                    bool holeRides = m_mf.moveFaceMoveOuter &&
+                                     m_mf.faceXformKind == FaceXform::Rotate;
                     bool moves = (k == 0)
-                        ? m_moveFaceMoveOuter
+                        ? m_mf.moveFaceMoveOuter
                         : (holeRides ||
-                           (k - 1 < m_moveFaceHoleSlant.size() && m_moveFaceHoleSlant[k - 1]) ||
-                           (k - 1 < m_moveFaceHoleVertical.size() && m_moveFaceHoleVertical[k - 1]));
+                           (k - 1 < m_mf.moveFaceHoleSlant.size() && m_mf.moveFaceHoleSlant[k - 1]) ||
+                           (k - 1 < m_mf.moveFaceHoleVertical.size() && m_mf.moveFaceHoleVertical[k - 1]));
                     if (!moves) continue; // a static loop stays at rest, undrawn
                     ImVec2 prev, first; bool havePrev = false, haveFirst = false;
-                    for (const auto& p : m_moveFaceSilhouetteLoops[k]) {
+                    for (const auto& p : m_mf.moveFaceSilhouetteLoops[k]) {
                         ImVec2 s;
                         if (!pr(xf(p), s)) { havePrev = false; continue; }
                         if (!haveFirst) { first = s; haveFirst = true; }
@@ -4364,7 +4364,7 @@ void Application::renderViewport() {
             // interactive op owns the left-drag: extrude, push/pull, fillet/chamfer,
             // or the pattern axis-origin picker).
             if (!m_inSketchMode && !m_extruding && !m_pushPullActive && !m_edgeOpActive &&
-                !anyIopWantsViewportInput() && !m_moveFaceActive &&
+                !anyIopWantsViewportInput() && !m_mf.moveFaceActive &&
                 !(m_patternActive && m_patternPickingOrigin)) {
                 ImVec2 mousePos = ImGui::GetMousePos();
                 ImVec2 winPos = ImGui::GetItemRectMin();
@@ -7023,7 +7023,7 @@ void Application::renderViewport() {
         // corner, which buried it.)
         const bool navLockRelevant = m_inSketchMode ||
             m_pushPullActive || m_extruding || m_edgeOpActive ||
-            m_moveFaceActive ||
+            m_mf.moveFaceActive ||
             anyIopActive();
         if (!navLockRelevant) m_moveModeToggle = false;
         if ((selectionContext && (multiInLegacy || deleteHere)) ||
@@ -7923,9 +7923,9 @@ void Application::renderViewport() {
 
     // Move / Tilt / Scale Face: instructions + commit/cancel. The body follows
     // (loft) on release; this panel just confirms or bails.
-    if (m_moveFaceActive) {
-        const bool isRot = m_faceXformKind == FaceXform::Rotate;
-        const bool isScl = m_faceXformKind == FaceXform::Scale;
+    if (m_mf.moveFaceActive) {
+        const bool isRot = m_mf.faceXformKind == FaceXform::Rotate;
+        const bool isScl = m_mf.faceXformKind == FaceXform::Scale;
         materializr::viewportBanner(
             ImVec4(0.2f, 1.0f, 0.5f, 1.0f),
             materializr::touchMode()
@@ -7946,10 +7946,10 @@ void Application::renderViewport() {
         opDialogDragGrip(uiScale());
         if (isRot) {
             // Colour the label to the active ring (red = axis B, green = A).
-            ImVec4 lc = (m_moveFaceGrab == 1) ? ImVec4(0.4f, 0.95f, 0.45f, 1.0f)
+            ImVec4 lc = (m_mf.moveFaceGrab == 1) ? ImVec4(0.4f, 0.95f, 0.45f, 1.0f)
                                               : ImVec4(1.0f, 0.45f, 0.45f, 1.0f);
             ImGui::TextColored(lc, "Tilt (deg)"); ImGui::Separator();
-            float deg = m_moveFaceAngle * 57.2957795f;
+            float deg = m_mf.moveFaceAngle * 57.2957795f;
             bool ch = false;
             ImGui::SetNextItemWidth(150);
             ImGui::TextDisabled("%.1f deg", deg);
@@ -7958,13 +7958,13 @@ void Application::renderViewport() {
                 ch = true;
             ImGui::SetNextItemWidth(90);
             if (materializr::inputNumber("deg", &deg, 1.0f, 5.0f, "%.1f")) ch = true;
-            ImGui::Checkbox("Snap 1 deg", &m_moveFaceRotSnap);
+            ImGui::Checkbox("Snap 1 deg", &m_mf.moveFaceRotSnap);
             if (ch) {
-                if (m_moveFaceRotSnap) deg = std::round(deg);
-                m_moveFaceAngle = deg / 57.2957795f;
-                m_moveFaceIsTwist = false; // editing tilt switches the gesture to tilt
-                if (glm::length(m_moveFaceRotAxis) < 0.5f)
-                    m_moveFaceRotAxis = m_moveFaceAxisB;
+                if (m_mf.moveFaceRotSnap) deg = std::round(deg);
+                m_mf.moveFaceAngle = deg / 57.2957795f;
+                m_mf.moveFaceIsTwist = false; // editing tilt switches the gesture to tilt
+                if (glm::length(m_mf.moveFaceRotAxis) < 0.5f)
+                    m_mf.moveFaceRotAxis = m_mf.moveFaceAxisB;
                 updateMoveFace();
             }
             // Twist = the third (blue) ring, about the face normal. Editable
@@ -7972,7 +7972,7 @@ void Application::renderViewport() {
             ImGui::Spacing();
             ImGui::TextColored(ImVec4(0.55f, 0.68f, 1.0f, 1.0f), "Twist (deg)");
             ImGui::Separator();
-            float twdeg = m_moveFaceTwist * 57.2957795f;
+            float twdeg = m_mf.moveFaceTwist * 57.2957795f;
             bool twch = false;
             ImGui::SetNextItemWidth(150);
             ImGui::TextDisabled("%.1f deg", twdeg);
@@ -7982,9 +7982,9 @@ void Application::renderViewport() {
             ImGui::SetNextItemWidth(90);
             if (materializr::inputNumber("deg##tw", &twdeg, 1.0f, 5.0f, "%.1f")) twch = true;
             if (twch) {
-                if (m_moveFaceRotSnap) twdeg = std::round(twdeg);
-                m_moveFaceTwist = twdeg / 57.2957795f;
-                m_moveFaceIsTwist = true; // editing twist switches the gesture to twist
+                if (m_mf.moveFaceRotSnap) twdeg = std::round(twdeg);
+                m_mf.moveFaceTwist = twdeg / 57.2957795f;
+                m_mf.moveFaceIsTwist = true; // editing twist switches the gesture to twist
                 updateMoveFace();
             }
             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.80f, 0.35f, 1.0f));
@@ -7998,15 +7998,15 @@ void Application::renderViewport() {
         } else if (isScl) {
             ImGui::Text("Scale (%%)"); ImGui::Separator();
             bool ch = false;
-            if (ImGui::Checkbox("Uniform", &m_moveFaceScaleUniform)) {
-                if (m_moveFaceScaleUniform)
-                    m_moveFaceScale = 0.5f * (m_moveFaceScaleA + m_moveFaceScaleB);
+            if (ImGui::Checkbox("Uniform", &m_mf.moveFaceScaleUniform)) {
+                if (m_mf.moveFaceScaleUniform)
+                    m_mf.moveFaceScale = 0.5f * (m_mf.moveFaceScaleA + m_mf.moveFaceScaleB);
                 else
-                    m_moveFaceScaleA = m_moveFaceScaleB = m_moveFaceScale;
+                    m_mf.moveFaceScaleA = m_mf.moveFaceScaleB = m_mf.moveFaceScale;
                 ch = true;
             }
-            if (m_moveFaceScaleUniform) {
-                float pct = m_moveFaceScale * 100.0f;
+            if (m_mf.moveFaceScaleUniform) {
+                float pct = m_mf.moveFaceScale * 100.0f;
                 ImGui::SetNextItemWidth(150);
                 ImGui::TextDisabled("%.0f %%", pct);
                 if (materializr::stepperRow("sclStep", &pct,
@@ -8015,9 +8015,9 @@ void Application::renderViewport() {
                     ch = true;
                 ImGui::SetNextItemWidth(90);
                 if (materializr::inputNumber("%", &pct, 5.0f, 25.0f, "%.0f")) ch = true;
-                if (ch) m_moveFaceScale = std::max(0.1f, pct / 100.0f);
+                if (ch) m_mf.moveFaceScale = std::max(0.1f, pct / 100.0f);
             } else {
-                float a = m_moveFaceScaleA * 100.0f, b = m_moveFaceScaleB * 100.0f;
+                float a = m_mf.moveFaceScaleA * 100.0f, b = m_mf.moveFaceScaleB * 100.0f;
                 ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.45f, 1.0f), "Axis A (red)");
                 ImGui::SetNextItemWidth(150);
                 ImGui::TextDisabled("%.0f %%", a);
@@ -8037,27 +8037,27 @@ void Application::renderViewport() {
                 ImGui::SetNextItemWidth(90);
                 if (materializr::inputNumber("% B", &b, 5.0f, 25.0f, "%.0f")) ch = true;
                 if (ch) {
-                    m_moveFaceScaleA = std::max(0.1f, a / 100.0f);
-                    m_moveFaceScaleB = std::max(0.1f, b / 100.0f);
+                    m_mf.moveFaceScaleA = std::max(0.1f, a / 100.0f);
+                    m_mf.moveFaceScaleB = std::max(0.1f, b / 100.0f);
                 }
             }
             if (ch) updateMoveFace();
         } else {
             ImGui::Text("Slide (mm)"); ImGui::Separator();
             ImGui::Text("(%.1f, %.1f, %.1f)  |%.1f|",
-                        m_moveFaceVec.x, m_moveFaceVec.y, m_moveFaceVec.z,
-                        glm::length(m_moveFaceVec));
+                        m_mf.moveFaceVec.x, m_mf.moveFaceVec.y, m_mf.moveFaceVec.z,
+                        glm::length(m_mf.moveFaceVec));
         }
 
         // Read-out of what the SELECTION will do (the selection IS the control
         // now). A hole stays put unless you also pick its top edge (slants) or
         // its wall (vertical tube).
-        if (!m_moveFaceHoleVertical.empty()) {
+        if (!m_mf.moveFaceHoleVertical.empty()) {
             ImGui::Separator();
             int nvert = 0, nslant = 0;
-            for (bool v : m_moveFaceHoleVertical) if (v) ++nvert;
-            for (bool s : m_moveFaceHoleSlant)    if (s) ++nslant;
-            int nstatic = static_cast<int>(m_moveFaceHoleVertical.size()) - nvert - nslant;
+            for (bool v : m_mf.moveFaceHoleVertical) if (v) ++nvert;
+            for (bool s : m_mf.moveFaceHoleSlant)    if (s) ++nslant;
+            int nstatic = static_cast<int>(m_mf.moveFaceHoleVertical.size()) - nvert - nslant;
             ImGui::TextWrapped("Holes: %d stay, %d slant, %d vertical.",
                                nstatic, nslant, nvert);
             ImGui::TextDisabled("Pick a hole's top edge to slant it, its wall to "
