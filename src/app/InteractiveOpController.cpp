@@ -101,6 +101,9 @@ void InteractiveOpController::cleanup() {
     m_active = false;
     m_commitRequested = false;
     m_previewOk = false;
+    // A latched handle must not survive the op — the viewport reads this to
+    // suppress camera orbit and picking, so leaving it set would wedge both.
+    m_draggingHandle = false;
     m_bodyId = -1;
     m_snapshot.Nullify();
     onCleanup();

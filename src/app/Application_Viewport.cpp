@@ -1519,31 +1519,35 @@ void Application::renderViewport() {
             // labelled by COLOUR (red / blue) matching the panel's per-
             // axis sliders — the old "U" / "V" letters meant nothing to
             // the user.
-            if (m_scaleFaceCtl.active()) {
-                const auto& sfc = m_scaleFaceCtl;
-                auto drawHandle = [&](const glm::vec3& axis, float halfExt,
-                                      float pct, ImU32 col) {
-                    glm::vec3 tipW = sfc.center() +
-                        axis * (halfExt * pct / 100.0f);
-                    ImVec2 a, b;
-                    if (toImg(sfc.center(), a) && toImg(tipW, b)) {
-                        dl->AddLine(a, b, col, 3.0f);
-                        dl->AddCircleFilled(b, 7.0f, col);
-                        char hl[16];
-                        std::snprintf(hl, sizeof(hl), "%.0f%%", pct);
-                        ImVec2 ts = ImGui::CalcTextSize(hl);
-                        ImVec2 tp(b.x + 10.0f, b.y - ts.y * 0.5f);
-                        dl->AddRectFilled(ImVec2(tp.x - 4, tp.y - 2),
-                                          ImVec2(tp.x + ts.x + 4,
-                                                 tp.y + ts.y + 2),
-                                          IM_COL32(20, 20, 28, 220), 3.0f);
-                        dl->AddText(tp, col, hl);
-                    }
+            // Controller handle overlays. Was a ScaleFace-specific block that
+            // read its gizmo frame through public accessors; now any
+            // controller that wants handles draws its own through IopOverlay,
+            // and this loop doesn't know which op it is.
+            {
+                IopOverlay ov;
+                ov.toScreen = [&](const glm::vec3& w, glm::vec2& out) {
+                    ImVec2 s;
+                    if (!toImg(w, s)) return false;
+                    out = glm::vec2(s.x, s.y);
+                    return true;
                 };
-                drawHandle(sfc.axisU(), sfc.halfU(), sfc.pctU(),
-                           IM_COL32(235, 90, 90, 255));
-                drawHandle(sfc.axisV(), sfc.halfV(), sfc.pctV(),
-                           IM_COL32(90, 150, 235, 255));
+                ov.line = [&](glm::vec2 a, glm::vec2 b, unsigned c, float th) {
+                    dl->AddLine(ImVec2(a.x, a.y), ImVec2(b.x, b.y), c, th);
+                };
+                ov.disc = [&](glm::vec2 c, float r, unsigned col) {
+                    dl->AddCircleFilled(ImVec2(c.x, c.y), r, col);
+                };
+                ov.label = [&](glm::vec2 at, const char* txt, unsigned col) {
+                    ImVec2 ts = ImGui::CalcTextSize(txt);
+                    ImVec2 tp(at.x + 10.0f, at.y - ts.y * 0.5f);
+                    dl->AddRectFilled(ImVec2(tp.x - 4, tp.y - 2),
+                                      ImVec2(tp.x + ts.x + 4, tp.y + ts.y + 2),
+                                      IM_COL32(20, 20, 28, 220), 3.0f);
+                    dl->AddText(tp, col, txt);
+                };
+                for (const auto* c : m_iops)
+                    if (c->active() && c->wantsViewportInput())
+                        c->drawOverlay(ov);
             }
 
             char dbuf[40];
@@ -3449,7 +3453,7 @@ void Application::renderViewport() {
                 m_sketchTool->getMode() != SketchToolMode::Select)
                 allowLongPress = false;
             if (m_pushPullActive || m_extruding || m_edgeOpActive ||
-                m_moveFaceActive || m_scaleFaceCtl.active() ||
+                m_moveFaceActive ||
                 m_resizeCylActive || anyIopActive())
                 allowLongPress = false;
             if (m_window) m_window->setTouchOverViewport(allowLongPress);
@@ -3542,7 +3546,7 @@ void Application::renderViewport() {
             // which the edge-op click hit-test sets on the down-frame
             // when the cursor is near the visible arrow line.
             bool gizmoOwnsDrag = m_gizmoDragging ||
-                                 m_scaleFaceCtl.dragAxis() >= 0 ||
+                                 anyIopDraggingHandle() ||
                                  m_edgeOpDragging ||
                                  m_pushPullSticky;
             if (materializr::touchMode()) {
@@ -3564,7 +3568,7 @@ void Application::renderViewport() {
             // the gate never fires and the op "doesn't work".
             const bool toolWantsDrag =
                 m_inSketchMode || m_pushPullActive || m_extruding ||
-                m_edgeOpActive || m_moveFaceActive || m_scaleFaceCtl.active() ||
+                m_edgeOpActive || m_moveFaceActive ||
                 m_resizeCylActive || anyIopActive();
             if (materializr::touchMode()) {
                 // Touch has no hover and the one finger is the only pointer, so the
@@ -3865,68 +3869,40 @@ void Application::renderViewport() {
             // Scale Face gizmo input: press near a handle tip claims it,
             // dragging projects onto that axis and scales proportionally
             // to the face's half-extent.
-            if (m_scaleFaceCtl.active() && !camDragging) {
-                auto& sfc = m_scaleFaceCtl;
-                auto toScreen = [&](const glm::vec3& w, ImVec2& out) -> bool {
+            // Controller handle input. Generic over m_iops: each controller
+            // runs its own hit-test and drag through IopViewport, so adding an
+            // op with a gizmo no longer means adding a block here.
+            {
+                IopViewport vp;
+                vp.toScreen = [&](const glm::vec3& w, glm::vec2& out) {
                     glm::vec4 clip = proj * view * glm::vec4(w, 1.0f);
                     if (clip.w <= 1e-6f) return false;
                     glm::vec3 ndc = glm::vec3(clip) / clip.w;
                     ImVec2 wp = ImGui::GetItemRectMin();
-                    out = ImVec2(wp.x + (ndc.x * 0.5f + 0.5f) * contentSize.x,
-                                 wp.y + (0.5f - ndc.y * 0.5f) * contentSize.y);
+                    out = glm::vec2(wp.x + (ndc.x * 0.5f + 0.5f) * contentSize.x,
+                                    wp.y + (0.5f - ndc.y * 0.5f) * contentSize.y);
                     return true;
                 };
-                if (sfc.dragAxis() < 0 &&
-                    ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-                    ImVec2 mp = ImGui::GetMousePos();
-                    // Click anywhere along the arrow line (center → tip), not
-                    // just the 7-px dot at the tip. The old 16-px tip disk
-                    // made the visible arrow shaft look clickable but it
-                    // wasn't. (Steve: "the gizmo is not clickable".)
-                    glm::vec3 centerW = sfc.center();
-                    glm::vec3 tipUW = centerW + sfc.axisU() *
-                                          (sfc.halfU() * sfc.pctU() / 100.0f);
-                    glm::vec3 tipVW = centerW + sfc.axisV() *
-                                          (sfc.halfV() * sfc.pctV() / 100.0f);
-                    ImVec2 cs, tu, tv;
-                    bool gotC = toScreen(centerW, cs);
-                    bool gotU = toScreen(tipUW,   tu);
-                    bool gotV = toScreen(tipVW,   tv);
-                    auto distToSeg = [&](ImVec2 a, ImVec2 b) {
-                        float dx = b.x - a.x, dy = b.y - a.y;
-                        float len2 = dx * dx + dy * dy;
-                        float qx, qy;
-                        if (len2 < 1e-6f) {
-                            qx = mp.x - a.x; qy = mp.y - a.y;
-                        } else {
-                            float t = ((mp.x - a.x) * dx +
-                                       (mp.y - a.y) * dy) / len2;
-                            t = std::max(0.0f, std::min(1.0f, t));
-                            qx = mp.x - (a.x + t * dx);
-                            qy = mp.y - (a.y + t * dy);
-                        }
-                        return std::sqrt(qx * qx + qy * qy);
-                    };
-                    float du = (gotC && gotU) ? distToSeg(cs, tu) : 1e9f;
-                    float dv = (gotC && gotV) ? distToSeg(cs, tv) : 1e9f;
-                    const float pick = 12.0f; // generous, matches trackpad feel
-                    if (du < pick && du <= dv)       sfc.setDragAxis(0);
-                    else if (dv < pick)              sfc.setDragAxis(1);
+                vp.dragAlongAxis = [&](const glm::vec3& origin,
+                                       const glm::vec3& axis,
+                                       const glm::vec2& d) {
+                    return projectDragOntoNormal(origin, axis,
+                                                 glm::vec2(d.x, d.y),
+                                                 proj * view, vpPx, viewDirW);
+                };
+                const ImVec2 mp = ImGui::GetMousePos();
+                vp.mouse = glm::vec2(mp.x, mp.y);
+                vp.mouseDelta = glm::vec2(io.MouseDelta.x, io.MouseDelta.y);
+                vp.clicked  = ImGui::IsMouseClicked(ImGuiMouseButton_Left);
+                vp.dragging = ImGui::IsMouseDragging(ImGuiMouseButton_Left);
+                vp.released = ImGui::IsMouseReleased(ImGuiMouseButton_Left);
+                for (auto* c : m_iops) {
+                    if (!c->active() || !c->wantsViewportInput()) continue;
+                    // Release still has to reach a latched handle even while
+                    // the camera is dragging, or the handle stays stuck down.
+                    if (camDragging && !c->draggingHandle()) continue;
+                    c->onViewportInput(vp, iopContext());
                 }
-                if (sfc.dragAxis() >= 0 &&
-                    ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
-                    glm::vec2 md(io.MouseDelta.x, io.MouseDelta.y);
-                    const glm::vec3 axis = sfc.dragAxis() == 0 ? sfc.axisU()
-                                                               : sfc.axisV();
-                    float half = sfc.dragAxis() == 0 ? sfc.halfU()
-                                                     : sfc.halfV();
-                    float dW = projectDragOntoNormal(sfc.center(), axis,
-                                                     md, proj * view, vpPx, viewDirW);
-                    float dPct = dW / std::max(half, 1e-3f) * 100.0f;
-                    sfc.applyHandleDrag(sfc.dragAxis(), dPct, iopContext());
-                }
-                if (ImGui::IsMouseReleased(ImGuiMouseButton_Left))
-                    sfc.setDragAxis(-1);
             }
 
             // Drag the arrow: one-finger drag in the viewport (touch — orbit is
@@ -4371,7 +4347,7 @@ void Application::renderViewport() {
             // interactive op owns the left-drag: extrude, push/pull, fillet/chamfer,
             // or the pattern axis-origin picker).
             if (!m_inSketchMode && !m_extruding && !m_pushPullActive && !m_edgeOpActive &&
-                !m_scaleFaceCtl.active() && !m_moveFaceActive &&
+                !anyIopWantsViewportInput() && !m_moveFaceActive &&
                 !(m_patternActive && m_patternPickingOrigin)) {
                 ImVec2 mousePos = ImGui::GetMousePos();
                 ImVec2 winPos = ImGui::GetItemRectMin();
@@ -7030,7 +7006,7 @@ void Application::renderViewport() {
         // corner, which buried it.)
         const bool navLockRelevant = m_inSketchMode ||
             m_pushPullActive || m_extruding || m_edgeOpActive ||
-            m_moveFaceActive || m_scaleFaceCtl.active() ||
+            m_moveFaceActive ||
             m_resizeCylActive || anyIopActive();
         if (!navLockRelevant) m_moveModeToggle = false;
         if ((selectionContext && (multiInLegacy || deleteHere)) ||

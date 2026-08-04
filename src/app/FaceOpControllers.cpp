@@ -723,6 +723,69 @@ void ScaleFaceController::applyHandleDrag(int axis, float dPct,
     update(ctx);
 }
 
+// Hit-test + drag, moved here from Application_Viewport verbatim in behaviour.
+// Click anywhere along an arrow SHAFT (centre → tip), not just a disc at the
+// tip: the old 16-px tip target made the visible arrow look clickable when it
+// wasn't (Steve: "the gizmo is not clickable").
+void ScaleFaceController::onViewportInput(const IopViewport& vp,
+                                          const IopContext& ctx) {
+    if (vp.clicked && m_dragAxis < 0) {
+        const glm::vec3 tipU = m_center + m_axisU * (m_halfU * m_pctU / 100.0f);
+        const glm::vec3 tipV = m_center + m_axisV * (m_halfV * m_pctV / 100.0f);
+        glm::vec2 cs, tu, tv;
+        const bool gotC = vp.toScreen(m_center, cs);
+        const bool gotU = vp.toScreen(tipU, tu);
+        const bool gotV = vp.toScreen(tipV, tv);
+        auto distToSeg = [&](glm::vec2 a, glm::vec2 b) {
+            const glm::vec2 d = b - a;
+            const float len2 = glm::dot(d, d);
+            glm::vec2 q;
+            if (len2 < 1e-6f) {
+                q = vp.mouse - a;
+            } else {
+                float t = glm::dot(vp.mouse - a, d) / len2;
+                t = std::max(0.0f, std::min(1.0f, t));
+                q = vp.mouse - (a + t * d);
+            }
+            return std::sqrt(glm::dot(q, q));
+        };
+        const float du = (gotC && gotU) ? distToSeg(cs, tu) : 1e9f;
+        const float dv = (gotC && gotV) ? distToSeg(cs, tv) : 1e9f;
+        const float pick = 12.0f; // generous, matches trackpad feel
+        if      (du < pick && du <= dv) m_dragAxis = 0;
+        else if (dv < pick)             m_dragAxis = 1;
+        setDraggingHandle(m_dragAxis >= 0);
+    }
+
+    if (m_dragAxis >= 0 && vp.dragging) {
+        const glm::vec3 axis = (m_dragAxis == 0) ? m_axisU : m_axisV;
+        const float half     = (m_dragAxis == 0) ? m_halfU : m_halfV;
+        const float dW = vp.dragAlongAxis(m_center, axis, vp.mouseDelta);
+        applyHandleDrag(m_dragAxis, dW / std::max(half, 1e-3f) * 100.0f, ctx);
+    }
+
+    if (vp.released) {
+        m_dragAxis = -1;
+        setDraggingHandle(false);
+    }
+}
+
+void ScaleFaceController::drawOverlay(const IopOverlay& ov) const {
+    auto handle = [&](const glm::vec3& axis, float halfExt, float pct,
+                      unsigned col) {
+        const glm::vec3 tipW = m_center + axis * (halfExt * pct / 100.0f);
+        glm::vec2 a, b;
+        if (!ov.toScreen(m_center, a) || !ov.toScreen(tipW, b)) return;
+        ov.line(a, b, col, 3.0f);
+        ov.disc(b, 7.0f, col);
+        char hl[16];
+        std::snprintf(hl, sizeof(hl), "%.0f%%", pct);
+        ov.label(b, hl, col);
+    };
+    handle(m_axisU, m_halfU, m_pctU, 0xFF5A5AEBu); // red   (0xAABBGGRR)
+    handle(m_axisV, m_halfV, m_pctV, 0xFFEB965Au); // blue
+}
+
 void ScaleFaceController::panelBody(const IopContext& ctx, bool& changed) {
     ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + 240.0f);
     ImGui::TextDisabled("Scale this face; the body re-slopes to follow. "

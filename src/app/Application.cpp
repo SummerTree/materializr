@@ -2423,13 +2423,27 @@ void Application::handleToolAction(int action) {
             break;
         }
         case ToolAction::Scale: {
-            // A selected face turns Scale into a face scale (the loft engine,
-            // scaling the top about the face centre).
+            // A selected face turns Scale into Scale Face — the dedicated op
+            // (ScaleFaceOp: pinch/flare the body toward a scaled copy of the
+            // face, with its own blend length), which is what Toolbar.cpp's
+            // "Move Face / Taper / Scale Face moved onto the Transform
+            // buttons" note has claimed since that consolidation.
+            //
+            // It didn't. This routed to beginMoveFace(FaceXform::Scale), the
+            // older MoveFaceOp-with-a-scale path, and NOTHING anywhere emitted
+            // ToolAction::ScaleFace — so ScaleFaceController, its op, and its
+            // panel were unreachable from the UI entirely (shipped 0.8.5, lost
+            // to the consolidation). Found while trying to rig-verify the
+            // controller and discovering there was no way to start it.
+            //
+            // FaceXform::Scale is now unreachable in turn; left in place
+            // rather than deleted, since old projects replay MoveFaceOp scales
+            // through it and reverting this route is a one-line change.
             {
                 bool faceSel = false;
                 for (const auto& e : m_selection->getSelection())
                     if (e.type == SelectionType::Face && !e.shape.IsNull()) { faceSel = true; break; }
-                if (faceSel) { beginMoveFace(FaceXform::Scale); break; }
+                if (faceSel) { beginIop(m_scaleFaceCtl); break; }
             }
             // Scale-on-sketch is a no-op (the plane is 2D-infinite), so we
             // keep this body-only.

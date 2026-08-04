@@ -1563,6 +1563,19 @@ private:
         for (auto* c : m_iops) if (c->active()) return true;
         return false;
     }
+    // A controller has a viewport handle latched — camera orbit and face
+    // picking stand off. Read off ScaleFace's dragAxis() directly before,
+    // which only held while exactly one controller had a gizmo.
+    bool anyIopDraggingHandle() const {
+        for (auto* c : m_iops) if (c->draggingHandle()) return true;
+        return false;
+    }
+    // A controller owns the viewport's left-drag (it draws handles there).
+    bool anyIopWantsViewportInput() const {
+        for (auto* c : m_iops)
+            if (c->active() && c->wantsViewportInput()) return true;
+        return false;
+    }
     // Single-flight: starting one interactive op cancels any other live
     // preview — controller or legacy (push/pull, extrude, pattern, resize,
     // thread). Two concurrent previews on the same body snapshot each

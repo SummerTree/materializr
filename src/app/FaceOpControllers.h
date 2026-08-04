@@ -97,28 +97,23 @@ private:
 // Pinch/flare the body toward a scaled copy of a planar END face. Carries
 // the 2D gizmo frame the viewport draws and drags (red U / blue V arrows).
 class ScaleFaceController : public InteractiveOpController {
-public:
-    // Gizmo access for the viewport overlay + drag handling.
-    const glm::vec3& center() const { return m_center; }
-    const glm::vec3& axisU() const { return m_axisU; }
-    const glm::vec3& axisV() const { return m_axisV; }
-    float halfU() const { return m_halfU; }
-    float halfV() const { return m_halfV; }
-    float pctU() const { return m_pctU; }
-    float pctV() const { return m_pctV; }
-    int dragAxis() const { return m_dragAxis; }
-    void setDragAxis(int a) { m_dragAxis = a; }
-    // Drag delta (percent) onto one axis; respects the Uniform link.
-    void applyHandleDrag(int axis, float dPct, const IopContext& ctx);
-
 protected:
     const char* title() const override { return "Scale Face"; }
+    // The gizmo frame used to be public (center/axisU/halfU/dragAxis/…) purely
+    // so Application_Viewport could run the hit-test and drag from outside.
+    // Both now live here, so the frame is private again.
+    bool wantsViewportInput() const override { return true; }
+    void onViewportInput(const IopViewport& vp, const IopContext& ctx) override;
+    void drawOverlay(const IopOverlay& ov) const override;
     int onBegin(const IopContext& ctx) override;
     std::unique_ptr<Operation> buildOp(const IopContext& ctx) override;
     void panelBody(const IopContext& ctx, bool& changed) override;
     void onCleanup() override;
 
 private:
+    // Drag delta (percent) onto one axis; respects the Uniform link.
+    void applyHandleDrag(int axis, float dPct, const IopContext& ctx);
+
     TopoDS_Face m_face;
     float m_pctU = 30.0f;
     float m_pctV = 30.0f;

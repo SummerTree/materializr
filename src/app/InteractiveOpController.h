@@ -1,4 +1,5 @@
 #pragma once
+#include "IopViewport.h"
 #include <functional>
 #include <memory>
 #include <TopoDS_Shape.hxx>
@@ -62,6 +63,25 @@ public:
     bool active() const { return m_active; }
     bool previewOk() const { return m_previewOk; }
 
+    // ─── Viewport handles (optional) ─────────────────────────────────────────
+    // Ops with an on-screen handle own their hit-test and drag instead of
+    // Application_Viewport doing it for them. Default: no handle, so the five
+    // panel-only controllers are unaffected.
+    virtual bool wantsViewportInput() const { return false; }
+    // One frame of pointer input while this op is active and the camera isn't
+    // being dragged. Call setDraggingHandle() when a handle latches so the
+    // camera and the picker know to stand off.
+    virtual void onViewportInput(const IopViewport& vp, const IopContext& ctx) {
+        (void)vp; (void)ctx;
+    }
+    // Draw the handles. Called with the foreground draw list already selected.
+    virtual void drawOverlay(const IopOverlay& ov) const { (void)ov; }
+
+    // True while a handle is latched. The viewport suppresses camera orbit and
+    // face picking on this — previously read off ScaleFace's dragAxis()
+    // directly, which only worked because exactly one controller had a gizmo.
+    bool draggingHandle() const { return m_draggingHandle; }
+
 protected:
     virtual const char* title() const = 0;
     // Capture the selection into params. Return the target body id, or -1
@@ -83,6 +103,7 @@ protected:
     virtual bool wantsLivePreview(const IopContext&) const { return true; }
 
     void requestCommit() { m_commitRequested = true; }
+    void setDraggingHandle(bool d) { m_draggingHandle = d; }
 
     int bodyId() const { return m_bodyId; }
     const TopoDS_Shape& snapshot() const { return m_snapshot; }
@@ -93,6 +114,7 @@ private:
     bool m_active = false;
     bool m_previewOk = false;
     bool m_commitRequested = false;
+    bool m_draggingHandle = false;
     int m_bodyId = -1;
     TopoDS_Shape m_snapshot;
 };
