@@ -12,6 +12,7 @@
 #include "viewport/ShapeRenderer.h"
 #include "core/Document.h"
 #include "core/MeshGuard.h"
+#include "core/PlaneAxes.h"
 #include "core/History.h"
 #include "core/SelectionManager.h"
 
@@ -2106,12 +2107,16 @@ bool Application::beginMoveHoleFromEdges() {
         m_moveFaceHalfExtent = 1.0f;
     }
 
-    const glm::vec3 N = m_moveFaceN;
-    glm::vec3 ref = (std::abs(N.x) < 0.9f) ? glm::vec3(1, 0, 0) : glm::vec3(0, 1, 0);
-    glm::vec3 A = ref - glm::dot(ref, N) * N;
-    if (glm::length(A) < 1e-5f) { ref = glm::vec3(0, 0, 1); A = ref - glm::dot(ref, N) * N; }
-    m_moveFaceAxisA = glm::normalize(A);
-    m_moveFaceAxisB = glm::normalize(glm::cross(N, m_moveFaceAxisA));
+    // In-plane axes, CANONICAL. The face path derives axis B as cross(N, A),
+    // which flips sign with N — and buildVoid's entry normal points whichever
+    // way its walk happened to go, so an identical hole gave a green arrow
+    // along +Y or -Y depending on which mouth it called the entry. That reads
+    // as reversed controls (it bit x/y holes, where the entry resolved to the
+    // underside). Instead take the two WORLD axes most perpendicular to the
+    // rim plane, in X→Y→Z order, always positively oriented: the arrows then
+    // point along +X/+Y/+Z whichever rim you grab, matching the red/green/blue
+    // the gizmo colours them. Translate-only, so handedness doesn't matter.
+    materializr::inPlaneAxes(m_moveFaceN, m_moveFaceAxisA, m_moveFaceAxisB);
     m_moveFaceGrab = -1;
 
     // Highlight exactly what moves: the grabbed side for EdgeMove, the near rim

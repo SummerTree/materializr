@@ -560,6 +560,10 @@ add_executable(test_grid_snap test_grid_snap.cpp)
 target_link_libraries(test_grid_snap PRIVATE materializr_core gtest gtest_main)
 add_test(NAME test_grid_snap COMMAND test_grid_snap)
 
+add_executable(test_plane_axes test_plane_axes.cpp)
+target_link_libraries(test_plane_axes PRIVATE materializr_core gtest gtest_main)
+add_test(NAME test_plane_axes COMMAND test_plane_axes)
+
 # ─── Loader path for a source-built OCCT ─────────────────────────────────────
 # With MZR_OCCT_PREFIX the kernel lives outside the loader's default search
 # path, and the test binaries then die at startup with "libTKBRep.so.7.9:
