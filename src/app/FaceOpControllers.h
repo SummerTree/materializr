@@ -154,6 +154,11 @@ protected:
     // the base apply it once on Confirm; History reflows it beneath the Thread
     // step and the thread re-cuts in the background at the new radius.
     bool wantsLivePreview(const IopContext& ctx) const override;
+    // ...but the commit stays INLINE. Deferring it moved the push out from
+    // under the thread-reflow hook, which is the shape of the partially
+    // re-cut thread Steve hit (a seam where only some turns took the new
+    // diameter). The old code pushed synchronously; so does this.
+    bool wantsDeferredCommit(const IopContext&) const override { return false; }
 
 private:
     // True while editing BOTH ends (a face pick) — one field drives both.

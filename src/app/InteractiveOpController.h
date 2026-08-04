@@ -101,6 +101,19 @@ protected:
     // freeze the UI (e.g. projecting a sketch with hundreds of regions). Commit
     // still builds + runs the op once. Default: always preview.
     virtual bool wantsLivePreview(const IopContext&) const { return true; }
+    // Should commit() hand the op to deferHeavy (runs BETWEEN frames behind a
+    // cancellable progress window) instead of pushing it inline?
+    //
+    // Defaults to "whenever the live preview is off", which is right for an op
+    // that skipped previewing BECAUSE it is slow (Project Sketch). It is wrong
+    // for one that skipped previewing for a different reason: Resize
+    // Cylindrical turns the preview off on a THREADED body — the ring boolean
+    // would re-run against the thread's helicoid faces on every keystroke —
+    // but its commit is cheap and must stay inline, because History reflows it
+    // beneath the Thread step and re-cuts the thread around that push.
+    virtual bool wantsDeferredCommit(const IopContext& ctx) const {
+        return !wantsLivePreview(ctx);
+    }
 
     void requestCommit() { m_commitRequested = true; }
     void setDraggingHandle(bool d) { m_draggingHandle = d; }

@@ -65,7 +65,7 @@ void InteractiveOpController::commit(const IopContext& ctx) {
     }
     std::unique_ptr<Operation> op = buildOp(ctx);
     if (op) {
-        if (!wantsLivePreview(ctx) && ctx.progress && ctx.deferHeavy) {
+        if (wantsDeferredCommit(ctx) && ctx.progress && ctx.deferHeavy) {
             // Heavy op (live preview was off): defer it to run BETWEEN frames
             // with a progress reporter so the window stays alive and the user
             // can cancel. A cancel makes execute() fail → pushOperation refuses
