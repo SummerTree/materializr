@@ -4061,6 +4061,18 @@ void Application::renderViewport() {
                             float dA = std::min(sd(m_moveFaceAxisA), sd(-m_moveFaceAxisA));
                             float dB = std::min(sd(m_moveFaceAxisB), sd(-m_moveFaceAxisB));
                             m_moveFaceGrab = (dA <= dB) ? 0 : 1;
+                            // Once per gesture: which arrow latched and the
+                            // frame it moves in. Left in on purpose — arrow
+                            // no-ops are order-dependent and impossible to
+                            // reconstruct after the fact without this.
+                            std::fprintf(stdout,
+                                "Move drag latch: grab=%c hole=%d A=(%.2f,%.2f,%.2f) "
+                                "B=(%.2f,%.2f,%.2f) N=(%.2f,%.2f,%.2f) P0=(%.1f,%.1f,%.1f)\n",
+                                m_moveFaceGrab == 0 ? 'A' : 'B', (int)m_moveHoleMode,
+                                m_moveFaceAxisA.x, m_moveFaceAxisA.y, m_moveFaceAxisA.z,
+                                m_moveFaceAxisB.x, m_moveFaceAxisB.y, m_moveFaceAxisB.z,
+                                m_moveFaceN.x, m_moveFaceN.y, m_moveFaceN.z,
+                                m_moveFaceP0.x, m_moveFaceP0.y, m_moveFaceP0.z);
                         }
                         m_moveFaceDragStart = hit;
                         m_moveFaceBase = m_moveFaceVec;
@@ -4148,6 +4160,9 @@ void Application::renderViewport() {
                     updateMoveFace();
                     m_moveFacePendingRebuild = false;
                 }
+                if (m_moveFaceDragging)
+                    std::fprintf(stdout, "Move drag release: vec=(%.2f,%.2f,%.2f)\n",
+                                 m_moveFaceVec.x, m_moveFaceVec.y, m_moveFaceVec.z);
                 m_moveFaceDragging = false; // released — next drag re-latches
                 m_moveFaceGrab = -1;
             }

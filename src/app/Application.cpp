@@ -7092,24 +7092,40 @@ void Application::run() {
                 m_toolbar->setCanEditDiameter(s_canEditDiameter);
                 m_toolbar->setSelFacePlanar(s_selFacePlanar);
                 // Do the selected edges form one hole's rim? Only then does
-                // Move mean anything for an edge selection.
+                // Move mean anything for an edge selection. Classified ONCE
+                // per selection revision, not per frame — classifyRimEdges
+                // walks the body and probes buildVoid, and re-running that
+                // every frame while a pocket's edge stayed selected burned
+                // time and (pre-verbose-gate) flooded the journal.
                 {
-                    bool rim = false;
-                    std::vector<TopoDS_Edge> picked;
-                    int edgeBody = -1;
-                    for (const auto& e : m_selection->getSelection()) {
-                        if (e.type != SelectionType::Edge || e.shape.IsNull()) continue;
-                        if (edgeBody >= 0 && e.bodyId != edgeBody) { picked.clear(); break; }
-                        edgeBody = e.bodyId;
-                        picked.push_back(TopoDS::Edge(e.shape));
+                    // Keyed on manager + revision: revisions are per-manager
+                    // counters, so two TABS can coincide on the same number —
+                    // pointer alone breaks the tie (wireDocumentConsumers).
+                    static const void* s_rimSel = nullptr;
+                    static unsigned s_rimRev = ~0u;
+                    static bool s_rimCached = false;
+                    if (m_selection != s_rimSel ||
+                        m_selection->revision() != s_rimRev) {
+                        s_rimSel = m_selection;
+                        s_rimRev = m_selection->revision();
+                        bool rim = false;
+                        std::vector<TopoDS_Edge> picked;
+                        int edgeBody = -1;
+                        for (const auto& e : m_selection->getSelection()) {
+                            if (e.type != SelectionType::Edge || e.shape.IsNull()) continue;
+                            if (edgeBody >= 0 && e.bodyId != edgeBody) { picked.clear(); break; }
+                            edgeBody = e.bodyId;
+                            picked.push_back(TopoDS::Edge(e.shape));
+                        }
+                        if (!picked.empty() && edgeBody >= 0) {
+                            try {
+                                rim = MoveHoleOp::classifyRimEdges(
+                                          m_document->getBody(edgeBody), picked).ok;
+                            } catch (...) {}
+                        }
+                        s_rimCached = rim;
                     }
-                    if (!picked.empty() && edgeBody >= 0) {
-                        try {
-                            rim = MoveHoleOp::classifyRimEdges(
-                                      m_document->getBody(edgeBody), picked).ok;
-                        } catch (...) {}
-                    }
-                    m_toolbar->setSelEdgeIsHoleRim(rim);
+                    m_toolbar->setSelEdgeIsHoleRim(s_rimCached);
                 }
                 m_toolbar->setSelectedFaceFrozenRound(s_frozenRound);
                 m_toolbar->setSelectedSketchAttached(s_selSketchAttached);

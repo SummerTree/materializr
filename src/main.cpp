@@ -117,6 +117,11 @@ void printHelp() {
 } // namespace
 
 int main(int argc, char* argv[]) {
+    // Line-buffer stdout even when it's a pipe (journald, a log file). Block
+    // buffering held MINUTES of prints and flushed them in one burst, giving
+    // every journal line the same timestamp — which made an input-storm
+    // non-bug out of an ordinary session while hiding the real event order.
+    std::setvbuf(stdout, nullptr, _IOLBF, 0);
     CliOptions opts = parseArgs(argc, argv);
     if (opts.wantHelp) {
         printHelp();

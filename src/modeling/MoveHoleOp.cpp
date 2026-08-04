@@ -1,5 +1,6 @@
 #include "MoveHoleOp.h"
 #include "SubShapeIndex.h"
+#include "../core/Verbose.h"
 #include <cstdio>
 #include <cstdlib>
 
@@ -400,8 +401,13 @@ bool MoveHoleOp::buildVoid(const TopoDS_Shape& body, const TopoDS_Face& seedWall
     // ordinary Move Face instead of falsely refusing it as a "pocket".
     if (mouths.size() != 2) {
         isPocket = (mouths.size() == 1);
-        std::fprintf(stderr, "[MoveHole] not a through-hole: %zu mouths%s\n",
-                     mouths.size(), isPocket ? " (blind/pocket)" : "");
+        // Verbose-only: buildVoid is also a per-frame PROBE (the toolbar's
+        // rim-edge gate), and an unconditional print here flooded the journal
+        // with one refusal per candidate face per frame while a pocket's edge
+        // was selected. The interactive paths toast their own explanations.
+        if (materializr::isVerbose())
+            std::fprintf(stderr, "[MoveHole] not a through-hole: %zu mouths%s\n",
+                         mouths.size(), isPocket ? " (blind/pocket)" : "");
         return false;
     }
     entryNormal = faceNormal(mouths[0].first);
