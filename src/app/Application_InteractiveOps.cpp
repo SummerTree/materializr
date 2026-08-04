@@ -2182,12 +2182,18 @@ void Application::beginMoveFace(FaceXform kind) {
                     gp_Pnt c = gp.CentreOfMass();
                     m_moveFaceP0 = m_moveFacePivot = glm::vec3(c.X(), c.Y(), c.Z());
                 } catch (...) { m_moveFaceP0 = m_moveFacePivot = glm::vec3(0.0f); }
-                glm::vec3 N = m_moveFaceN;
-                glm::vec3 ref = (std::abs(N.x) < 0.9f) ? glm::vec3(1,0,0) : glm::vec3(0,1,0);
-                glm::vec3 A = ref - glm::dot(ref, N) * N;
-                if (glm::length(A) < 1e-5f) { ref = glm::vec3(0,0,1); A = ref - glm::dot(ref, N) * N; }
-                m_moveFaceAxisA = glm::normalize(A);
-                m_moveFaceAxisB = glm::normalize(glm::cross(N, m_moveFaceAxisA));
+                // Same canonical basis as the rim-edge path (PlaneAxes.h). The
+                // old cross(N, A) construction flips with the ENTRY NORMAL'S
+                // SIGN, and buildVoid's walk order decides that sign — a
+                // top-facing hole (N = world +Y) got its blue arrow along -Z,
+                // i.e. pointing the opposite way to the main gizmo's blue.
+                // Which of the two hole paths ran depended on whether the
+                // click landed on the rim EDGE or the WALL face, which is why
+                // the reversal seemed to come and go per selection. This
+                // branch is translate-only, so no rotate ring needs the
+                // handedness the canonical basis gives up.
+                materializr::inPlaneAxes(m_moveFaceN, m_moveFaceAxisA,
+                                         m_moveFaceAxisB);
                 m_moveFaceGrab = -1;
                 m_moveFaceHalfExtent = 1.0f;
                 // Move highlight: the hole's top rim, sampled as a world-space
