@@ -2471,16 +2471,15 @@ void Application::handleToolAction(int action) {
         }
 
         case ToolAction::EditDiameter: {
-            // Detection populates the resize-* fields when it returns true,
-            // so begin() can use them straight away.
-            if (detectCylindricalResizeCandidate()) beginResizeCylindrical();
+            const auto pick = detectCylindricalResizeCandidate();
+            if (pick.ok) beginResizeCylindrical(pick);
             break;
         }
         case ToolAction::Thread: {
-            // Same detector as Edit Diameter — it fills the m_resizeCyl*
-            // fields (axis, radius, extent, hole-vs-boss) that the thread
-            // popup copies from.
-            if (detectCylindricalResizeCandidate()) beginThread();
+            // Same detector as Edit Diameter, and now the same VALUE — Thread
+            // used to read the resize state's members as its input.
+            const auto pick = detectCylindricalResizeCandidate();
+            if (pick.ok) beginThread(pick);
             break;
         }
 
@@ -7028,7 +7027,7 @@ void Application::run() {
                     s_histRev = histRev;
                     s_resizeActive = m_resizeCylActive;
                     s_canEditDiameter = !m_resizeCylActive &&
-                                        detectCylindricalResizeCandidate();
+                                        detectCylindricalResizeCandidate().ok;
                     // "Frozen round" hint: a selected fillet-shaped face
                     // (cylinder / torus) that NO enabled op owns reloaded as
                     // baked geometry — there's no editable FilletOp behind it.

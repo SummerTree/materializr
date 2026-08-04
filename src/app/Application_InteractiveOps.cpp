@@ -768,8 +768,9 @@ void Application::refreshAllEdgeOpFaces() {
 // drives a ResizeCylindricalOp whose execute builds a ring solid and
 // fuses/cuts it into the body.
 
-bool Application::detectCylindricalResizeCandidate() {
-    if (!m_selection || !m_document) return false;
+materializr::CylindricalPick Application::detectCylindricalResizeCandidate() const {
+    materializr::CylindricalPick p;
+    if (!m_selection || !m_document) return p;
 
     // Accept either exactly one face (edits both ends → stays cylindrical) or
     // exactly one edge (edits just that end → makes a cone). Anything else is
@@ -785,8 +786,8 @@ bool Application::detectCylindricalResizeCandidate() {
             ++edgeCount; pickedEdge = e.shape; bodyId = e.bodyId;
         }
     }
-    if (bodyId < 0) return false;
-    if (faceCount + edgeCount != 1) return false;
+    if (bodyId < 0) return p;
+    if (faceCount + edgeCount != 1) return p;
 
     // The selection can name a body that no longer exists. This runs from the
     // frame loop whenever the selection OR HISTORY revision changes, and an
@@ -799,7 +800,7 @@ bool Application::detectCylindricalResizeCandidate() {
     // Nothing to detect on a body that's gone; the next frame re-runs this
     // with a settled selection.
     TopoDS_Shape body;
-    try { body = m_document->getBody(bodyId); } catch (...) { return false; }
+    try { body = m_document->getBody(bodyId); } catch (...) { return p; }
 
     // Find the cylindrical face we'll operate on. For a face pick, it's the
     // pick itself (must be cylindrical). For an edge pick, walk the body's
@@ -808,15 +809,15 @@ bool Application::detectCylindricalResizeCandidate() {
     if (!pickedFace.IsNull()) {
         TopoDS_Face face = TopoDS::Face(pickedFace);
         Handle(Geom_Surface) surf = BRep_Tool::Surface(face);
-        if (Handle(Geom_CylindricalSurface)::DownCast(surf).IsNull()) return false;
+        if (Handle(Geom_CylindricalSurface)::DownCast(surf).IsNull()) return p;
         cylFace = face;
     } else {
         TopoDS_Edge edge = TopoDS::Edge(pickedEdge);
         // Edge must be a circle for the diameter concept to make sense.
         try {
             BRepAdaptor_Curve curve(edge);
-            if (curve.GetType() != GeomAbs_Circle) return false;
-        } catch (...) { return false; }
+            if (curve.GetType() != GeomAbs_Circle) return p;
+        } catch (...) { return p; }
 
         TopExp_Explorer fex(body, TopAbs_FACE);
         for (; fex.More(); fex.Next()) {
@@ -829,13 +830,13 @@ bool Application::detectCylindricalResizeCandidate() {
             }
             if (!cylFace.IsNull()) break;
         }
-        if (cylFace.IsNull()) return false;
+        if (cylFace.IsNull()) return p;
     }
 
     Handle(Geom_Surface) surf = BRep_Tool::Surface(cylFace);
     Handle(Geom_CylindricalSurface) cylSurf =
         Handle(Geom_CylindricalSurface)::DownCast(surf);
-    if (cylSurf.IsNull()) return false;
+    if (cylSurf.IsNull()) return p;
 
     // Bounded parametric range. U = angular wrap, V = along axis. Must be a
     // CLOSED cylinder (full 2π) — partial sleeves (fillet faces) don't have
@@ -843,9 +844,9 @@ bool Application::detectCylindricalResizeCandidate() {
     double u1, u2, v1, v2;
     BRepTools::UVBounds(cylFace, u1, u2, v1, v2);
     const double kCircle = 2.0 * M_PI;
-    if (std::abs((u2 - u1) - kCircle) > 1e-3) return false;
+    if (std::abs((u2 - u1) - kCircle) > 1e-3) return p;
     double height = std::abs(v2 - v1);
-    if (height < 1e-6) return false;
+    if (height < 1e-6) return p;
 
     gp_Cylinder cyl = cylSurf->Cylinder();
     gp_Pnt shifted = cyl.Position().Location()
@@ -864,7 +865,7 @@ bool Application::detectCylindricalResizeCandidate() {
     gp_Vec axisVec(axis.Direction());
     gp_Vec toCenter(shifted, centerPt);
     toCenter -= axisVec * toCenter.Dot(axisVec);
-    if (toCenter.Magnitude() < 1e-6) return false;
+    if (toCenter.Magnitude() < 1e-6) return p;
     bool isHole = (normVec.Dot(toCenter) < 0.0);
 
     // Which end(s) are we editing? Face pick → both. Edge pick → just the
@@ -882,23 +883,16 @@ bool Application::detectCylindricalResizeCandidate() {
         }
     }
 
-    m_resizeCylBodyId   = bodyId;
-    m_resizeCylIsHole   = isHole;
-    m_resizeCylAxisOX = axis.Location().X();
-    m_resizeCylAxisOY = axis.Location().Y();
-    m_resizeCylAxisOZ = axis.Location().Z();
-    m_resizeCylAxisDX = axis.Direction().X();
-    m_resizeCylAxisDY = axis.Direction().Y();
-    m_resizeCylAxisDZ = axis.Direction().Z();
-    m_resizeCylAxisXX = axis.XDirection().X();
-    m_resizeCylAxisXY = axis.XDirection().Y();
-    m_resizeCylAxisXZ = axis.XDirection().Z();
-    m_resizeCylHeight = height;
-    m_resizeCylOriginalBottomR = radius;
-    m_resizeCylOriginalTopR    = radius;
-    m_resizeCylEditBottom = editBottom;
-    m_resizeCylEditTop    = editTop;
-    return true;
+    p.ok         = true;
+    p.bodyId     = bodyId;
+    p.isHole     = isHole;
+    p.axis       = axis;
+    p.height     = height;
+    p.bottomR    = radius;
+    p.topR       = radius;
+    p.editBottom = editBottom;
+    p.editTop    = editTop;
+    return p;
 }
 
 
@@ -909,24 +903,29 @@ bool Application::detectCylindricalResizeCandidate() {
 // opens the popup. No live preview: a helical sweep + boolean per frame is a
 // multi-second operation, so the thread computes once on Apply.
 
-void Application::beginThread() {
+void Application::beginThread(const materializr::CylindricalPick& p) {
     if (refuseMeshSelection("Thread")) return;
     cancelActiveIops();
+    if (!p.ok) return;
     // Threads need a true cylinder — a cone's helix would leave the surface.
-    if (std::abs(m_resizeCylOriginalBottomR - m_resizeCylOriginalTopR) > 1e-5) {
+    if (std::abs(p.bottomR - p.topR) > 1e-5) {
         std::fprintf(stderr, "[Thread] picked face is conical — thread needs "
                              "a cylinder\n");
         return;
     }
-    m_threadBodyId  = m_resizeCylBodyId;
-    m_threadIsHole  = m_resizeCylIsHole;
-    m_threadRadius  = m_resizeCylOriginalBottomR;
-    m_threadLength  = m_resizeCylHeight;
-    m_threadAxis[0] = m_resizeCylAxisOX; m_threadAxis[1] = m_resizeCylAxisOY;
-    m_threadAxis[2] = m_resizeCylAxisOZ; m_threadAxis[3] = m_resizeCylAxisDX;
-    m_threadAxis[4] = m_resizeCylAxisDY; m_threadAxis[5] = m_resizeCylAxisDZ;
-    m_threadAxis[6] = m_resizeCylAxisXX; m_threadAxis[7] = m_resizeCylAxisXY;
-    m_threadAxis[8] = m_resizeCylAxisXZ;
+    m_threadBodyId  = p.bodyId;
+    m_threadIsHole  = p.isHole;
+    m_threadRadius  = p.bottomR;
+    m_threadLength  = p.height;
+    m_threadAxis[0] = p.axis.Location().X();
+    m_threadAxis[1] = p.axis.Location().Y();
+    m_threadAxis[2] = p.axis.Location().Z();
+    m_threadAxis[3] = p.axis.Direction().X();
+    m_threadAxis[4] = p.axis.Direction().Y();
+    m_threadAxis[5] = p.axis.Direction().Z();
+    m_threadAxis[6] = p.axis.XDirection().X();
+    m_threadAxis[7] = p.axis.XDirection().Y();
+    m_threadAxis[8] = p.axis.XDirection().Z();
 
     // ISO metric coarse defaults: nearest standard pitch for this diameter
     // (M10 → 1.5, M6 → 1.0, …), thread depth at the ISO ratio 0.6134·P.
@@ -1068,11 +1067,30 @@ void Application::cancelThread() {
     m_threadBodyId = -1;
 }
 
-void Application::beginResizeCylindrical() {
+void Application::beginResizeCylindrical(const materializr::CylindricalPick& p) {
     if (refuseMeshSelection("Resize")) return;
     cancelActiveIops();
     m_resizeCylPreviewFailed = false;
-    if (m_resizeCylBodyId < 0) return;
+    if (!p.ok || p.bodyId < 0) return;
+    // Copy the pick into the live edit state. These fields are next in line to
+    // move into a controller; taking them from a parameter rather than from
+    // whatever the detector last left behind is what makes that possible.
+    m_resizeCylBodyId          = p.bodyId;
+    m_resizeCylIsHole          = p.isHole;
+    m_resizeCylAxisOX          = p.axis.Location().X();
+    m_resizeCylAxisOY          = p.axis.Location().Y();
+    m_resizeCylAxisOZ          = p.axis.Location().Z();
+    m_resizeCylAxisDX          = p.axis.Direction().X();
+    m_resizeCylAxisDY          = p.axis.Direction().Y();
+    m_resizeCylAxisDZ          = p.axis.Direction().Z();
+    m_resizeCylAxisXX          = p.axis.XDirection().X();
+    m_resizeCylAxisXY          = p.axis.XDirection().Y();
+    m_resizeCylAxisXZ          = p.axis.XDirection().Z();
+    m_resizeCylHeight          = p.height;
+    m_resizeCylOriginalBottomR = p.bottomR;
+    m_resizeCylOriginalTopR    = p.topR;
+    m_resizeCylEditBottom      = p.editBottom;
+    m_resizeCylEditTop         = p.editTop;
     // Threaded body: the live preview would run the ring boolean against
     // the thread's helicoid faces on every keystroke. Skip the preview
     // (fields only, body untouched) and run the real op once on OK —

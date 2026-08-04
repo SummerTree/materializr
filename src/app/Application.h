@@ -24,6 +24,7 @@
 
 #include "app/InteractiveOpController.h"
 #include "app/FaceOpControllers.h"
+#include "app/CylindricalPick.h"
 #include <array>
 #include "modeling/ExtrudeOp.h" // for ExtrudeMode
 #include "modeling/SketchConstraints.h" // for ConstraintType (applySketchConstraint)
@@ -1530,7 +1531,7 @@ private:
     gp_Pln sectionBasePlane() const;  // flip applied, offset NOT applied
     void   renderSectionPanel();      // floating controls while enabled
 
-    void beginThread();        // copies detector output, opens the popup
+    void beginThread(const materializr::CylindricalPick& pick);        // copies detector output, opens the popup
     std::unique_ptr<ThreadOp> makeThreadOpFromState() const;
     void commitThread();       // kicks the compute onto a worker thread
     void cancelThread();
@@ -1539,8 +1540,10 @@ private:
     // Detect whether the currently-picked face is on a recognised resizable
     // body (solid cylinder / tube). Populates the relevant m_resizeCyl* fields
     // and returns true if so. Called per frame to drive the toolbar button.
-    bool detectCylindricalResizeCandidate();
-    void beginResizeCylindrical();
+    // Returns what it found rather than leaving it in members — see
+    // CylindricalPick.h for why that mattered.
+    materializr::CylindricalPick detectCylindricalResizeCandidate() const;
+    void beginResizeCylindrical(const materializr::CylindricalPick& pick);
     void updateResizeCylindrical();
     void commitResizeCylindrical();
     void cancelResizeCylindrical();
