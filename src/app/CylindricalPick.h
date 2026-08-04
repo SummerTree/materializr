@@ -1,6 +1,9 @@
 #pragma once
 #include <gp_Ax2.hxx>
 
+class Document;
+class SelectionManager;
+
 namespace materializr {
 
 // What the cylindrical-face detector found: a closed cylindrical face (or one
@@ -33,5 +36,12 @@ struct CylindricalPick {
     bool editBottom = true;
     bool editTop    = true;
 };
+
+// Free function, not an Application method: it only ever needed the document
+// and the selection, and a controller gets both from its IopContext. That's
+// what lets ResizeCylindricalController resolve its own target instead of
+// being handed one by the god-class.
+CylindricalPick detectCylindricalPick(const Document& doc,
+                                      const SelectionManager& selection);
 
 } // namespace materializr

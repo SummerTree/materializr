@@ -795,7 +795,7 @@ void Application::renderViewport() {
         // popups' previews, looking like an extra widget the user can grab.
         const bool anyInteractiveOpActive =
             m_inSketchMode || m_extruding || m_edgeOpActive ||
-            m_pushPullActive || m_resizeCylActive || anyIopActive() ||
+            m_pushPullActive || anyIopActive() ||
             m_patternActive || m_loftActive || m_planeOpActive ||
             m_sketchPatternActive || m_revolveActive || m_moveFaceActive;
         bool gizmoShown = false;
@@ -930,7 +930,7 @@ void Application::renderViewport() {
         // suppress the gizmo as before.
         const bool blockedByOtherOp =
             m_inSketchMode || m_extruding || m_edgeOpActive ||
-            m_pushPullActive || m_resizeCylActive || anyIopActive() ||
+            m_pushPullActive || anyIopActive() ||
             m_patternActive || m_loftActive || m_sketchPatternActive;
         // Construction-axis gizmo — Move only. Same arming pattern as
         // planes: implicit during the Construction Axis popup
@@ -3454,7 +3454,7 @@ void Application::renderViewport() {
                 allowLongPress = false;
             if (m_pushPullActive || m_extruding || m_edgeOpActive ||
                 m_moveFaceActive ||
-                m_resizeCylActive || anyIopActive())
+                anyIopActive())
                 allowLongPress = false;
             if (m_window) m_window->setTouchOverViewport(allowLongPress);
             // Consume-and-clear: the tab strips set this during their own
@@ -3569,7 +3569,7 @@ void Application::renderViewport() {
             const bool toolWantsDrag =
                 m_inSketchMode || m_pushPullActive || m_extruding ||
                 m_edgeOpActive || m_moveFaceActive ||
-                m_resizeCylActive || anyIopActive();
+                anyIopActive();
             if (materializr::touchMode()) {
                 // Touch has no hover and the one finger is the only pointer, so the
                 // tool always owns the drag. Two-finger still pans/zooms; Move (nav
@@ -5263,7 +5263,7 @@ void Application::renderViewport() {
                     // NEEDS clicks while its panel is open.
                     const bool clickSelectionAllowed =
                         !m_pushPullActive && !m_extruding &&
-                        !m_patternActive && !m_resizeCylActive &&
+                        !m_patternActive && !anyIopActive() &&
                         !m_threadActive &&
                         !m_moveModeToggle;   // Move (nav lock): taps don't select
                     // Touch: commit selection on a GENUINE tap-LIFT (Window::
@@ -7007,7 +7007,7 @@ void Application::renderViewport() {
         const bool navLockRelevant = m_inSketchMode ||
             m_pushPullActive || m_extruding || m_edgeOpActive ||
             m_moveFaceActive ||
-            m_resizeCylActive || anyIopActive();
+            anyIopActive();
         if (!navLockRelevant) m_moveModeToggle = false;
         if ((selectionContext && (multiInLegacy || deleteHere)) ||
             (placing && classicLayout()) || navLockRelevant) {

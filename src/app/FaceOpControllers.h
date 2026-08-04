@@ -1,9 +1,11 @@
 #pragma once
 #include "InteractiveOpController.h"
+#include "CylindricalPick.h"
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Shape.hxx>
 #include <glm/glm.hpp>
 #include <vector>
+#include <cmath>
 
 namespace materializr {
 
@@ -133,6 +135,45 @@ private:
     float m_halfU = 10.0f;
     float m_halfV = 10.0f;
     int   m_dragAxis = -1;
+};
+
+// ─── Resize Cylindrical (Edit Diameter) ──────────────────────────────────────
+// Retarget a closed cylindrical face's diameter, or one circular END of it —
+// editing a single end turns the cylinder into a cone, which is how funnels
+// get made. Resolves its own target from the selection via
+// detectCylindricalPick, so nothing has to hand it geometry.
+class ResizeCylindricalController : public InteractiveOpController {
+protected:
+    const char* title() const override { return "Edit Diameter"; }
+    int onBegin(const IopContext& ctx) override;
+    std::unique_ptr<Operation> buildOp(const IopContext& ctx) override;
+    void panelBody(const IopContext& ctx, bool& changed) override;
+    void onCleanup() override;
+    // A threaded body would re-run the ring boolean against the thread's
+    // helicoid faces on every keystroke. Skip the live preview there and let
+    // the base apply it once on Confirm; History reflows it beneath the Thread
+    // step and the thread re-cuts in the background at the new radius.
+    bool wantsLivePreview(const IopContext& ctx) const override;
+
+private:
+    // True while editing BOTH ends (a face pick) — one field drives both.
+    bool both() const { return m_pick.editBottom && m_pick.editTop; }
+    // Has the user asked for a size different from what was picked? Distinct
+    // from previewOk(): an unchanged value builds no op, which is not an error.
+    bool changedFromOriginal() const {
+        const double b = m_pick.editBottom ? m_newBottomDiameter * 0.5 : m_pick.bottomR;
+        const double t = m_pick.editTop    ? m_newTopDiameter    * 0.5 : m_pick.topR;
+        return std::abs(b - m_pick.bottomR) > 1e-5 ||
+               std::abs(t - m_pick.topR)    > 1e-5;
+    }
+
+    CylindricalPick m_pick;
+    double m_newBottomDiameter = 0.0;
+    double m_newTopDiameter    = 0.0;
+    char   m_botBuf[32] = "0.0";
+    char   m_topBuf[32] = "0.0";
+    bool   m_inputFocus = true;
+    bool   m_deferred   = false;   // threaded body: no live preview
 };
 
 } // namespace materializr

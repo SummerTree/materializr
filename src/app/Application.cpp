@@ -1091,7 +1091,7 @@ void Application::cancelActiveIops() {
 
 bool Application::anyInteractivePreviewActive() const {
     return anyIopActive() || m_extruding || m_pushPullActive ||
-           m_patternActive || m_resizeCylActive || m_threadActive;
+           m_patternActive || m_threadActive;
 }
 
 void Application::cancelAllInteractivePreviews() {
@@ -1101,7 +1101,6 @@ void Application::cancelAllInteractivePreviews() {
     if (m_extruding) cancelInteractiveExtrude();
     if (m_pushPullActive) cancelPushPull();
     if (m_patternActive) cancelPattern();
-    if (m_resizeCylActive) cancelResizeCylindrical();
     if (m_threadActive) cancelThread();
     // Fillet / chamfer preview — was missing from this list, so switching
     // tools mid-fillet left the previewed body stuck (the new op then
@@ -1124,12 +1123,6 @@ void Application::confirmActiveAction() {
     if (m_extruding)       { commitInteractiveExtrude(); return; }
     if (m_pushPullActive)  { commitPushPull(); return; }
     if (m_patternActive)   { commitPattern(); return; }
-    if (m_resizeCylActive) {
-        // Same gate as the panel's disabled Confirm: a failed preview
-        // means there's nothing valid to commit.
-        if (!m_resizeCylPreviewFailed) commitResizeCylindrical();
-        return;
-    }
     if (m_threadActive) {
         // Same guard as the thread panel's Apply: refuse absurd turn counts
         // (the compute would run for minutes) instead of bypassing it.
@@ -1148,7 +1141,6 @@ void Application::cancelActiveAction() {
     if (m_extruding)       { cancelInteractiveExtrude(); return; }
     if (m_pushPullActive)  { cancelPushPull(); return; }
     if (m_patternActive)   { cancelPattern(); return; }
-    if (m_resizeCylActive) { cancelResizeCylindrical(); return; }
     if (m_threadActive)    { cancelThread(); return; }
     if (m_edgeOpActive)    { cancelInteractiveEdgeOp(); return; }
     if (m_moveFaceActive)  { cancelMoveFace(); return; }
@@ -2471,8 +2463,7 @@ void Application::handleToolAction(int action) {
         }
 
         case ToolAction::EditDiameter: {
-            const auto pick = detectCylindricalResizeCandidate();
-            if (pick.ok) beginResizeCylindrical(pick);
+            beginIop(m_resizeCylCtl);   // resolves its own pick from the selection
             break;
         }
         case ToolAction::Thread: {
@@ -2905,8 +2896,7 @@ void Application::handleShortcuts() {
         } else if (anyIopActive()) {
             for (auto* c : m_iops)
                 if (c->active()) { c->cancel(iopContext()); break; }
-        } else if (m_resizeCylActive) {
-            cancelResizeCylindrical();
+        } else if (false) {
         } else if (m_edgeOpActive) {
             cancelInteractiveEdgeOp();
         } else if (m_moveFaceActive) {
@@ -6698,7 +6688,7 @@ void Application::run() {
             // wasteful on the iGPU, a battery/thermal sink on mobile.
             bool interactive =
                 m_inSketchMode || m_pushPullActive || m_gizmoDragging ||
-                m_edgeOpActive || m_resizeCylActive || m_moveFaceActive ||
+                m_edgeOpActive || m_moveFaceActive ||
                 m_revolveActive;
             if (!interactive)
                 for (auto* c : m_iops) if (c && c->active()) { interactive = true; break; }
@@ -6717,7 +6707,6 @@ void Application::run() {
                 if (m_gizmoDragging)           st += "gizmo ";
                 if (m_edgeOpActive)            st += "edgeop ";
                 if (m_moveFaceActive)          st += "moveface ";
-                if (m_resizeCylActive)         st += "resizecyl ";
                 if (m_revolveActive)           st += "revolve ";
                 if (m_deferredHeavyTask)       st += "heavy ";
                 if (!m_toastText.empty())      st += "toast ";
@@ -7022,11 +7011,11 @@ void Application::run() {
                 const unsigned selRev  = m_selection->revision();
                 const unsigned histRev = m_history->revision();
                 if (selRev != s_selRev || histRev != s_histRev ||
-                    m_resizeCylActive != s_resizeActive) {
+                    m_resizeCylCtl.active() != s_resizeActive) {
                     s_selRev = selRev;
                     s_histRev = histRev;
-                    s_resizeActive = m_resizeCylActive;
-                    s_canEditDiameter = !m_resizeCylActive &&
+                    s_resizeActive = m_resizeCylCtl.active();
+                    s_canEditDiameter = !m_resizeCylCtl.active() &&
                                         detectCylindricalResizeCandidate().ok;
                     // "Frozen round" hint: a selected fillet-shaped face
                     // (cylinder / torus) that NO enabled op owns reloaded as
@@ -7341,7 +7330,6 @@ void Application::run() {
 #endif
             renderUpdatePopup();
             renderMultiTransformPanel();
-            renderResizeCylindricalPanel();
             {
                 auto ctx = iopContext();
                 for (auto* c : m_iops) c->renderPanel(ctx);

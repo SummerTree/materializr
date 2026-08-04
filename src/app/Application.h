@@ -1423,33 +1423,7 @@ private:
     // → turns cylinder into a cone, makes funnels). Internally the commit
     // path always builds a CONE primitive at the two end radii — for the
     // face-edit case they're equal.
-    bool m_resizeCylActive = false;
-    bool m_resizeCylPreviewFailed = false; // last preview produced no valid body
-    bool m_resizeCylDeferredPreview = false; // threaded body: no live preview, applies on OK
-    int  m_resizeCylBodyId = -1;
-    bool m_resizeCylIsHole = true; // true: hole (normal toward axis), false: solid boundary
-    // Axis anchored at the V_min end of the affected cylindrical region.
-    // R1 (bottom) = radius at axis location, R2 (top) = radius at +H end.
-    double m_resizeCylAxisOX = 0.0, m_resizeCylAxisOY = 0.0, m_resizeCylAxisOZ = 0.0;
-    double m_resizeCylAxisDX = 0.0, m_resizeCylAxisDY = 0.0, m_resizeCylAxisDZ = 1.0;
-    double m_resizeCylAxisXX = 1.0, m_resizeCylAxisXY = 0.0, m_resizeCylAxisXZ = 0.0;
-    double m_resizeCylHeight       = 0.0;
-    // Original (before this edit) radii at each end of the affected feature.
-    // For an already-cylindrical face these are equal; for an existing cone
-    // they differ.
-    double m_resizeCylOriginalBottomR = 0.0;
-    double m_resizeCylOriginalTopR    = 0.0;
-    // Which ends the user is editing. Face select → both true (and the
-    // single popup field drives both). Edge select on the V_min end →
-    // editBottom true; V_max end → editTop true.
-    bool   m_resizeCylEditBottom = true;
-    bool   m_resizeCylEditTop    = true;
-    double m_resizeCylNewBottomDiameter = 0.0;
-    double m_resizeCylNewTopDiameter    = 0.0;
-    char   m_resizeCylBotBuf[32]  = "0.0";
-    char   m_resizeCylTopBuf[32]  = "0.0";
-    bool   m_resizeCylInputFocus  = true;
-    TopoDS_Shape m_resizeCylPreviousShape;
+    // (state now lives in ResizeCylindricalController — m_resizeCylCtl)
 
     // ─── Thread (helical screw thread on a cylindrical face) ───────────────
     // beginThread copies the geometry the cylindrical-face detector left in
@@ -1543,11 +1517,6 @@ private:
     // Returns what it found rather than leaving it in members — see
     // CylindricalPick.h for why that mattered.
     materializr::CylindricalPick detectCylindricalResizeCandidate() const;
-    void beginResizeCylindrical(const materializr::CylindricalPick& pick);
-    void updateResizeCylindrical();
-    void commitResizeCylindrical();
-    void cancelResizeCylindrical();
-    void renderResizeCylindricalPanel();
 
     // Interactive face ops (Shell / Taper / Scale Face) live in
     // controllers now — see InteractiveOpController.h. Each owns its own
@@ -1558,9 +1527,10 @@ private:
     ScaleFaceController m_scaleFaceCtl;
     ProjectSketchController m_projectSketchCtl;
     DefeatureController m_defeatureCtl;
-    std::array<InteractiveOpController*, 5> m_iops{
+    ResizeCylindricalController m_resizeCylCtl;
+    std::array<InteractiveOpController*, 6> m_iops{
         &m_shellCtl, &m_taperCtl, &m_scaleFaceCtl, &m_projectSketchCtl,
-        &m_defeatureCtl};
+        &m_defeatureCtl, &m_resizeCylCtl};
     IopContext iopContext();
     bool anyIopActive() const {
         for (auto* c : m_iops) if (c->active()) return true;

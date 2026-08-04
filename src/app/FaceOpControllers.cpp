@@ -10,6 +10,8 @@
 #include "../modeling/ScaleFaceOp.h"
 #include "../modeling/ProjectSketchOp.h"
 #include "../modeling/DefeatureOp.h"
+#include "../modeling/ResizeCylindricalOp.h"
+#include "../core/History.h"
 #include "../modeling/Sketch.h"
 #include <cstdio>
 #include <cstdlib>
@@ -871,6 +873,141 @@ void ScaleFaceController::panelBody(const IopContext& ctx, bool& changed) {
 void ScaleFaceController::onCleanup() {
     m_face.Nullify();
     m_dragAxis = -1;
+}
+
+// ─── Resize Cylindrical (Edit Diameter) ──────────────────────────────────────
+// Was ~17 members on Application plus begin/update/commit/cancel and a
+// hand-rolled panel in Application_Dialogs. The base already models all of it:
+// the snapshot, the live preview, Confirm/Cancel/Enter/Esc, and — via
+// wantsLivePreview — the threaded-body case that has to skip the preview.
+
+int ResizeCylindricalController::onBegin(const IopContext& ctx) {
+    // Resolve our own target rather than being handed one. detectCylindricalPick
+    // needs only the document and the selection, both of which are right here.
+    m_pick = detectCylindricalPick(ctx.doc, ctx.selection);
+    if (!m_pick.ok || m_pick.bodyId < 0) return -1;
+
+    m_deferred = ctx.history.isBodyThreaded(m_pick.bodyId);
+    m_newBottomDiameter = m_pick.bottomR * 2.0;
+    m_newTopDiameter    = m_pick.topR    * 2.0;
+    std::snprintf(m_botBuf, sizeof(m_botBuf), "%.2f", m_newBottomDiameter);
+    std::snprintf(m_topBuf, sizeof(m_topBuf), "%.2f", m_newTopDiameter);
+    m_inputFocus = true;
+    return m_pick.bodyId;
+}
+
+bool ResizeCylindricalController::wantsLivePreview(const IopContext&) const {
+    return !m_deferred;
+}
+
+std::unique_ptr<Operation> ResizeCylindricalController::buildOp(
+    const IopContext&) {
+    const double newBot = m_pick.editBottom ? m_newBottomDiameter * 0.5
+                                            : m_pick.bottomR;
+    const double newTop = m_pick.editTop    ? m_newTopDiameter    * 0.5
+                                            : m_pick.topR;
+    // Degenerate or unchanged: no op. The base treats a null op as "nothing to
+    // push" and cleans up, which is what the old commit's cancel() branch did.
+    const bool unchanged = std::abs(newBot - m_pick.bottomR) < 1e-5 &&
+                           std::abs(newTop - m_pick.topR)    < 1e-5;
+    if (newBot < 1e-4 || newTop < 1e-4 || unchanged) return nullptr;
+
+    auto op = std::make_unique<ResizeCylindricalOp>();
+    op->setBody(bodyId());
+    op->setAxis(m_pick.axis);
+    op->setHeight(m_pick.height);
+    op->setOldRadii(m_pick.bottomR, m_pick.topR);
+    op->setNewRadii(newBot, newTop);
+    op->setIsHole(m_pick.isHole);
+    return op;
+}
+
+void ResizeCylindricalController::panelBody(const IopContext& ctx,
+                                            bool& changed) {
+    // The base already titles the panel "Edit Diameter"; this line carries the
+    // part that varies — which end, and whether it's a hole or an outer face.
+    const bool bothEnds = both();
+    const char* what = bothEnds       ? "Both ends"
+                     : m_pick.editBottom ? "Bottom end"
+                                         : "Top end";
+    ImGui::TextDisabled("%s \xE2\x80\x94 %s", what,
+                        m_pick.isHole ? "hole" : "outer face");
+
+    if (bothEnds) {
+        ImGui::Text("Original: %.2f mm", m_pick.topR * 2.0);
+    } else if (m_pick.editBottom) {
+        ImGui::Text("Original: %.2f mm", m_pick.bottomR * 2.0);
+        ImGui::TextDisabled("Top stays at %.2f mm — drag this end to make a cone.",
+                            m_pick.topR * 2.0);
+    } else {
+        ImGui::Text("Original: %.2f mm", m_pick.topR * 2.0);
+        ImGui::TextDisabled("Bottom stays at %.2f mm — drag this end to make a cone.",
+                            m_pick.bottomR * 2.0);
+    }
+
+    if (m_inputFocus) {
+        ImGui::SetKeyboardFocusHere();
+        m_inputFocus = false;
+    }
+
+    // Drive one buffer; mirror into the other when face-editing both ends.
+    char*   buf = m_pick.editBottom ? m_botBuf : m_topBuf;
+    double* val = m_pick.editBottom ? &m_newBottomDiameter : &m_newTopDiameter;
+
+    double parsed = *val;
+    bool edited = false;
+    if (ctx.cornerCommitUi) {
+        // im-touch: number-pad amount field — no InputText, no native keyboard
+        // (which froze the app on iOS).
+        double v = *val;
+        if (touchui::amountField("rcylAmt", nullptr, &v, "mm", 2,
+                                 /*allowSign=*/false)) {
+            parsed = v;
+            edited = std::abs(parsed - *val) > 0.001;
+            std::snprintf(buf, 32, "%.2f", v);
+        }
+    } else {
+        ImGui::SetNextItemWidth(140);
+        if (ImGui::InputText("##rcyldia", buf, 32,
+                             ImGuiInputTextFlags_EnterReturnsTrue |
+                             ImGuiInputTextFlags_CharsDecimal))
+            requestCommit();   // Enter in the field = Confirm
+        // parseFinite: garbage/inf keeps the previous value.
+        edited = materializr::parseFinite(buf, parsed) &&
+                 std::abs(parsed - *val) > 0.001;
+        ImGui::SameLine();
+        ImGui::Text("mm");
+    }
+    if (edited) {
+        *val = parsed;
+        if (bothEnds) {
+            m_newBottomDiameter = parsed;
+            m_newTopDiameter    = parsed;
+            std::snprintf(m_pick.editBottom ? m_topBuf : m_botBuf, 32, "%.2f",
+                          parsed);
+        }
+        changed = true;
+    }
+
+    // Only complain once the user has actually asked for a different size.
+    // buildOp returns nullptr for "unchanged", which the base reports as a
+    // failed preview — so at the untouched original this warned about an
+    // invalid diameter before anything had been typed.
+    if (!previewOk() && !m_deferred && changedFromOriginal()) {
+        ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.35f, 1.0f),
+                           "Invalid diameter for this feature —\n"
+                           "a hole can't exceed the surrounding wall.");
+    }
+    if (m_deferred) {
+        ImGui::TextDisabled("Threaded body — applies on OK,\n"
+                            "then the thread re-cuts in background.");
+    }
+}
+
+void ResizeCylindricalController::onCleanup() {
+    m_pick = CylindricalPick{};
+    m_deferred = false;
+    m_inputFocus = true;
 }
 
 } // namespace materializr

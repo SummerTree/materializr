@@ -208,6 +208,7 @@ add_executable(materializr
     src/app/Window.cpp
     src/plugin/PluginContext.cpp
     src/plugin/InteractiveOp.cpp
+    src/app/CylindricalPick.cpp
     src/plugin/PluginRegistry.cpp
     src/plugins/ForceLink.cpp
     src/plugins/CoreCommandsPlugin.cpp
