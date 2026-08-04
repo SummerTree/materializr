@@ -49,6 +49,20 @@ struct IopOverlay {
     // Text with its own backing plate, offset clear of the anchor — the
     // percentage readouts every handle draws.
     std::function<void(glm::vec2 at, const char* text, unsigned rgba)> label;
+
+    // ─── 3D gizmo meshes ─────────────────────────────────────────────────────
+    // Scale Face's handles are flat lines and dots, which the 2D primitives
+    // above cover. Move Face's are the real gizmo geometry — depth-tested
+    // cones, torus rings and cubes, camera-scaled — drawn by the Gizmo
+    // renderer. Exposed as three calls rather than handing controllers the
+    // Gizmo itself, so the "no engine types cross this line" rule holds:
+    // position and direction are world-space, colour is packed 0xAABBGGRR.
+    std::function<void(const glm::vec3& at, const glm::vec3& dir,
+                       unsigned rgba)> arrow;
+    std::function<void(const glm::vec3& at, const glm::vec3& axis,
+                       unsigned rgba)> ring;
+    std::function<void(const glm::vec3& at, const glm::vec3& dir,
+                       unsigned rgba)> cube;
 };
 
 } // namespace materializr

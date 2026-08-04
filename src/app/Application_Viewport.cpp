@@ -1537,6 +1537,23 @@ void Application::renderViewport() {
                 ov.disc = [&](glm::vec2 c, float r, unsigned col) {
                     dl->AddCircleFilled(ImVec2(c.x, c.y), r, col);
                 };
+                // 3D gizmo meshes, bound to the real renderer. Colours arrive
+                // packed; Gizmo takes a float vec3, so unpack here — the
+                // controller side never sees either type.
+                auto unpack = [](unsigned c) {
+                    return glm::vec3(((c      ) & 0xFF) / 255.0f,
+                                     ((c >>  8) & 0xFF) / 255.0f,
+                                     ((c >> 16) & 0xFF) / 255.0f);
+                };
+                ov.arrow = [&](const glm::vec3& at, const glm::vec3& d, unsigned c) {
+                    m_gizmo->renderArrowAlong(view, proj, at, d, unpack(c));
+                };
+                ov.ring = [&](const glm::vec3& at, const glm::vec3& a, unsigned c) {
+                    m_gizmo->renderRingAbout(view, proj, at, a, unpack(c));
+                };
+                ov.cube = [&](const glm::vec3& at, const glm::vec3& d, unsigned c) {
+                    m_gizmo->renderCubeAlong(view, proj, at, d, unpack(c));
+                };
                 ov.label = [&](glm::vec2 at, const char* txt, unsigned col) {
                     ImVec2 ts = ImGui::CalcTextSize(txt);
                     ImVec2 tp(at.x + 10.0f, at.y - ts.y * 0.5f);
