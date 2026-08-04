@@ -18,6 +18,7 @@
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepCheck_Analyzer.hxx>
 #include <ShapeFix_Shape.hxx>
+#include <ShapeUpgrade_UnifySameDomain.hxx>
 #include <Bnd_Box.hxx>
 #include <BRepBndLib.hxx>
 #include <TopoDS.hxx>
@@ -119,15 +120,35 @@ bool ScaleFaceOp::execute(Document& doc) {
             BRepBuilderAPI_GTransform xf(w, t, Standard_True);
             return TopoDS::Wire(xf.Shape());
         };
+        // UNIFORM scale must stay exact. GTransform converts every analytic
+        // curve to a bspline (a general affine map can turn a circle into an
+        // ellipse, so OCCT downgrades unconditionally) — a uniformly scaled
+        // circle came back as a wobbly approximation: the loft wall rendered
+        // lumpy and the scaled cap centroid drifted off-axis (Steve's
+        // "strange geometry on the side wall", 2026-08-04). gp_Trsf's true
+        // scaling keeps circles circles; the wire lies in the face plane
+        // through the centroid, so the 3D scale about it IS the in-plane
+        // scale. Only genuinely non-uniform scaling pays the bspline cost.
+        const bool uniformScale = std::abs(su - sv) < 1e-9;
+        gp_Trsf uScaleT;
+        if (uniformScale) uScaleT.SetScale(centroid, su);
+        auto scaledWire = [&](const TopoDS_Wire& w) -> TopoDS_Wire {
+            return uniformScale ? movedWire(w, uScaleT)
+                                : gMovedWire(w, scaleT);
+        };
 
         TopoDS_Shape result;
         if (m_mode == Mode::Extend) {
             // Tip extension: cap outline → scaled outline at +L outward.
             gp_Trsf off;
             off.SetTranslation(gp_Vec(n) * m_length);
-            TopoDS_Wire wTip = movedWire(gMovedWire(capWire, scaleT), off);
+            TopoDS_Wire wTip = movedWire(scaledWire(capWire), off);
 
-            BRepOffsetAPI_ThruSections loft(Standard_True);
+            // Ruled, not smoothed: the default approximation mode fits a
+            // bspline through the sections even when a ruled surface is
+            // exact (two circles → cone), and rounds the corners of scaled
+            // polygonal caps.
+            BRepOffsetAPI_ThruSections loft(Standard_True, Standard_True);
             loft.AddWire(capWire);
             loft.AddWire(wTip);
             loft.Build();
@@ -179,9 +200,10 @@ bool ScaleFaceOp::execute(Document& doc) {
             gp_Trsf back;
             back.SetTranslation(gp_Vec(n) * (-m_length));
             TopoDS_Wire wBase = movedWire(capWire, back);
-            TopoDS_Wire wTip = gMovedWire(capWire, scaleT);
+            TopoDS_Wire wTip = scaledWire(capWire);
 
-            BRepOffsetAPI_ThruSections loft(Standard_True);
+            // Ruled for the same reason as the tip loft above.
+            BRepOffsetAPI_ThruSections loft(Standard_True, Standard_True);
             loft.AddWire(wBase);
             loft.AddWire(wTip);
             loft.Build();
@@ -248,6 +270,17 @@ bool ScaleFaceOp::execute(Document& doc) {
         }
 
         if (result.IsNull()) return false;
+
+        // The booleans (the grow-Fuse especially) leave same-surface faces
+        // split — the grown cap arrived as the ORIGINAL top disc plus a
+        // coplanar annulus stacked at the same height. Merge them, the same
+        // way Push/Pull does after its cut/fuse.
+        try {
+            ShapeUpgrade_UnifySameDomain unifier(result, true, true, true);
+            unifier.Build();
+            TopoDS_Shape unified = unifier.Shape();
+            if (!unified.IsNull()) result = unified;
+        } catch (...) {}
 
         // Sanity: the result must still have volume, and pinch must not
         // have annihilated the body.

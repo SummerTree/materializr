@@ -564,6 +564,13 @@ add_executable(test_scale_face_range test_scale_face_range.cpp)
 target_link_libraries(test_scale_face_range PRIVATE materializr_core gtest gtest_main)
 add_test(NAME test_scale_face_range COMMAND test_scale_face_range)
 
+# test_scale_face_exact — a uniformly scaled circle stays a CIRCLE (cone wall,
+# centred cap, exact volume), grow leaves ONE cap; and push/pull shortens an
+# extruded cylinder cleanly, alone and after a scale.
+add_executable(test_scale_face_exact test_scale_face_exact.cpp)
+target_link_libraries(test_scale_face_exact PRIVATE materializr_core gtest gtest_main)
+add_test(NAME test_scale_face_exact COMMAND test_scale_face_exact)
+
 add_executable(test_plane_axes test_plane_axes.cpp)
 target_link_libraries(test_plane_axes PRIVATE materializr_core gtest gtest_main)
 add_test(NAME test_plane_axes COMMAND test_plane_axes)
