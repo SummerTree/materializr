@@ -1,10 +1,11 @@
-// Scale Face past 100%: which mode can actually GROW a face?
+// Scale Face in BOTH directions.
 //
-// Steve, 2026-08-04: "scale only makes a face smaller, not larger." Both the
-// panel and the drag allow 5–200%, so the UI implies growth works in either
-// mode. It doesn't: Pinch is Common(body, frustum) — an intersection, which
-// can only ever remove material — while Extend is Fuse(body, tip loft), which
-// adds it. These tests pin that down so the UI can be honest about it.
+// Steve, 2026-08-04: "scale is supposed to increase or decrease the size of the
+// face selected with the side walls following." Pinch did only half of that —
+// it was Common(body, frustum), an intersection, which can only ever REMOVE
+// material, so >100% returned success and changed nothing. Extend was no
+// substitute: it adds a new tapered section on top rather than re-sloping the
+// existing walls. Growing now unions the same frustum on instead.
 #include <gtest/gtest.h>
 #include "core/Document.h"
 #include "modeling/ScaleFaceOp.h"
@@ -63,9 +64,9 @@ TEST(ScaleFaceRange, PinchBelow100Shrinks) {
     EXPECT_LT(v, f.vol0) << "pinch below 100% should remove material";
 }
 
-// THE REPORT: Pinch past 100% cannot grow — Common() can only subtract, so the
-// oversized frustum clips to the body and the result is the body back.
-TEST(ScaleFaceRange, PinchAbove100CannotGrow) {
+// THE REPORT: >100% must now GROW the body, with the side walls flaring out
+// from the base — not silently do nothing.
+TEST(ScaleFaceRange, PinchAbove100Grows) {
     Boxed f;
     ScaleFaceOp op;
     op.setBody(f.bodyId);
@@ -73,11 +74,17 @@ TEST(ScaleFaceRange, PinchAbove100CannotGrow) {
     op.setMode(ScaleFaceOp::Mode::Pinch);
     op.setScalePercent(150.0);
     op.setLength(20.0);
-    const bool ran = op.execute(f.doc);
-    const double v = ran ? volumeOf(f.doc.getBody(f.bodyId)) : f.vol0;
-    std::printf("  pinch 150%%: ran=%d  %.1f -> %.1f\n", (int)ran, f.vol0, v);
-    EXPECT_LE(v, f.vol0 + 1e-6)
-        << "pinch grew the body — then the UI cap added for this is wrong";
+    ASSERT_TRUE(op.execute(f.doc)) << "pinch above 100% refused";
+    const double v = volumeOf(f.doc.getBody(f.bodyId));
+    std::printf("  pinch 150%%: %.1f -> %.1f\n", f.vol0, v);
+    EXPECT_GT(v, f.vol0 + 1e-6)
+        << "pinch past 100% did nothing — the Common/Fuse switch regressed";
+
+    // ...and grew into the RIGHT shape, not just "bigger". A 20mm box whose
+    // top face goes to 150% is a frustum 20 wide at the base, 30 at the top:
+    // prismatoid 20/6*(400 + 4*625 + 900) = 12666.7. Volume alone would pass
+    // for any old bulge, so this is what actually pins "the side walls follow".
+    EXPECT_NEAR(v, 12666.7, 1.0) << "grew, but not into the expected frustum";
 }
 
 // Extend DOES grow: it fuses a tip loft on, so >100% adds material.

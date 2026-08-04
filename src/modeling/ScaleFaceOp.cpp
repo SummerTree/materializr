@@ -190,7 +190,24 @@ bool ScaleFaceOp::execute(Document& doc) {
                 return false;
             }
 
-            if (fullDepth) {
+            // GROWING flips the boolean. Common() can only ever remove
+            // material, so a frustum wider than the body just clipped back to
+            // the body and the op reported success having changed nothing
+            // (Steve: "scale only makes a face smaller"). The frustum already
+            // describes the wanted shape in both directions — full-size
+            // outline at the base, scaled outline at the face — so growing is
+            // the same solid UNIONED on instead of intersected, which flares
+            // the side walls outward from the base and keeps the body's other
+            // features. Union works for the partial-length case too: the
+            // frustum only spans the last L, so only that band flares.
+            const bool grow = (su > 1.0 || sv > 1.0);
+            if (grow) {
+                BRepAlgoAPI_Fuse fuse(m_previousShape, loft.Shape());
+                fuse.SetFuzzyValue(1.0e-4);
+                fuse.Build();
+                if (!fuse.IsDone()) return false;
+                result = fuse.Shape();
+            } else if (fullDepth) {
                 // The frustum spans the entire body: one Common does it.
                 BRepAlgoAPI_Common common(m_previousShape, loft.Shape());
                 common.SetFuzzyValue(1.0e-4);

@@ -624,7 +624,6 @@ int ScaleFaceController::onBegin(const IopContext& ctx) {
     m_pctU = m_pctV = 30.0f;
     m_uniform = true;
     m_dragAxis = -1;
-    m_mode = 1; // Pinch: "scale this face, the body follows"
     m_len = 10.0f;
     m_lenMax = 100.0f;
     try {
@@ -707,16 +706,18 @@ std::unique_ptr<Operation> ScaleFaceController::buildOp(const IopContext&) {
     op->setFace(m_face);
     op->setScaleUV(static_cast<double>(m_pctU), static_cast<double>(m_pctV));
     op->setLength(static_cast<double>(m_len));
-    op->setMode(m_mode == 1 ? ScaleFaceOp::Mode::Pinch
-                            : ScaleFaceOp::Mode::Extend);
+    // Always Pinch — it re-slopes the EXISTING walls and, since the >100%
+    // union landed, does it in both directions. The old Extend/Pinch radio
+    // asked the user to pick a boolean before they knew what either did, and
+    // Extend answered a different question anyway (bolt a new tapered section
+    // on top). The op keeps both modes so old projects replay unchanged.
+    op->setMode(ScaleFaceOp::Mode::Pinch);
     return op;
 }
 
 void ScaleFaceController::applyHandleDrag(int axis, float dPct,
                                           const IopContext& ctx) {
     float& pct = (axis == 0) ? m_pctU : m_pctV;
-    // Same per-mode ceiling as the panel — dragging the handle past what the
-    // mode can do just made the arrow keep travelling with nothing happening.
     pct = std::min(maxPct(), std::max(5.0f, pct + dPct));
     if (m_uniform) {
         m_pctU = pct;
@@ -790,9 +791,10 @@ void ScaleFaceController::drawOverlay(const IopOverlay& ov) const {
 
 void ScaleFaceController::panelBody(const IopContext& ctx, bool& changed) {
     ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + 240.0f);
-    ImGui::TextDisabled("Scale this face; the body re-slopes to follow. "
-                        "Full length = sides follow from the base; shorter "
-                        "= blend only near the face.");
+    ImGui::TextDisabled("Scale this face; the side walls re-slope to follow. "
+                        "Under 100%% shrinks it, over 100%% grows it. Full "
+                        "length = walls follow from the base; shorter = blend "
+                        "only near the face.");
     ImGui::PopTextWrapPos();
     ImGui::Separator();
 
@@ -864,28 +866,6 @@ void ScaleFaceController::panelBody(const IopContext& ctx, bool& changed) {
         touchui::amountField("lenAmt", nullptr, &m_len, "mm", 1,
                              /*allowSign=*/false, 0.5f, std::max(m_lenMax, 1.0f)))
         changed = true;
-    ImGui::Text("Mode");
-    ImGui::SameLine();
-    if (ImGui::RadioButton("Extend tip", m_mode == 0)) {
-        m_mode = 0;
-        changed = true;
-    }
-    ImGui::SameLine();
-    if (ImGui::RadioButton("Pinch existing", m_mode == 1)) {
-        m_mode = 1;
-        // Pinch tops out at 100%; carry an over-100 value down rather than
-        // leaving a number on screen the op will ignore.
-        m_pctU = std::min(m_pctU, maxPct());
-        m_pctV = std::min(m_pctV, maxPct());
-        changed = true;
-    }
-    // Why the ceiling moves with the mode: Pinch intersects the body with a
-    // frustum, and an intersection can only ever REMOVE material — asking for
-    // 150% there returns success and changes nothing (test_scale_face_range).
-    // Extend fuses a tip on, so it grows. Steve hit this as "scale only makes
-    // a face smaller"; capping the input is what makes the panel honest.
-    if (m_mode == 1)
-        ImGui::TextDisabled("Pinch only shrinks \xE2\x80\x94 use Extend tip to grow.");
 }
 
 void ScaleFaceController::onCleanup() {

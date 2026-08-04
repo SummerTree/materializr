@@ -113,10 +113,9 @@ protected:
 private:
     // Drag delta (percent) onto one axis; respects the Uniform link.
     void applyHandleDrag(int axis, float dPct, const IopContext& ctx);
-    // Largest scale this MODE can actually deliver. Pinch intersects the body
-    // with a frustum, so it can only remove material — past 100% the op
-    // succeeds and changes nothing. Extend fuses a tip on and grows.
-    float maxPct() const { return m_mode == 1 ? 100.0f : 200.0f; }
+    // Scale ceiling, one place. 200% both ways now that growing unions the
+    // frustum on instead of intersecting it (ScaleFaceOp::execute).
+    float maxPct() const { return 200.0f; }
 
     TopoDS_Face m_face;
     float m_pctU = 30.0f;
@@ -124,7 +123,9 @@ private:
     bool  m_uniform = true;
     float m_len = 10.0f;
     float m_lenMax = 100.0f;
-    int   m_mode = 1; // 0=Extend, 1=Pinch
+    // No mode member any more: the panel always re-slopes the existing walls
+    // and the percentage decides shrink vs grow. ScaleFaceOp still HAS both
+    // modes so saved projects that recorded Extend replay exactly as before.
 
     glm::vec3 m_center{0.0f};
     glm::vec3 m_axisU{1.0f, 0.0f, 0.0f};
