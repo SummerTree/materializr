@@ -543,6 +543,12 @@ add_executable(test_project_compression test_project_compression.cpp)
 target_link_libraries(test_project_compression PRIVATE materializr_core gtest gtest_main)
 add_test(NAME test_project_compression COMMAND test_project_compression)
 
+# test_hole_tilt — MoveHoleOp Tilt (pin the far rim) and EdgeMove (drag one
+# straight side); round + square holes, and the refusals for curves and folds.
+add_executable(test_hole_tilt test_hole_tilt.cpp)
+target_link_libraries(test_hole_tilt PRIVATE materializr_core gtest gtest_main)
+add_test(NAME test_hole_tilt COMMAND test_hole_tilt)
+
 # test_mesh_guard — imported meshes are reference bodies; modelling ops decline.
 add_executable(test_mesh_guard test_mesh_guard.cpp)
 target_link_libraries(test_mesh_guard PRIVATE materializr_core gtest gtest_main)
