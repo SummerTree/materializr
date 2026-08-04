@@ -2019,6 +2019,50 @@ void Application::cancelPushPull() {
 
 // ─── Move Face (in-plane slide → whole-body shear) ──────────────────────────
 
+bool Application::beginMoveHoleFromEdges() {
+    if (!m_selection || !m_document) return false;
+    std::vector<TopoDS_Edge> picked;
+    int bodyId = -1;
+    for (const auto& e : m_selection->getSelection()) {
+        if (e.type != SelectionType::Edge || e.shape.IsNull()) continue;
+        if (bodyId >= 0 && e.bodyId != bodyId) return false;  // one hole only
+        bodyId = e.bodyId;
+        picked.push_back(TopoDS::Edge(e.shape));
+    }
+    if (picked.empty() || bodyId < 0) return false;
+    if (refuseMeshSelection("Move")) return true;   // handled: refused
+
+    TopoDS_Shape body;
+    try { body = m_document->getBody(bodyId); } catch (...) { return false; }
+    if (body.IsNull()) return false;
+
+    const MoveHoleOp::EdgePick pick = MoveHoleOp::classifyRimEdges(body, picked);
+    if (!pick.ok) return false;      // not one hole's rim → caller falls through
+
+    cancelAllInteractivePreviews();
+    m_faceXformKind = FaceXform::Translate;
+    m_moveFaceVec = m_moveFaceBase = glm::vec3(0.0f);
+    m_moveFaceDragging = false;
+    m_moveFaceActive = true;
+    m_moveHoleMode = true;
+    m_moveHoleOpMode = pick.mode;
+    m_moveHoleRimEdge = pick.rimEdge;
+    m_moveHoleWall = pick.wall;
+    m_moveFaceBodyId = bodyId;
+    m_moveFacePreviousShape = body;
+
+    // Slide the rim IN ITS OWN PLANE — the entry normal from buildVoid is the
+    // plane the drag lives in, exactly as the face-driven path uses it.
+    TopoDS_Shape v; gp_Vec n; bool pocket = false;
+    if (MoveHoleOp::buildVoid(body, pick.wall, v, n, pocket)) {
+        m_moveFaceN = glm::normalize(glm::vec3(n.X(), n.Y(), n.Z()));
+    }
+    std::fprintf(stdout, "Hole move armed from rim edges: %s\n",
+                 pick.mode == MoveHoleOp::Mode::Tilt     ? "tilt" :
+                 pick.mode == MoveHoleOp::Mode::EdgeMove ? "edge" : "slide");
+    return true;
+}
+
 void Application::beginMoveFace(FaceXform kind) {
     if (refuseMeshSelection("Move Face")) return;
     cancelAllInteractivePreviews();
@@ -2056,6 +2100,8 @@ void Application::beginMoveFace(FaceXform kind) {
             if (MoveHoleOp::buildVoid(body, wall, voidSolid, entryN, pocket, &rim)) {
                 // Gizmo set-up at the hole: plane = entry face, translate only.
                 m_moveHoleMode = true;
+                m_moveHoleOpMode = MoveHoleOp::Mode::Slide;
+                m_moveHoleRimEdge = TopoDS_Edge();
                 m_moveHoleWall = wall;
                 m_moveFaceBodyId = e.bodyId;
                 m_moveFacePreviousShape = body;
@@ -2467,6 +2513,9 @@ void Application::commitMoveFace() {
             auto op = std::make_unique<MoveHoleOp>();
             op->setBody(m_moveFaceBodyId);
             op->setSeedWall(m_moveHoleWall);
+            op->setMode(m_moveHoleOpMode);
+            if (m_moveHoleOpMode == MoveHoleOp::Mode::EdgeMove)
+                op->setRimEdge(m_moveHoleRimEdge);
             op->setMoveVector(mv);
             if (m_history->pushOperation(std::move(op), *m_document))
                 std::fprintf(stdout, "Hole move committed\n");

@@ -95,6 +95,26 @@ public:
                             const gp_Vec& move, TopoDS_Wire& out,
                             std::string* why = nullptr);
 
+    // What a set of selected rim EDGES means. The verb comes from the
+    // selection, the way a face selection already turns Move into Move Face:
+    //   whole rim (a circle is one edge)  -> Tilt   (pin the far rim)
+    //   one straight side of a rim        -> EdgeMove
+    //   edges on both rims                -> Slide  (the whole bore)
+    // Anything else — an edge that isn't a hole rim, or edges from more than
+    // one hole — resolves to None, and the caller offers nothing at all rather
+    // than falling back to a body move (Steve's call, 2026-08-03).
+    struct EdgePick {
+        bool ok = false;
+        Mode mode = Mode::Slide;
+        TopoDS_Face wall;       // seed wall for buildVoid
+        TopoDS_Edge rimEdge;    // the dragged side, for EdgeMove
+        bool nearIsEntry = true; // which mouth the picked rim is
+    };
+    // Resolve selected edges against `body`. Cheap enough for a per-frame
+    // toolbar gate (it only runs buildVoid once a candidate wall is found).
+    static EdgePick classifyRimEdges(const TopoDS_Shape& body,
+                                     const std::vector<TopoDS_Edge>& picked);
+
     static TopoDS_Shape buildTiltedVoid(const TopoDS_Wire& entryRim,
                                         const TopoDS_Wire& exitRim,
                                         const gp_Vec& move);

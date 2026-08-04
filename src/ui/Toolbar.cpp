@@ -346,6 +346,16 @@ std::vector<Toolbar::RailTool> Toolbar::railTools() const {
             addPlugins(mask);
         }
     } else if (m_selection->hasSelectedEdges()) {
+        // Move on an EDGE selection means the hole that rim belongs to. #28
+        // hides Move on curved FACES, which is why a round hole's wall isn't
+        // clickable — but its rim is a single circular EDGE, so selecting that
+        // is unambiguous. Only offered when the edges resolve to exactly one
+        // hole; an ordinary edge gets nothing rather than a surprise body move.
+        if (m_selEdgeIsHoleRim)
+            add(MZ_ICON_MOVE, "Move", ToolAction::Move, false,
+                "Move this hole: drag one rim to tilt the bore, one straight "
+                "side to reshape it, or select both rims to slide the whole "
+                "hole.");
         add(MZ_ICON_FILLET,  "Fillet",  ToolAction::Fillet, false,
             "Round the selected edges with a radius.");
         add(MZ_ICON_CHAMFER, "Chamfer", ToolAction::Chamfer, false,

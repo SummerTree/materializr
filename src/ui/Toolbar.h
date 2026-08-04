@@ -97,6 +97,9 @@ public:
     // The selected face is flat — Push/Pull is only offered on flat faces (a
     // curved/fillet face makes the boolean freak out; #28).
     void setSelFacePlanar(bool b) { m_selFacePlanar = b; }
+    // Selected edges resolve to one hole's rim, so Move has a meaning for them
+    // (tilt / reshape / slide — MoveHoleOp::classifyRimEdges picks which).
+    void setSelEdgeIsHoleRim(bool b) { m_selEdgeIsHoleRim = b; }
     void setSelectedFaceFrozenRound(bool b) { m_selFrozenRound = b; }
 
     // Set each frame by Application: true when the selected sketch / sketch
@@ -168,6 +171,7 @@ private:
     bool m_snapToGrid = true;
     bool m_canEditDiameter = false;
     bool m_selFacePlanar = false;  // selected face is flat (gates Push, #28)
+    bool m_selEdgeIsHoleRim = false; // selected edges are one hole's rim
     bool m_selFrozenRound  = false;
     bool m_selSketchAttached = false; // selected sketch still drives a body (see setter)
     bool m_showTooltips = true;

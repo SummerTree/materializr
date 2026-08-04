@@ -28,6 +28,7 @@
 #include <string>
 #include <GProp_GProps.hxx>
 #include <TopExp_Explorer.hxx>
+#include <TopTools_MapOfShape.hxx>
 #include <TopoDS.hxx>
 #include <gp_Trsf.hxx>
 #include <gp_Vec.hxx>
@@ -283,4 +284,105 @@ TEST(TiltOp, EdgeMoveRefusesAFoldThroughItself) {
                                             edited, &why);
     std::printf("  fold refused=%d: %s\n", (int)!ok, why.c_str());
     EXPECT_FALSE(ok) << "folding the profile inside out should be refused";
+}
+
+// ── The edge selection picks the verb ───────────────────────────────────────
+namespace {
+std::vector<TopoDS_Edge> rimEdgesAtZ(const TopoDS_Shape& s, double z) {
+    std::vector<TopoDS_Edge> out;
+    // DEDUPE: TopExp_Explorer over a solid yields each shared edge once per
+    // face that uses it, so a 4-sided rim enumerates as 8 and a circular one
+    // as 2. Reading those raw led me to "a round rim is two arcs", which is
+    // simply the same circle counted twice.
+    TopTools_MapOfShape seen;
+    for (TopExp_Explorer ex(s, TopAbs_EDGE); ex.More(); ex.Next()) {
+        const TopoDS_Edge& e = TopoDS::Edge(ex.Current());
+        if (!seen.Add(e)) continue;
+        BRepAdaptor_Curve c(e);
+        gp_Pnt mid = c.Value(0.5 * (c.FirstParameter() + c.LastParameter()));
+        if (std::abs(mid.Z() - z) > 1e-6) continue;
+        if (mid.X() < 10 || mid.X() > 30 || mid.Y() < 10 || mid.Y() > 30) continue;
+        out.push_back(e);
+    }
+    return out;
+}
+} // namespace
+
+TEST(HoleEdgePick, RoundRimIsOneEdgeAndMeansTilt) {
+    Holed f;
+    const TopoDS_Shape in = f.doc.getBody(f.bodyId);
+    auto rim = rimEdgesAtZ(in, 20.0);
+    // A round rim IS one circular edge, so selecting it is unambiguous. The
+    // rule still keys on "is every side straight?" rather than edge count, so
+    // it holds regardless of how a kernel chooses to split a curve.
+    ASSERT_EQ(rim.size(), 1u) << "a round rim is one circular edge";
+
+    const auto p = MoveHoleOp::classifyRimEdges(in, rim);
+    EXPECT_TRUE(p.ok);
+    EXPECT_EQ(p.mode, MoveHoleOp::Mode::Tilt);
+}
+
+TEST(HoleEdgePick, OneSquareSideMeansEdgeMoveAllFourMeanTilt) {
+    SquareHoled f;
+    const TopoDS_Shape in = f.doc.getBody(f.bodyId);
+    auto rim = rimEdgesAtZ(in, 20.0);
+    ASSERT_EQ(rim.size(), 4u) << "a square rim should be four edges";
+
+    const auto one = MoveHoleOp::classifyRimEdges(in, {rim[0]});
+    EXPECT_TRUE(one.ok);
+    EXPECT_EQ(one.mode, MoveHoleOp::Mode::EdgeMove);
+    EXPECT_FALSE(one.rimEdge.IsNull());
+
+    const auto all = MoveHoleOp::classifyRimEdges(in, rim);
+    EXPECT_TRUE(all.ok);
+    EXPECT_EQ(all.mode, MoveHoleOp::Mode::Tilt);
+
+    // Two of four is neither verb — decline rather than guess.
+    const auto two = MoveHoleOp::classifyRimEdges(in, {rim[0], rim[1]});
+    EXPECT_FALSE(two.ok);
+}
+
+TEST(HoleEdgePick, BothRimsMeanSlide) {
+    Holed f;
+    const TopoDS_Shape in = f.doc.getBody(f.bodyId);
+    auto top = rimEdgesAtZ(in, 20.0);
+    auto bot = rimEdgesAtZ(in, 0.0);
+    ASSERT_FALSE(top.empty());
+    ASSERT_FALSE(bot.empty());
+    const auto p = MoveHoleOp::classifyRimEdges(in, {top[0], bot[0]});
+    EXPECT_TRUE(p.ok);
+    EXPECT_EQ(p.mode, MoveHoleOp::Mode::Slide);
+}
+
+// THE TRAP: buildVoid names the mouths in its own order, not the user's. Tilt
+// must pin the rim that was NOT grabbed, so grabbing either rim has to be
+// recognised — and as the near one.
+TEST(HoleEdgePick, EitherRimCanBeTheGrabbedOne) {
+    Holed f;
+    const TopoDS_Shape in = f.doc.getBody(f.bodyId);
+    auto top = rimEdgesAtZ(in, 20.0);
+    auto bot = rimEdgesAtZ(in, 0.0);
+    const auto pTop = MoveHoleOp::classifyRimEdges(in, top);
+    const auto pBot = MoveHoleOp::classifyRimEdges(in, bot);
+    EXPECT_TRUE(pTop.ok);
+    EXPECT_TRUE(pBot.ok);
+    EXPECT_EQ(pTop.mode, MoveHoleOp::Mode::Tilt);
+    EXPECT_EQ(pBot.mode, MoveHoleOp::Mode::Tilt);
+    EXPECT_NE(pTop.nearIsEntry, pBot.nearIsEntry)
+        << "both rims resolved to the same mouth — tilt would pin the wrong end";
+}
+
+// An ordinary edge is not a rim: offer nothing (never a surprise body move).
+TEST(HoleEdgePick, PlainBoxEdgeOffersNothing) {
+    Holed f;
+    const TopoDS_Shape in = f.doc.getBody(f.bodyId);
+    TopoDS_Edge corner;
+    for (TopExp_Explorer ex(in, TopAbs_EDGE); ex.More(); ex.Next()) {
+        BRepAdaptor_Curve c(TopoDS::Edge(ex.Current()));
+        if (c.GetType() != GeomAbs_Line) continue;
+        gp_Pnt mid = c.Value(0.5 * (c.FirstParameter() + c.LastParameter()));
+        if (mid.X() < 1.0 || mid.Y() < 1.0) { corner = TopoDS::Edge(ex.Current()); break; }
+    }
+    ASSERT_FALSE(corner.IsNull());
+    EXPECT_FALSE(MoveHoleOp::classifyRimEdges(in, {corner}).ok);
 }

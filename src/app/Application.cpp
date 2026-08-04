@@ -91,6 +91,7 @@ inline void resetFpuForOcct() {
 #include "modeling/ShellOp.h"
 #include "modeling/DeleteOp.h"
 #include "modeling/SketchEditOp.h"
+#include "modeling/MoveHoleOp.h"
 #include "modeling/SketchTransformOp.h"
 #include "modeling/ResizeCylindricalOp.h"
 #include "io/StepIO.h"
@@ -2348,6 +2349,9 @@ void Application::handleToolAction(int action) {
                 beginMoveFace();
                 break;
             }
+            // Edges that form one hole's rim: the selection picks the verb
+            // (tilt / reshape / slide). Same button, as with faces.
+            if (beginMoveHoleFromEdges()) break;
             // Bodies / standalone sketches / construction planes all get the
             // Move gizmo — the viewport gizmo-visibility block handles whichever
             // selection type is active. SketchRegion picks count as the parent
@@ -7087,6 +7091,26 @@ void Application::run() {
                 }
                 m_toolbar->setCanEditDiameter(s_canEditDiameter);
                 m_toolbar->setSelFacePlanar(s_selFacePlanar);
+                // Do the selected edges form one hole's rim? Only then does
+                // Move mean anything for an edge selection.
+                {
+                    bool rim = false;
+                    std::vector<TopoDS_Edge> picked;
+                    int edgeBody = -1;
+                    for (const auto& e : m_selection->getSelection()) {
+                        if (e.type != SelectionType::Edge || e.shape.IsNull()) continue;
+                        if (edgeBody >= 0 && e.bodyId != edgeBody) { picked.clear(); break; }
+                        edgeBody = e.bodyId;
+                        picked.push_back(TopoDS::Edge(e.shape));
+                    }
+                    if (!picked.empty() && edgeBody >= 0) {
+                        try {
+                            rim = MoveHoleOp::classifyRimEdges(
+                                      m_document->getBody(edgeBody), picked).ok;
+                        } catch (...) {}
+                    }
+                    m_toolbar->setSelEdgeIsHoleRim(rim);
+                }
                 m_toolbar->setSelectedFaceFrozenRound(s_frozenRound);
                 m_toolbar->setSelectedSketchAttached(s_selSketchAttached);
             }

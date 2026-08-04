@@ -1,4 +1,5 @@
 #pragma once
+#include "modeling/MoveHoleOp.h"
 #include "../platform_defs.h"
 
 #include <memory>
@@ -571,6 +572,10 @@ private:
     // MoveHoleOp (slide a through-hole across its face) instead of a face shear.
     // Set when the Move selection is a recognizable hole wall (see beginMoveFace).
     bool m_moveHoleMode = false;
+    // Which hole verb the current interactive move commits, and the rim side
+    // being dragged when it's EdgeMove.
+    MoveHoleOp::Mode m_moveHoleOpMode = MoveHoleOp::Mode::Slide;
+    TopoDS_Edge m_moveHoleRimEdge;
     TopoDS_Face m_moveHoleWall;              // the clicked hole-wall seed face
     int  m_moveFaceBodyId = -1;
     TopoDS_Face  m_moveFaceFace;
@@ -1378,6 +1383,11 @@ private:
     // and snap to it, but nothing rewrites its topology. Returns true when the
     // caller should stop.
     bool refuseMeshSelection(const char* opName);
+
+    // Start a hole move driven by an EDGE selection. The picked rim edges
+    // choose the verb (see MoveHoleOp::classifyRimEdges). Returns false when
+    // the selection isn't one hole's rim, so the caller falls through.
+    bool beginMoveHoleFromEdges();
 
     void beginInteractiveEdgeOp(EdgeOpType type);
     // Re-edit the FilletOp or ChamferOp at the given history index. Pulls the

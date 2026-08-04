@@ -79,6 +79,106 @@ gp_Pnt wireCentre(const TopoDS_Wire& w) {
 } // namespace
 
 
+
+// Which hole do these edges belong to, and what does the selection mean?
+//
+// The trap here is WHICH rim was grabbed. buildVoid reports entry/exit in its
+// own order, decided by how it walked the body — not by what the user clicked.
+// Tilt has to pin the OTHER rim, so a Tilt that trusted buildVoid's order would
+// look like it worked and lean the wrong end of the bore. So match the picked
+// edges against both mouth wires and record which one they came from.
+MoveHoleOp::EdgePick MoveHoleOp::classifyRimEdges(
+    const TopoDS_Shape& body, const std::vector<TopoDS_Edge>& picked) {
+    EdgePick r;
+    if (body.IsNull() || picked.empty()) return r;
+
+    TopTools_IndexedDataMapOfShapeListOfShape edgeFaces;
+    TopExp::MapShapesAndAncestors(body, TopAbs_EDGE, TopAbs_FACE, edgeFaces);
+
+    // Every candidate wall the picked edges touch. More than one distinct hole
+    // means an ambiguous selection — decline.
+    TopoDS_Face wall;
+    TopoDS_Shape voidSolid; gp_Vec entryN; bool pocket = false;
+    TopoDS_Wire entryRim, exitRim;
+    // Take the first wall any picked edge touches that buildVoid accepts. Do
+    // NOT try to prove later edges belong to the same hole by comparing their
+    // voids — buildVoid constructs a fresh solid per call, so IsSame is never
+    // true even for the same hole, and a square hole (four separate wall faces)
+    // declined every time. The rim-membership loop below is the real filter:
+    // an edge from another hole simply isn't on THIS hole's rims.
+    for (const TopoDS_Edge& e : picked) {
+        if (!edgeFaces.Contains(e)) return r;
+        if (!wall.IsNull()) break;
+        for (const TopoDS_Shape& fs : edgeFaces.FindFromKey(e)) {
+            const TopoDS_Face f = TopoDS::Face(fs);
+            TopoDS_Shape v; gp_Vec n; bool p = false;
+            TopoDS_Wire en, ex;
+            if (!buildVoid(body, f, v, n, p, &en, &ex)) continue;
+            wall = f; voidSolid = v; entryN = n; pocket = p;
+            entryRim = en; exitRim = ex;
+            break;
+        }
+    }
+    if (wall.IsNull() || entryRim.IsNull() || exitRim.IsNull()) return r;
+
+    auto wireEdges = [](const TopoDS_Wire& w) {
+        std::vector<TopoDS_Edge> out;
+        for (TopExp_Explorer ex(w, TopAbs_EDGE); ex.More(); ex.Next())
+            out.push_back(TopoDS::Edge(ex.Current()));
+        return out;
+    };
+    const std::vector<TopoDS_Edge> entryEdges = wireEdges(entryRim);
+    const std::vector<TopoDS_Edge> exitEdges  = wireEdges(exitRim);
+    auto contains = [](const std::vector<TopoDS_Edge>& set, const TopoDS_Edge& e) {
+        for (const TopoDS_Edge& x : set) if (x.IsSame(e)) return true;
+        return false;
+    };
+
+    size_t onEntry = 0, onExit = 0;
+    for (const TopoDS_Edge& e : picked) {
+        if (contains(entryEdges, e)) ++onEntry;
+        else if (contains(exitEdges, e)) ++onExit;
+        else return r;                    // not a rim edge at all: offer nothing
+    }
+
+    r.wall = wall;
+    if (onEntry > 0 && onExit > 0) {
+        r.mode = Mode::Slide;             // grabbed both ends = move the bore
+        r.ok = true;
+        return r;
+    }
+    const bool near = onEntry > 0;
+    r.nearIsEntry = near;
+    const std::vector<TopoDS_Edge>& rimEdges = near ? entryEdges : exitEdges;
+    const size_t got = near ? onEntry : onExit;
+
+    // Can this rim be edge-moved at all? Only if every side is straight —
+    // EdgeMove refuses arcs, and it would be perverse to offer a verb that is
+    // guaranteed to decline. A round rim is a single circular edge, so this
+    // only ever bites on curved rims made of several arcs (a slot), where
+    // "one edge picked" must still mean the rim rather than one side.
+    bool rimAllStraight = true;
+    for (const TopoDS_Edge& e : rimEdges) {
+        BRepAdaptor_Curve c(e);
+        if (c.GetType() != GeomAbs_Line) { rimAllStraight = false; break; }
+    }
+
+    if (!rimAllStraight) {
+        // Curved rim: any part of it means the rim. Tilt.
+        r.mode = Mode::Tilt;
+        r.ok = true;
+    } else if (got == rimEdges.size()) {
+        r.mode = Mode::Tilt;              // the whole rim
+        r.ok = true;
+    } else if (got == 1) {
+        r.mode = Mode::EdgeMove;          // one straight side
+        r.rimEdge = picked.front();
+        r.ok = true;
+    }
+    // Several straight sides but not all: no sensible verb. Leave ok=false.
+    return r;
+}
+
 // Slide one straight side of a rim, letting its neighbours follow — the 3D
 // equivalent of dragging a line in a sketch.
 //
