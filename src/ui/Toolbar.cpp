@@ -353,20 +353,23 @@ std::vector<Toolbar::RailTool> Toolbar::railTools() const {
             addPlugins(mask);
         }
     } else if (m_selection->hasSelectedEdges()) {
+        add(MZ_ICON_FILLET,  "Fillet",  ToolAction::Fillet, false,
+            "Round the selected edges with a radius.");
+        add(MZ_ICON_CHAMFER, "Chamfer", ToolAction::Chamfer, false,
+            "Cut the selected edges to a flat bevel.");
         // Move on an EDGE selection means the hole that rim belongs to. #28
         // hides Move on curved FACES, which is why a round hole's wall isn't
         // clickable — but its rim is a single circular EDGE, so selecting that
         // is unambiguous. Only offered when the edges resolve to exactly one
         // hole; an ordinary edge gets nothing rather than a surprise body move.
+        // Sits UNDER Fillet/Chamfer (Steve, 2026-08-03): those two are what an
+        // edge selection is usually for, and they're always present, so a
+        // conditional button above them made the pair jump position.
         if (m_selEdgeIsHoleRim)
             add(MZ_ICON_MOVE, "Move", ToolAction::Move, false,
                 "Move this hole: drag one rim to tilt the bore, one straight "
                 "side to reshape it, or select both rims to slide the whole "
                 "hole.");
-        add(MZ_ICON_FILLET,  "Fillet",  ToolAction::Fillet, false,
-            "Round the selected edges with a radius.");
-        add(MZ_ICON_CHAMFER, "Chamfer", ToolAction::Chamfer, false,
-            "Cut the selected edges to a flat bevel.");
         if (m_canEditDiameter)
             add(MZ_ICON_CIRCLE, "Diameter", ToolAction::EditDiameter, false,
                 "Set the hole or boss to an exact diameter.");
@@ -1107,6 +1110,17 @@ ToolAction Toolbar::renderEdgeTools() {
     tip("Round the picked edge(s). Set radius in the popup.");
     if (ImGui::Button("Chamfer", ImVec2(-1, bh(30)))) action = ToolAction::Chamfer;
     tip("Bevel the picked edge(s). Set distance in the popup.");
+    // Hole move from a rim edge. This list is SEPARATE from railTools(), so
+    // the button shipped to the rail layouts only and classic never saw it at
+    // all — same trap as the im-touch Items parity gap. Same gate, same
+    // placement (under Fillet/Chamfer) so the two layouts agree.
+    if (m_selEdgeIsHoleRim &&
+        ImGui::Button("Move Hole", ImVec2(-1, bh(30))))
+        action = ToolAction::Move;
+    if (m_selEdgeIsHoleRim)
+        tip("Move the hole this rim belongs to: drag one rim to tilt the bore, "
+            "one straight side to reshape it, or select both rims to slide the "
+            "whole hole.");
     if (m_canEditDiameter &&
         ImGui::Button("Edit Diameter", ImVec2(-1, bh(30))))
         action = ToolAction::EditDiameter;
