@@ -317,6 +317,13 @@ std::vector<Toolbar::RailTool> Toolbar::railTools() const {
                 "Tilt the face — or twist it with the ring about its normal.");
             add(MZ_ICON_SCALE,  "Scale",  ToolAction::Scale, false,
                 "Scale the face about its centre (uniform or per-axis).");
+        } else if (m_selFaceIsHoleWall) {
+            // The one curved face #28 shouldn't hide Move on: a hole's bore.
+            // Clicking the inside wall means the whole hole (both rims travel
+            // together); grabbing a rim EDGE is how you move just one side.
+            add(MZ_ICON_MOVE,   "Move",   ToolAction::Move, false,
+                "Slide the whole hole across the face it pierces \xE2\x80\x94 "
+                "select a rim edge instead to tilt or reshape one end.");
         }
         add(MZ_ICON_UNFOLD, "Unfold", ToolAction::Unfold, false,
             "Flatten the selected faces into a 2D cut pattern (SVG / tiled PDF).");

@@ -7006,6 +7006,8 @@ void Application::run() {
                 static bool s_frozenRound = false;
                 static bool s_selSketchAttached = false;
                 static bool s_selFacePlanar = false;
+                static bool s_selFaceIsHoleWall = false;
+                static bool s_selEdgeIsHoleRim = false;
                 // Tab switches swap in a DIFFERENT SelectionManager/History
                 // whose revision counters can coincide with the memoized ones
                 // (they all start at 0) — key the memo on the session too.
@@ -7032,15 +7034,28 @@ void Application::run() {
                     // Diameter handles it), not a round, so it's excluded.
                     s_frozenRound = false;
                     s_selFacePlanar = false;
+                    s_selFaceIsHoleWall = false;
                     TopoDS_Shape pf;
+                    int pfBody = -1;
                     for (const auto& e : m_selection->getSelection())
                         if (e.type == SelectionType::Face && !e.shape.IsNull()) {
-                            pf = e.shape; break;
+                            pf = e.shape; pfBody = e.bodyId; break;
                         }
                     if (!pf.IsNull() && pf.ShapeType() == TopAbs_FACE) {
                         try {
                             TopoDS_Face f = TopoDS::Face(pf);
                             s_selFacePlanar = faceIsPlanar(f);  // gates Push (#28)
+                            // A round hole's WALL: #28 hides Move on curved
+                            // faces, so a full-cylinder bore could never be
+                            // moved by clicking its inside — probe buildVoid,
+                            // and offer whole-hole Move when it recognizes one.
+                            // (A square hole's walls are planar, so they reach
+                            // the same slide through the ordinary Move gate.)
+                            if (!s_selFacePlanar && pfBody >= 0) {
+                                TopoDS_Shape v; gp_Vec n; bool pocket = false;
+                                s_selFaceIsHoleWall = MoveHoleOp::buildVoid(
+                                    m_document->getBody(pfBody), f, v, n, pocket);
+                            }
                             Handle(Geom_Surface) s = BRep_Tool::Surface(f);
                             bool round = false;
                             if (!s.IsNull()) {
@@ -7069,6 +7084,28 @@ void Application::run() {
                     // edits the host body); a standalone sketch offers Extrude
                     // instead (a new body). A detached sketch counts as
                     // standalone — it was deliberately unlinked (issue #21).
+                    // Do the selected edges form one hole's rim? Only then
+                    // does Move mean anything for an edge selection. In the
+                    // memo because classifyRimEdges walks the body and probes
+                    // buildVoid — per-frame it burned time and (pre-verbose-
+                    // gate) flooded the journal with refusals.
+                    s_selEdgeIsHoleRim = false;
+                    {
+                        std::vector<TopoDS_Edge> picked;
+                        int edgeBody = -1;
+                        for (const auto& e : m_selection->getSelection()) {
+                            if (e.type != SelectionType::Edge || e.shape.IsNull()) continue;
+                            if (edgeBody >= 0 && e.bodyId != edgeBody) { picked.clear(); break; }
+                            edgeBody = e.bodyId;
+                            picked.push_back(TopoDS::Edge(e.shape));
+                        }
+                        if (!picked.empty() && edgeBody >= 0) {
+                            try {
+                                s_selEdgeIsHoleRim = MoveHoleOp::classifyRimEdges(
+                                          m_document->getBody(edgeBody), picked).ok;
+                            } catch (...) {}
+                        }
+                    }
                     s_selSketchAttached = false;
                     for (const auto& e : m_selection->getSelection()) {
                         if ((e.type == SelectionType::Sketch ||
@@ -7091,42 +7128,8 @@ void Application::run() {
                 }
                 m_toolbar->setCanEditDiameter(s_canEditDiameter);
                 m_toolbar->setSelFacePlanar(s_selFacePlanar);
-                // Do the selected edges form one hole's rim? Only then does
-                // Move mean anything for an edge selection. Classified ONCE
-                // per selection revision, not per frame — classifyRimEdges
-                // walks the body and probes buildVoid, and re-running that
-                // every frame while a pocket's edge stayed selected burned
-                // time and (pre-verbose-gate) flooded the journal.
-                {
-                    // Keyed on manager + revision: revisions are per-manager
-                    // counters, so two TABS can coincide on the same number —
-                    // pointer alone breaks the tie (wireDocumentConsumers).
-                    static const void* s_rimSel = nullptr;
-                    static unsigned s_rimRev = ~0u;
-                    static bool s_rimCached = false;
-                    if (m_selection != s_rimSel ||
-                        m_selection->revision() != s_rimRev) {
-                        s_rimSel = m_selection;
-                        s_rimRev = m_selection->revision();
-                        bool rim = false;
-                        std::vector<TopoDS_Edge> picked;
-                        int edgeBody = -1;
-                        for (const auto& e : m_selection->getSelection()) {
-                            if (e.type != SelectionType::Edge || e.shape.IsNull()) continue;
-                            if (edgeBody >= 0 && e.bodyId != edgeBody) { picked.clear(); break; }
-                            edgeBody = e.bodyId;
-                            picked.push_back(TopoDS::Edge(e.shape));
-                        }
-                        if (!picked.empty() && edgeBody >= 0) {
-                            try {
-                                rim = MoveHoleOp::classifyRimEdges(
-                                          m_document->getBody(edgeBody), picked).ok;
-                            } catch (...) {}
-                        }
-                        s_rimCached = rim;
-                    }
-                    m_toolbar->setSelEdgeIsHoleRim(s_rimCached);
-                }
+                m_toolbar->setSelFaceIsHoleWall(s_selFaceIsHoleWall);
+                m_toolbar->setSelEdgeIsHoleRim(s_selEdgeIsHoleRim);
                 m_toolbar->setSelectedFaceFrozenRound(s_frozenRound);
                 m_toolbar->setSelectedSketchAttached(s_selSketchAttached);
             }

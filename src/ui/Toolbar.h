@@ -100,6 +100,7 @@ public:
     // Selected edges resolve to one hole's rim, so Move has a meaning for them
     // (tilt / reshape / slide — MoveHoleOp::classifyRimEdges picks which).
     void setSelEdgeIsHoleRim(bool b) { m_selEdgeIsHoleRim = b; }
+    void setSelFaceIsHoleWall(bool b) { m_selFaceIsHoleWall = b; }
     void setSelectedFaceFrozenRound(bool b) { m_selFrozenRound = b; }
 
     // Set each frame by Application: true when the selected sketch / sketch
@@ -172,6 +173,7 @@ private:
     bool m_canEditDiameter = false;
     bool m_selFacePlanar = false;  // selected face is flat (gates Push, #28)
     bool m_selEdgeIsHoleRim = false; // selected edges are one hole's rim
+    bool m_selFaceIsHoleWall = false; // selected curved face is a hole's bore
     bool m_selFrozenRound  = false;
     bool m_selSketchAttached = false; // selected sketch still drives a body (see setter)
     bool m_showTooltips = true;
