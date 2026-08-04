@@ -148,10 +148,15 @@ MoveHoleOp::EdgePick MoveHoleOp::classifyRimEdges(
         r.ok = true;
         return r;
     }
-    const bool near = onEntry > 0;
-    r.nearIsEntry = near;
-    const std::vector<TopoDS_Edge>& rimEdges = near ? entryEdges : exitEdges;
-    const size_t got = near ? onEntry : onExit;
+    // NOT `near`: <windef.h> defines near/far/small as empty macros, so on
+    // MSVC `const bool near = …` becomes `const bool = …` (C2513). OCCT 7.9.3
+    // leaks windows.h into this TU, so it is reachable here. Same trap that
+    // broke latticeAnchor's parameter (TechHQ, #76).
+    const bool grabbedEntry = onEntry > 0;
+    r.nearIsEntry = grabbedEntry;
+    const std::vector<TopoDS_Edge>& rimEdges =
+        grabbedEntry ? entryEdges : exitEdges;
+    const size_t got = grabbedEntry ? onEntry : onExit;
 
     // Can this rim be edge-moved at all? Only if every side is straight —
     // EdgeMove refuses arcs, and it would be perverse to offer a verb that is

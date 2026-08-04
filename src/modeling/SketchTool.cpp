@@ -2146,9 +2146,13 @@ void SketchTool::handleArcTool(glm::vec2 pos) {
             // which keeps concentric geometry sharing a point without ever
             // moving the arc.
             int centerId = -1;
-            if (const int near = findCoincidentPoint(center, -1); near >= 0) {
-                if (const auto* np = m_sketch->getPoint(near))
-                    if (glm::length(np->pos - center) < 1e-4f) centerId = near;
+            // `near` is a <windef.h> macro — see MoveHoleOp::classifyRimEdges.
+            // This TU happens not to pull windows.h in today, so it compiles;
+            // renamed anyway so an include change can't turn it into a
+            // baffling MSVC syntax error later.
+            if (const int nearId = findCoincidentPoint(center, -1); nearId >= 0) {
+                if (const auto* np = m_sketch->getPoint(nearId))
+                    if (glm::length(np->pos - center) < 1e-4f) centerId = nearId;
             }
             if (centerId < 0) centerId = m_sketch->addPoint(center);
 

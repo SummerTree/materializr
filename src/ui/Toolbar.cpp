@@ -265,7 +265,20 @@ std::vector<Toolbar::RailTool> Toolbar::railTools() const {
                 "Extrude the face into new material.");
             add(MZ_ICON_SHELL,    "Shell",   ToolAction::Shell, false,
                 "Hollow the body, leaving this face open.");
+            // Scale Face is its OWN entry, not the Transform Scale button —
+            // that one scales the face itself (MoveFaceOp), this re-slopes the
+            // side walls toward a scaled copy of it. Both are wanted; sharing
+            // one button meant only one of them was reachable, and for a while
+            // this one wasn't reachable at all.
+            add(MZ_ICON_SCALE, "Scale Face", ToolAction::ScaleFace, false,
+                "Re-slope the side walls toward a scaled copy of this face — "
+                "under 100% tapers it in, over 100% flares it out.");
         }
+        // Taper takes cylindrical and conical faces too (it drafts along their
+        // own axis), so it is NOT gated on the face being flat.
+        add(MZ_ICON_SPLIT, "Taper", ToolAction::Taper, false,
+            "Draft the selected face(s) by an angle about the body's base — "
+            "the pull direction a moulded or printed part needs.");
         add(MZ_ICON_REPAIR,   "Repair",  ToolAction::RemoveFace, false,
             "Delete the face and heal the body over it.");
         add(MZ_ICON_PROJECT,  "Project", ToolAction::ProjectSketch, false,
@@ -868,6 +881,21 @@ ToolAction Toolbar::renderFaceTools() {
     if (ImGui::Button("Shell", ImVec2(-1, bh(30))))
         action = ToolAction::Shell;
     tip("Hollow the body, removing the picked face. Wall thickness in the popup.");
+    // Scale Face and Taper have their own buttons here, as in railTools. Both
+    // were reachable only through the Transform row after the consolidation —
+    // Scale Face not at all — and both are distinct from Move/Rotate/Scale,
+    // which transform the face itself.
+    if (m_selFacePlanar && ImGui::Button("Scale Face", ImVec2(-1, bh(30))))
+        action = ToolAction::ScaleFace;
+    if (m_selFacePlanar)
+        tip("Re-slope the side walls toward a scaled copy of this face — under "
+            "100% tapers it in, over 100% flares it out. Blend length in the "
+            "popup.");
+    if (ImGui::Button("Taper", ImVec2(-1, bh(30))))
+        action = ToolAction::Taper;
+    tip("Draft the picked face(s) by an angle about the body's base — the pull "
+        "direction a moulded or printed part needs. Works on cylindrical and "
+        "conical faces too.");
     if (ImGui::Button("Repair Geometry", ImVec2(-1, bh(30))))
         action = ToolAction::RemoveFace;
     tip("Delete the picked face(s) and heal the surrounding faces back together "
