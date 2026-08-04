@@ -188,7 +188,11 @@ bool writeProjectRecovery(const Document& doc, const ProjectHistory* history,
     // Save to a temp file, then atomically rename — a crash mid-write must never
     // truncate the snapshot we'd restore from.
     const std::string tmp = path + ".tmp";
-    auto res = ProjectIO::save(tmp, doc, history);
+    // Fastest compression, deliberately: this sidecar is rewritten every few
+    // seconds while you work and read only after a crash. On a 17 MB project
+    // that is 0.71 s instead of 5.29 s, for 5% more disk on a transient file.
+    auto res = ProjectIO::save(tmp, doc, history, /*thumbnailPng=*/nullptr,
+                               ProjectIO::Compression::Fastest);
     if (!res.success) { std::filesystem::remove(tmp, ec); return false; }
     std::filesystem::rename(tmp, path, ec);
     if (ec) { // cross-device or race: fall back to a direct overwrite

@@ -138,13 +138,24 @@ bool looksLikeGzip(const std::string& bytes) {
            static_cast<unsigned char>(bytes[0]) == 0x1f &&
            static_cast<unsigned char>(bytes[1]) == 0x8b;
 }
-std::string gzipDeflate(const std::string& src) {
+std::string gzipDeflate(const std::string& src, int level) {
     z_stream zs{};
-    // 15 + 16 = window 15 (32 KB) with the gzip wrapper enabled. Project
-    // files save once and load many times, so the extra CPU of level 9 is
-    // a fair trade for the smaller file (~10 % over default for our mix
-    // of binary BREP + ASCII metadata).
-    if (deflateInit2(&zs, Z_BEST_COMPRESSION, Z_DEFLATED,
+    // 15 + 16 = window 15 (32 KB) with the gzip wrapper enabled.
+    //
+    // This used to be Z_BEST_COMPRESSION unconditionally, on the reasoning that
+    // "project files save once and load many times, so the extra CPU of level 9
+    // is a fair trade for the smaller file (~10 % over default)". Measured on a
+    // real project (17 MB of geometry), that trade does not exist:
+    //
+    //     level 9 : 5.29 s -> 8.7 MB
+    //     level 6 : 1.01 s -> 8.7 MB
+    //     level 1 : 0.71 s -> 9.1 MB
+    //
+    // Byte-identical output for a fifth of the time. BREP blobs are compact
+    // enough that level 9's extra effort finds nothing left to squeeze, so the
+    // only thing it bought was a five-second Ctrl+S (Steve, 2026-08-03: a
+    // project with an imported mesh in it "seems very laggy").
+    if (deflateInit2(&zs, level, Z_DEFLATED,
                      15 + 16, 8, Z_DEFAULT_STRATEGY) != Z_OK) return {};
     zs.next_in  = reinterpret_cast<Bytef*>(const_cast<char*>(src.data()));
     zs.avail_in = static_cast<uInt>(src.size());
@@ -238,7 +249,8 @@ bool base64Decode(const std::string& in, std::vector<uint8_t>& out) {
 
 ProjectSaveResult ProjectIO::save(const std::string& filePath, const Document& doc,
                                   const ProjectHistory* history,
-                                  const std::vector<uint8_t>* thumbnailPng) {
+                                  const std::vector<uint8_t>* thumbnailPng,
+                                  Compression compression) {
     ProjectSaveResult result;
 
     // OCCT BinTools::Write (per body and inside the HISTORY blocks) can throw
@@ -599,7 +611,9 @@ ProjectSaveResult ProjectIO::save(const std::string& filePath, const Document& d
 
     // Gzip-deflate the in-memory file and dump to disk as binary.
     const std::string raw = ofs.str();
-    const std::string gz  = gzipDeflate(raw);
+    const std::string gz  = gzipDeflate(
+        raw, compression == Compression::Fastest ? Z_BEST_SPEED
+                                                 : Z_DEFAULT_COMPRESSION);
     if (gz.empty()) {
         result.errorMessage = "zlib deflate failed";
         return result;

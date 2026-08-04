@@ -533,6 +533,16 @@ add_executable(test_face_centroid test_face_centroid.cpp)
 target_link_libraries(test_face_centroid PRIVATE materializr_core gtest gtest_main)
 add_test(NAME test_face_centroid COMMAND test_face_centroid)
 
+# test_stepper_nudge — a stepper clamp must never reverse the nudge.
+add_executable(test_stepper_nudge test_stepper_nudge.cpp)
+target_link_libraries(test_stepper_nudge PRIVATE materializr_core gtest gtest_main)
+add_test(NAME test_stepper_nudge COMMAND test_stepper_nudge)
+
+# test_project_compression — both gzip levels round-trip a project unchanged.
+add_executable(test_project_compression test_project_compression.cpp)
+target_link_libraries(test_project_compression PRIVATE materializr_core gtest gtest_main)
+add_test(NAME test_project_compression COMMAND test_project_compression)
+
 # test_mesh_guard — imported meshes are reference bodies; modelling ops decline.
 add_executable(test_mesh_guard test_mesh_guard.cpp)
 target_link_libraries(test_mesh_guard PRIVATE materializr_core gtest gtest_main)
