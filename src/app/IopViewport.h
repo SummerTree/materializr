@@ -36,6 +36,17 @@ struct IopViewport {
     bool clicked = false;   // left button went down this frame
     bool dragging = false;  // left button held and moving
     bool released = false;  // left button came up this frame
+    bool down = false;      // left button currently held
+
+    // The cursor's world-space pick ray — for gizmos that intersect it with
+    // their own planes/rings rather than projecting a screen delta.
+    glm::vec3 rayOrigin{0.0f};
+    glm::vec3 rayDir{0.0f, 0.0f, -1.0f};
+
+    // Camera frame, for distance-scaled handle sizing (ring radius, arm
+    // length track the zoom the same way the main gizmo does).
+    glm::vec3 camPos{0.0f};
+    glm::vec3 camTarget{0.0f};
 };
 
 // Immediate-mode draw surface for a controller's on-screen handles. Same rule:

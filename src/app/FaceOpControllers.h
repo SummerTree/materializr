@@ -220,6 +220,13 @@ public:
     // The face gizmo (slice 3). Checks its own active flag — this controller
     // isn't in m_iops yet, so Application_Viewport calls it unconditionally.
     void drawGizmos3D(const IopGizmo3D& g) const override;
+    // The drag (slice 4): ring/arrow latch on drag start, then slide / ring
+    // sweep / twist / scale tracking. Rebuild is deferred to release — only
+    // the ghost silhouette (drawOverlay below) moves mid-drag.
+    void onViewportInput(const IopViewport& vp, const IopContext& ctx) override;
+    // Ghost silhouette: each moving face loop as a yellow outline under the
+    // current gesture transform.
+    void drawOverlay(const IopOverlay& ov) const override;
 
 protected:
     const char* title() const override { return "Move Face"; }

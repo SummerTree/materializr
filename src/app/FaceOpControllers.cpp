@@ -1734,6 +1734,255 @@ void MoveFaceController::moveFaceSlideSketches(const IopContext& ctx, const glm:
     }
 }
 
+// The drag. Intersect the cursor ray with the face's plane, latch the
+// nearest handle at drag start (ring-aware for Rotate), then track the
+// gesture: slide along the latched axis, sweep a ring, twist, or scale.
+// The body does NOT rebuild mid-drag — only the ghost silhouette moves
+// (drawOverlay below); the rebuild runs once on release.
+void MoveFaceController::onViewportInput(const IopViewport& vp,
+                                         const IopContext& ctx) {
+    if (!m_st.moveFaceActive) return;
+    if (vp.dragging) {
+        const glm::vec3& ro = vp.rayOrigin;
+        const glm::vec3& rd = vp.rayDir;
+        float denom = glm::dot(rd, m_st.moveFaceN);
+        if (std::abs(denom) > 1e-6f) {
+            float t = glm::dot(m_st.moveFaceP0 - ro, m_st.moveFaceN) / denom;
+            glm::vec3 hit = ro + rd * t;
+            // Cursor angle around the pivot in a ring's rotation plane
+            // (normal = rotAxis): intersect the ray with that plane and
+            // measure atan2 in the (u, N) basis. Used for ring-sweep tilt.
+            auto ringCursorAngle = [&](glm::vec3 rotAxis, glm::vec3 u) -> float {
+                float dn = glm::dot(rd, rotAxis);
+                if (std::abs(dn) < 1e-5f) return m_st.moveFaceRotStartAngle;
+                float tt = glm::dot(m_st.moveFacePivot - ro, rotAxis) / dn;
+                glm::vec3 d = (ro + rd * tt) - m_st.moveFacePivot;
+                return std::atan2(glm::dot(d, m_st.moveFaceN), glm::dot(d, u));
+            };
+            // Twist ring lies IN the face plane (about the normal): the
+            // cursor's angle is measured in the (axisA, axisB) basis of
+            // the point where the ray meets the face plane.
+            auto twistCursorAngle = [&]() -> float {
+                float dn = glm::dot(rd, m_st.moveFaceN);
+                if (std::abs(dn) < 1e-5f) return m_st.moveFaceTwistStart;
+                float tt = glm::dot(m_st.moveFacePivot - ro, m_st.moveFaceN) / dn;
+                glm::vec3 d = (ro + rd * tt) - m_st.moveFacePivot;
+                return std::atan2(glm::dot(d, m_st.moveFaceAxisB),
+                                  glm::dot(d, m_st.moveFaceAxisA));
+            };
+            if (!m_st.moveFaceDragging) {
+                if (m_st.faceXformKind == FaceXform::Rotate) {
+                    // Ring-aware latch: sample each ring's actual circle
+                    // and grab the nearer one (the arrow-tip proxy used
+                    // before biased toward one ring). Ring radius mirrors
+                    // the gizmo: camDist * 0.15 * kRingRadius(0.75).
+                    float ringR = 0.1125f *
+                        glm::length(vp.camPos - m_st.moveFacePivot);
+                    auto ringDist = [&](glm::vec3 u, glm::vec3 v) -> float {
+                        float best = 1e18f;
+                        for (int i = 0; i < 32; ++i) {
+                            float a = 6.2831853f * i / 32.0f;
+                            glm::vec3 p = m_st.moveFacePivot +
+                                ringR * (std::cos(a) * u + std::sin(a) * v);
+                            glm::vec2 s; if (!vp.toScreen(p, s)) continue;
+                            float dx = s.x - vp.mouse.x, dy = s.y - vp.mouse.y;
+                            best = std::min(best, dx * dx + dy * dy);
+                        }
+                        return best;
+                    };
+                    // grab 0 = ring about axis B (plane A,N); 1 = about A;
+                    // 2 = ring about the NORMAL (plane A,B) = the twist.
+                    float dRingB = ringDist(m_st.moveFaceAxisA, m_st.moveFaceN);
+                    float dRingA = ringDist(m_st.moveFaceAxisB, m_st.moveFaceN);
+                    float dRingN = ringDist(m_st.moveFaceAxisA, m_st.moveFaceAxisB);
+                    m_st.moveFaceGrab = 0; float bestRing = dRingB;
+                    if (dRingA < bestRing) { bestRing = dRingA; m_st.moveFaceGrab = 1; }
+                    if (dRingN < bestRing) { bestRing = dRingN; m_st.moveFaceGrab = 2; }
+                } else {
+                    // Latch the arrow/cube whose shaft is nearest the cursor.
+                    float armLen = 0.25f * glm::length(vp.camTarget - vp.camPos);
+                    if (armLen < 1.0f) armLen = 8.0f;
+                    auto sd = [&](glm::vec3 axis) -> float {
+                        glm::vec2 s;
+                        if (!vp.toScreen(m_st.moveFaceP0 + axis * armLen * 0.6f, s))
+                            return 1e18f;
+                        float dx = s.x - vp.mouse.x, dy = s.y - vp.mouse.y;
+                        return dx * dx + dy * dy;
+                    };
+                    float dA = std::min(sd(m_st.moveFaceAxisA), sd(-m_st.moveFaceAxisA));
+                    float dB = std::min(sd(m_st.moveFaceAxisB), sd(-m_st.moveFaceAxisB));
+                    m_st.moveFaceGrab = (dA <= dB) ? 0 : 1;
+                    // Once per gesture: which arrow latched and the
+                    // frame it moves in. Left in on purpose — arrow
+                    // no-ops are order-dependent and impossible to
+                    // reconstruct after the fact without this.
+                    std::fprintf(stdout,
+                        "Move drag latch: grab=%c hole=%d A=(%.2f,%.2f,%.2f) "
+                        "B=(%.2f,%.2f,%.2f) N=(%.2f,%.2f,%.2f) P0=(%.1f,%.1f,%.1f)\n",
+                        m_st.moveFaceGrab == 0 ? 'A' : 'B', (int)m_st.moveHoleMode,
+                        m_st.moveFaceAxisA.x, m_st.moveFaceAxisA.y, m_st.moveFaceAxisA.z,
+                        m_st.moveFaceAxisB.x, m_st.moveFaceAxisB.y, m_st.moveFaceAxisB.z,
+                        m_st.moveFaceN.x, m_st.moveFaceN.y, m_st.moveFaceN.z,
+                        m_st.moveFaceP0.x, m_st.moveFaceP0.y, m_st.moveFaceP0.z);
+                }
+                m_st.moveFaceDragStart = hit;
+                m_st.moveFaceBase = m_st.moveFaceVec;
+                m_st.moveFaceAngleBase = m_st.moveFaceAngle;
+                m_st.moveFaceScaleBase = m_st.moveFaceScale;
+                m_st.moveFaceScaleABase = m_st.moveFaceScaleA;
+                m_st.moveFaceScaleBBase = m_st.moveFaceScaleB;
+                if (m_st.faceXformKind == FaceXform::Rotate) {
+                    if (m_st.moveFaceGrab == 2) {
+                        // Twist ring: latch the cursor's angle in the
+                        // face plane; the twist tracks the sweep.
+                        m_st.moveFaceIsTwist = true;
+                        m_st.moveFaceTwistBase = m_st.moveFaceTwist;
+                        m_st.moveFaceTwistStart = twistCursorAngle();
+                    } else {
+                        m_st.moveFaceIsTwist = false;
+                        // Latch the tilt axis + the cursor's starting
+                        // angle around the ring; the tilt tracks the sweep.
+                        m_st.moveFaceRotAxis = (m_st.moveFaceGrab == 0)
+                            ? m_st.moveFaceAxisB : m_st.moveFaceAxisA;
+                        // u chosen so rotAxis × u = +N for BOTH rings (else
+                        // the red ring's sweep reads inverted vs the green).
+                        glm::vec3 u = (m_st.moveFaceGrab == 0)
+                            ? -m_st.moveFaceAxisA : m_st.moveFaceAxisB;
+                        m_st.moveFaceRotStartAngle =
+                            ringCursorAngle(m_st.moveFaceRotAxis, u);
+                    }
+                }
+                m_st.moveFaceDragging = true;
+                setDraggingHandle(true);
+            }
+            glm::vec3 axis = (m_st.moveFaceGrab == 0) ? m_st.moveFaceAxisA
+                                                      : m_st.moveFaceAxisB;
+            float along = glm::dot(hit - m_st.moveFaceDragStart, axis);
+            if (m_st.faceXformKind == FaceXform::Translate) {
+                // Snap the slide to whole grid steps when the grid is on.
+                if (ctx.snapToGrid && ctx.gridStep > 0.0f)
+                    along = std::round(along / ctx.gridStep) * ctx.gridStep;
+                m_st.moveFaceVec = m_st.moveFaceBase + axis * along;
+            } else if (m_st.faceXformKind == FaceXform::Rotate && m_st.moveFaceIsTwist) {
+                // Twist: sweep the cursor around the normal ring (in the
+                // face plane). The change in its angle since drag-start
+                // IS the twist about the normal.
+                float cur = twistCursorAngle();
+                float delta = cur - m_st.moveFaceTwistStart;
+                delta = std::atan2(std::sin(delta), std::cos(delta)); // wrap ±π
+                m_st.moveFaceTwist = m_st.moveFaceTwistBase + delta;
+                if (m_st.moveFaceRotSnap) {
+                    float step = 1.0f / 57.2957795f;
+                    m_st.moveFaceTwist = std::round(m_st.moveFaceTwist / step) * step;
+                }
+            } else if (m_st.faceXformKind == FaceXform::Rotate) {
+                // Sweep the cursor AROUND the ring: the tilt = the change
+                // in the cursor's angle in the ring plane since the drag
+                // started (a real rotation gizmo, not a linear pull).
+                glm::vec3 u = (m_st.moveFaceGrab == 0) ? -m_st.moveFaceAxisA
+                                                       : m_st.moveFaceAxisB;
+                float cur = ringCursorAngle(m_st.moveFaceRotAxis, u);
+                float delta = cur - m_st.moveFaceRotStartAngle;
+                delta = std::atan2(std::sin(delta), std::cos(delta)); // wrap to ±π
+                m_st.moveFaceAngle = m_st.moveFaceAngleBase + delta;
+                if (m_st.moveFaceRotSnap) { // snap to whole degrees
+                    float step = 1.0f / 57.2957795f;
+                    m_st.moveFaceAngle = std::round(m_st.moveFaceAngle / step) * step;
+                }
+            } else { // Scale
+                float ext = std::max(m_st.moveFaceHalfExtent, 1e-3f);
+                if (m_st.moveFaceScaleUniform) {
+                    m_st.moveFaceScale = std::max(0.1f,
+                        m_st.moveFaceScaleBase + along / ext);
+                } else if (m_st.moveFaceGrab == 0) { // axis A handle
+                    m_st.moveFaceScaleA = std::max(0.1f,
+                        m_st.moveFaceScaleABase + along / ext);
+                } else {                          // axis B handle
+                    m_st.moveFaceScaleB = std::max(0.1f,
+                        m_st.moveFaceScaleBBase + along / ext);
+                }
+            }
+            // Deferred: don't rebuild the body mid-drag — only the ghost
+            // silhouette moves (drawOverlay). Flag a rebuild for release.
+            m_st.moveFacePendingRebuild = true;
+        }
+    } else if (!vp.down) {
+        // Released: now run the (single) rebuild so the body catches up
+        // to where the silhouette was dragged.
+        if (m_st.moveFacePendingRebuild) {
+            bakeFaceRotationDrag(); // fold a ring drag into the accumulator
+            updateMoveFace(ctx);
+            m_st.moveFacePendingRebuild = false;
+        }
+        if (m_st.moveFaceDragging)
+            std::fprintf(stdout, "Move drag release: vec=(%.2f,%.2f,%.2f)\n",
+                         m_st.moveFaceVec.x, m_st.moveFaceVec.y, m_st.moveFaceVec.z);
+        m_st.moveFaceDragging = false; // released — next drag re-latches
+        m_st.moveFaceGrab = -1;
+        setDraggingHandle(false);
+    }
+}
+
+// Ghost silhouette: each moving face loop drawn as a yellow outline,
+// transformed by the current gesture (slide / tilt / scale). During a drag
+// this is the only thing that moves; the body rebuilds on release.
+void MoveFaceController::drawOverlay(const IopOverlay& ov) const {
+    if (!m_st.moveFaceActive || m_st.moveFaceSilhouetteLoops.empty() ||
+        !faceXformNontrivial()) return;
+    // Apply the current gesture transform to a ghost point.
+    auto xf = [&](const glm::vec3& p) -> glm::vec3 {
+        if (m_st.faceXformKind == FaceXform::Translate)
+            return p + m_st.moveFaceVec;
+        if (m_st.faceXformKind == FaceXform::Scale) {
+            glm::vec3 d = p - m_st.moveFacePivot;
+            if (m_st.moveFaceScaleUniform)
+                return m_st.moveFacePivot + d * m_st.moveFaceScale;
+            // Non-uniform: scale along each in-plane axis.
+            float dA = glm::dot(d, m_st.moveFaceAxisA);
+            float dB = glm::dot(d, m_st.moveFaceAxisB);
+            float dN = glm::dot(d, m_st.moveFaceN);
+            return m_st.moveFacePivot + m_st.moveFaceAxisA * (dA * m_st.moveFaceScaleA)
+                                      + m_st.moveFaceAxisB * (dB * m_st.moveFaceScaleB)
+                                      + m_st.moveFaceN * dN;
+        }
+        if (m_st.moveFaceIsTwist) {
+            // Twist: spin the top loop about the face normal through
+            // the pivot (Rodrigues) — shows the final top orientation.
+            glm::vec3 d = p - m_st.moveFacePivot;
+            float c = std::cos(m_st.moveFaceTwist), s = std::sin(m_st.moveFaceTwist);
+            const glm::vec3& k = m_st.moveFaceN;
+            glm::vec3 r = d * c + glm::cross(k, d) * s +
+                          k * glm::dot(k, d) * (1.0f - c);
+            return m_st.moveFacePivot + r;
+        }
+        // Composed tilt (live ring ∘ accumulated tilts) about pivot.
+        return m_st.moveFacePivot + faceRotTotal() * (p - m_st.moveFacePivot);
+    };
+    const unsigned col = 0xE640EBFFu; // yellow, 0xAABBGGRR
+    for (size_t k = 0; k < m_st.moveFaceSilhouetteLoops.size(); ++k) {
+        // These are the TOP rings. Outline moves with the face; a
+        // hole's top ring moves only if that hole slants or is a
+        // vertical tube (else it stays put, undrawn).
+        bool holeRides = m_st.moveFaceMoveOuter &&
+                         m_st.faceXformKind == FaceXform::Rotate;
+        bool moves = (k == 0)
+            ? m_st.moveFaceMoveOuter
+            : (holeRides ||
+               (k - 1 < m_st.moveFaceHoleSlant.size() && m_st.moveFaceHoleSlant[k - 1]) ||
+               (k - 1 < m_st.moveFaceHoleVertical.size() && m_st.moveFaceHoleVertical[k - 1]));
+        if (!moves) continue; // a static loop stays at rest, undrawn
+        glm::vec2 prev{}, first{}; bool havePrev = false, haveFirst = false;
+        for (const auto& p : m_st.moveFaceSilhouetteLoops[k]) {
+            glm::vec2 s;
+            if (!ov.toScreen(xf(p), s)) { havePrev = false; continue; }
+            if (!haveFirst) { first = s; haveFirst = true; }
+            if (havePrev) ov.line(prev, s, col, 2.0f);
+            prev = s; havePrev = true;
+        }
+        if (haveFirst && havePrev) ov.line(prev, first, col, 2.0f);
+    }
+}
+
 // Face gizmo: Move/Scale show two in-plane arrows; Rotate shows two rings
 // (about the face centre) so a tilt reads as a rotation. The latched handle
 // brightens.
