@@ -189,7 +189,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Materializr-macos-arm64
-          retention-days: 2
+          retention-days: ${{ github.event_name == 'pull_request' && 2 || 90 }}
           path: build/Materializr-*-arm64.dmg
 
       - name: Attach to GitHub Release

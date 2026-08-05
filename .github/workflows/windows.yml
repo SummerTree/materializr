@@ -139,7 +139,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Materializr-windows-x64-portable
-          retention-days: 2
+          retention-days: ${{ github.event_name == 'pull_request' && 2 || 90 }}
           path: Materializr-windows-x64.zip
 
       # APPVERSION goes through the environment, not through `${{ }}` inline in
@@ -165,7 +165,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Materializr-windows-x64-installer
-          retention-days: 2
+          retention-days: ${{ github.event_name == 'pull_request' && 2 || 90 }}
           path: Materializr-Setup.exe
 
       - name: Attach to GitHub Release
