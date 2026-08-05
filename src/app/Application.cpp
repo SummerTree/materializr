@@ -2533,7 +2533,8 @@ void Application::handleToolAction(int action) {
             for (int i = 0; i < static_cast<int>(ops.size()); ++i) {
                 const auto& op = ops[i];
                 if (!op || !op->isEnabled()) continue;
-                if (op->typeId() != "fillet" && op->typeId() != "chamfer") continue;
+                if (op->kind() != Operation::Kind::Fillet &&
+                    op->kind() != Operation::Kind::Chamfer) continue;
                 int sc = op->ownsFaceScore(pickedFace);
                 if (sc > 0 && sc >= bestScore) { bestScore = sc; bestI = i; }
             }
@@ -5908,7 +5909,7 @@ bool Application::threadAxisCenter2d(int bodyId, const gp_Pln& pln,
     float bestD = 1e30f;
     for (int i = 0; i <= m_history->currentStep(); ++i) {
         const Operation* s = m_history->getStep(i);
-        if (!s || !s->isEnabled() || s->typeId() != "thread") continue;
+        if (!s || !s->isEnabled() || s->kind() != Operation::Kind::Thread) continue;
         const ThreadOp* th = dynamic_cast<const ThreadOp*>(s);
         if (!th) continue;
         if (bodyId >= 0 && th->getBodyId() != bodyId) continue;
@@ -7069,8 +7070,8 @@ void Application::run() {
                                 s_frozenRound = true; // assume frozen until an op claims it
                                 for (const auto& op : m_history->operations())
                                     if (op && op->isEnabled() && op->ownsFace(pf) &&
-                                        (op->typeId() == "fillet" ||
-                                         op->typeId() == "chamfer")) {
+                                        (op->kind() == Operation::Kind::Fillet ||
+                                         op->kind() == Operation::Kind::Chamfer)) {
                                         s_frozenRound = false;
                                         break;
                                     }

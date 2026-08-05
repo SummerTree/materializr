@@ -323,15 +323,15 @@ std::vector<Toolbar::RailTool> Toolbar::railTools() const {
                 const Operation* best = nullptr; int bestScore = 0;
                 for (const auto& op : m_history->operations()) {
                     if (!op || !op->isEnabled()) continue;
-                    if (op->typeId() != "fillet" && op->typeId() != "chamfer") continue;
+                    if (op->kind() != Operation::Kind::Fillet && op->kind() != Operation::Kind::Chamfer) continue;
                     int sc = op->ownsFaceScore(pickedFace);
                     if (sc > 0 && sc >= bestScore) { bestScore = sc; best = op.get(); }
                 }
-                if (best && best->typeId() == "fillet")
+                if (best && best->kind() == Operation::Kind::Fillet)
                     add(MZ_ICON_FILLET, "Edit Fillet",
                         ToolAction::EditFilletChamfer, false,
                         "Change this fillet's radius without re-picking edges.");
-                else if (best && best->typeId() == "chamfer")
+                else if (best && best->kind() == Operation::Kind::Chamfer)
                     add(MZ_ICON_CHAMFER, "Edit Chamfer",
                         ToolAction::EditFilletChamfer, false,
                         "Change this chamfer's distance without re-picking edges.");
@@ -957,16 +957,16 @@ ToolAction Toolbar::renderFaceTools() {
             const Operation* best = nullptr; int bestScore = 0;
             for (const auto& op : ops) {
                 if (!op || !op->isEnabled()) continue;
-                if (op->typeId() != "fillet" && op->typeId() != "chamfer") continue;
+                if (op->kind() != Operation::Kind::Fillet && op->kind() != Operation::Kind::Chamfer) continue;
                 int sc = op->ownsFaceScore(pickedFace);
                 if (sc > 0 && sc >= bestScore) { bestScore = sc; best = op.get(); }
             }
             if (best) {
-                const char* label = best->typeId() == "fillet" ? "Edit Fillet"
+                const char* label = best->kind() == Operation::Kind::Fillet ? "Edit Fillet"
                                                                : "Edit Chamfer";
                 if (ImGui::Button(label, ImVec2(-1, bh(30))))
                     action = ToolAction::EditFilletChamfer;
-                tip(best->typeId() == "fillet"
+                tip(best->kind() == Operation::Kind::Fillet
                         ? "Change this fillet's radius without re-picking edges."
                         : "Change this chamfer's distance without re-picking edges.");
             }

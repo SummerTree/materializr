@@ -321,9 +321,9 @@ void Application::beginInteractiveEdgeOpEdit(int historyIndex) {
     // toolbar's filter is the only thing that should reach here.
     const FilletOp*  filletOp  = nullptr;
     const ChamferOp* chamferOp = nullptr;
-    if (opRaw->typeId() == "fillet")
+    if (opRaw->kind() == Operation::Kind::Fillet)
         filletOp = dynamic_cast<const FilletOp*>(opRaw);
-    else if (opRaw->typeId() == "chamfer")
+    else if (opRaw->kind() == Operation::Kind::Chamfer)
         chamferOp = dynamic_cast<const ChamferOp*>(opRaw);
     if (!filletOp && !chamferOp) return;
 

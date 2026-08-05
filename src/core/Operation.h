@@ -30,8 +30,31 @@ public:
     // For the properties panel — each operation renders its own ImGui editor
     virtual void renderProperties() = 0;
 
-    // Unique type identifier for serialization
+    // Unique type identifier for SERIALIZATION. These strings are the on-disk
+    // format keys — ProjectIO writes `TYPE <typeId>` and OperationFactory
+    // rebuilds from them — so a value here can never change without breaking
+    // every saved project. Use kind() to make DECISIONS about an op; see below.
     virtual std::string typeId() const = 0;
+
+    // The same identity, typed, for behaviour that branches on op type.
+    //
+    // Dispatch used to compare typeId() against string literals scattered
+    // across History, Application and the Toolbar — "thread", "shell",
+    // "moveface", "fillet", "chamfer". Every one of those is a silent failure
+    // waiting to happen: misspell it and the compare simply never matches, so
+    // a thread quietly stops reflowing (or, as in isBodyThreaded, keeps
+    // reflowing when it shouldn't) with nothing to point at. This is the same
+    // brittleness derei flagged for the plugin dispatcher in #72, which became
+    // the typed InteractiveOp enum in 543f42b; typeId() was the other half.
+    //
+    // Deliberately NOT a virtual each op overrides: it is derived from
+    // typeId() by the single mapping at the bottom of this header, so the
+    // string↔kind correspondence lives in exactly one place and no op can
+    // drift out of sync with it. An op whose typeId isn't listed gets Other,
+    // which is the right answer for the ~30 types nothing branches on.
+    enum class Kind { Other, Thread, Shell, MoveFace, Fillet, Chamfer };
+    Kind kind() const;
+    bool isKind(Kind k) const { return kind() == k; }
 
     // True if this operation produced the given face (e.g. a fillet/chamfer
     // blend surface). Lets the UI map a clicked face back to the op that made
@@ -179,3 +202,16 @@ protected:
     std::chrono::system_clock::time_point m_timestamp = std::chrono::system_clock::now();
     std::function<bool(float, const char*)> m_progress;
 };
+
+// The one place a type-id string is turned into a decision. Keep these values
+// EXACTLY as each op's typeId() returns them — they are the saved-file keys
+// (see typeId() above). Adding a Kind means adding it here and nowhere else.
+inline Operation::Kind Operation::kind() const {
+    const std::string id = typeId();
+    if (id == "thread")   return Kind::Thread;
+    if (id == "shell")    return Kind::Shell;
+    if (id == "moveface") return Kind::MoveFace;
+    if (id == "fillet")   return Kind::Fillet;
+    if (id == "chamfer")  return Kind::Chamfer;
+    return Kind::Other;
+}
