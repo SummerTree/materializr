@@ -67,6 +67,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Materializr-linux-${{ matrix.arch }}
+          retention-days: 2
           path: |
             dist/Materializr-${{ matrix.arch }}.AppImage
             dist/Materializr-${{ matrix.arch }}.AppImage.zsync
