@@ -7,6 +7,7 @@
 #include <functional>
 #include <set>
 #include <string>
+#include <cstddef>   // size_t
 
 namespace materializr {
 

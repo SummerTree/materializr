@@ -5,6 +5,7 @@
 #include <TopLoc_Location.hxx>
 #include <map>
 #include <vector>
+#include <cstddef>   // size_t
 
 class SelectionManager;
 class Document;

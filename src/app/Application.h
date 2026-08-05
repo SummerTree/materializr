@@ -35,6 +35,7 @@
 #include "viewport/SectionView.h" // SectionView::Result (async section compute)
 #include "core/SheetSpec.h" // for SheetMaterial (m_unfoldMaterial)
 #include "io/Settings.h" // for AppSettings::RecentProject (m_recentProjects)
+#include <cstddef>   // size_t
 
 // Global (non-namespaced) op, forward-declared for configureFaceOp's signature.
 class MoveFaceOp;

@@ -4,6 +4,7 @@
 #include <TopoDS_Shape.hxx>
 #include <vector>
 #include <string>
+#include <cstddef>   // size_t
 
 enum class PatternType { Linear, Radial };
 

@@ -13,6 +13,7 @@
 #include <string>
 #include <map>
 #include <unordered_map>
+#include <cstddef>   // size_t
 
 class BRepBuilderAPI_MakeShape;
 class BRepTools_History;

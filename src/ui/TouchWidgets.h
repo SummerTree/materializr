@@ -5,6 +5,7 @@
 // a touchui::Scope (TouchTheme.h) for the intended look.
 
 #include <imgui.h>
+#include <cstddef>   // size_t
 
 namespace materializr {
 namespace touchui {

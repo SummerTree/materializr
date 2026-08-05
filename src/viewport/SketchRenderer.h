@@ -7,6 +7,7 @@
 #include <set>
 #include <unordered_map>
 #include <vector>
+#include <cstddef>   // size_t
 
 namespace materializr {
 

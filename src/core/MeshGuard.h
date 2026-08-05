@@ -22,6 +22,7 @@
 
 #include <string>
 #include <vector>
+#include <cstddef>   // size_t
 
 // Document and SelectionManager live at global scope, not in materializr.
 class Document;
