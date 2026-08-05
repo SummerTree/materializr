@@ -50,18 +50,52 @@ struct IopContext {
 // four small hooks; the lifecycle, the panel scaffold, and the
 // suppression/Esc registration come from here.
 //
-// Lifecycle contract (identical to the pattern the hand-written ops used):
-//   begin   — snapshot the target body, capture params from the selection
-//             (onBegin), run the first preview.
-//   update  — restore the snapshot, build a fresh Operation from current
-//             params, execute it as the live preview; previewOk() records
-//             whether it landed.
-//   commit  — restore the snapshot, build the op once more, push it onto
-//             History (which re-executes it cleanly), clear selection.
-//   cancel  — restore the snapshot, drop all state.
+// TWO preview models, because the ops genuinely differ (this was the finding
+// that stalled the Extrude/Push-Pull extraction):
+//
+//   SnapshotBody — the original. One target body is snapshotted at begin();
+//     every preview restores it and runs a FRESH op against it. Shell, Taper,
+//     Scale Face, Projection, Defeature, Resize Cylindrical. Requires exactly
+//     one pre-existing body to modify, so an op that CREATES a body can't use
+//     it.
+//
+//   LiveOp — one op INSTANCE is kept for the whole gesture and toggled
+//     against the document: undo() it, push the new parameter values in
+//     (syncLiveOp), execute() it again. History is untouched until commit,
+//     which records the already-applied instance via pushExecuted().
+//     Handles body creation, multi-body edits, and — the reason it exists —
+//     keeps created-body IDS STABLE across preview frames, because the same
+//     instance re-uses the ids it minted (ExtrudeOp::m_createdBodyId,
+//     PushPullOp's reuse pool). Push/Pull was hand-converted to exactly this
+//     engine after the alternative (pushing and undoing real History steps
+//     per frame) produced a whole bug class: ids changing every frame,
+//     empty-document click windows, and outside history touches corrupting
+//     the preview bookkeeping. The base now owns that engine so the next op
+//     doesn't have to re-derive it.
+//
+// Lifecycle contract:
+//   begin   — capture params from the selection (onBegin); snapshot the
+//             target body (SnapshotBody only); run the first preview.
+//   update  — SnapshotBody: restore the snapshot, build a fresh op, execute.
+//             LiveOp: undo the live instance, syncLiveOp, execute it again.
+//             previewOk() records whether it landed.
+//   commit  — SnapshotBody: restore, rebuild, push onto History (which
+//             re-executes it cleanly). LiveOp: hand the applied instance to
+//             pushExecuted — unless buildCommitOp() offers a different op
+//             (Extrude previews a NewBody tool volume but commits a boolean
+//             cut), in which case the preview is undone and that op is
+//             pushed normally. Clears the selection either way.
+//   cancel  — undo the preview (restore the snapshot / undo the instance).
 class InteractiveOpController {
 public:
     virtual ~InteractiveOpController() = default;
+
+    enum class PreviewModel { SnapshotBody, LiveOp };
+
+    // onBegin() return value for a LiveOp controller with no single existing
+    // body to snapshot — a free-space extrude CREATES its body, so there is
+    // nothing to capture, but the op still starts. (-1 stays "refuse".)
+    static constexpr int kNoTargetBody = -2;
 
     bool begin(const IopContext& ctx);
     // Virtual so a controller with a custom lifecycle (Move Face predates the
@@ -105,12 +139,28 @@ public:
 
 protected:
     virtual const char* title() const = 0;
-    // Capture the selection into params. Return the target body id, or -1
-    // to refuse to start (nothing usable selected).
+    // Which preview engine this op runs on — see the two models above.
+    virtual PreviewModel previewModel() const { return PreviewModel::SnapshotBody; }
+    // Capture the selection into params. Return the target body id, -1 to
+    // refuse to start (nothing usable selected), or kNoTargetBody for a
+    // LiveOp controller that creates its own body.
     virtual int onBegin(const IopContext& ctx) = 0;
-    // Build a fresh Operation from the current parameters (used for both
-    // the live preview and the final commit).
+    // Build a fresh Operation from the current parameters. SnapshotBody calls
+    // this for every preview AND the commit; LiveOp calls it ONCE per gesture
+    // to mint the instance it then keeps (which is what makes created-body ids
+    // stable), and feeds later value changes through syncLiveOp instead.
     virtual std::unique_ptr<Operation> buildOp(const IopContext& ctx) = 0;
+    // LiveOp only: push the current parameter values into the live instance.
+    // Return false when the gesture is currently a no-op (zero distance), so
+    // the base skips execute() and leaves the document un-previewed.
+    virtual bool syncLiveOp(Operation& op) { (void)op; return true; }
+    // LiveOp only: the op to RECORD at commit when it differs from the one
+    // previewed — Extrude previews a NewBody tool volume but commits a real
+    // boolean cut against the body the sketch was drawn on. Returning null
+    // (the default) records the live instance as-is via pushExecuted.
+    virtual std::unique_ptr<Operation> buildCommitOp(const IopContext& ctx) {
+        (void)ctx; return nullptr;
+    }
     // Parameter widgets (sliders, radios, status lines). Set `changed`
     // when a value moved so the scaffold re-runs the preview. Call
     // requestCommit() to commit from inside the body (e.g. Enter in a
@@ -144,9 +194,15 @@ protected:
 
     int bodyId() const { return m_bodyId; }
     const TopoDS_Shape& snapshot() const { return m_snapshot; }
+    // LiveOp: the instance currently driving the preview (null before the
+    // first update, or after a commit/cancel released it).
+    Operation* liveOp() const { return m_liveOp.get(); }
+    // LiveOp: is the live instance currently APPLIED to the document?
+    bool livePreviewApplied() const { return m_liveApplied; }
 
 private:
     void cleanup();
+    void updateLive(const IopContext& ctx);
 
     bool m_active = false;
     bool m_previewOk = false;
@@ -154,6 +210,9 @@ private:
     bool m_draggingHandle = false;
     int m_bodyId = -1;
     TopoDS_Shape m_snapshot;
+    // LiveOp model only — see PreviewModel.
+    std::unique_ptr<Operation> m_liveOp;
+    bool m_liveApplied = false;
 };
 
 } // namespace materializr

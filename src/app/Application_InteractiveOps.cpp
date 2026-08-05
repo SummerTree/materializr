@@ -957,186 +957,32 @@ void Application::cancelThread() {
 
 // ─── Interactive Extrude (drag-to-distance) ─────────────────────────────────
 
-double Application::extrudeOpDistance() const {
-    // The profile face normal points outward from the body. For a Subtract the
-    // tool must go into the body, so negate the distance.
-    return (m_extrudeMode == ExtrudeMode::Subtract)
-        ? -static_cast<double>(m_extrudeDistance)
-        : static_cast<double>(m_extrudeDistance);
-}
+// Interactive Extrude now lives in ExtrudeController (the first user of the
+// base's LiveOp preview model — see InteractiveOpController.h). What used to
+// be four methods of history churn here is a delegate each; the controller
+// keeps ONE ExtrudeOp instance and toggles it undo/execute, so the preview
+// body keeps its id and History stays untouched until commit.
 
 void Application::beginInteractiveExtrude(const TopoDS_Shape& profile,
                                           ExtrudeMode mode, int targetBody,
                                           int sourceSketchId) {
-    // Extrude sweeps a profile along its normal — only meaningful for a FLAT
-    // profile. A single curved body face (cylinder / sphere / fillet) has no
-    // single normal, so extruding it produced garbage geometry; refuse with
-    // guidance instead (mirrors Sketch-on-Face). Checked before cancelActiveIops
-    // so a bad attempt doesn't disturb any in-progress op. Sketch profiles are
-    // planar by construction; wire / compound profiles aren't a single face and
-    // skip this check.
-    if (profile.ShapeType() == TopAbs_FACE) {
-        Handle(Geom_Surface) s = BRep_Tool::Surface(TopoDS::Face(profile));
-        if (s.IsNull() || !s->IsKind(STANDARD_TYPE(Geom_Plane))) {
-            showToast("Can't extrude a curved face \xE2\x80\x94 extrude works on "
-                      "flat faces only.");
-            return;
-        }
-    }
-    cancelActiveIops();
-    // Threaded target bodies are fine here: the interactive preview is
-    // always a NewBody tool volume (never a per-frame boolean against the
-    // target), and the real Subtract runs once at commit through
-    // History::pushOperation, which reflows the cut beneath the Thread
-    // step and re-cuts the thread in background.
-    m_extrudeProfile = profile;
-    m_extruding = true;
-    m_extrudeMode = mode;
-    m_extrudeTargetBody = targetBody;
-    m_extrudeSketchId = sourceSketchId;
-    m_extrudeDistance = 5.0f;
-    std::snprintf(m_extrudeInputBuf, sizeof(m_extrudeInputBuf), "%.1f", m_extrudeDistance);
-    m_extrudeInputFocus = true;
-
-    // Compute face normal and center. A compound profile (multi-region
-    // extrude — several letters at once) uses its first face: all regions
-    // of one sketch are coplanar, so any face gives the right normal.
-    TopoDS_Shape normShape = profile;
-    if (profile.ShapeType() != TopAbs_FACE) {
-        TopExp_Explorer fx(profile, TopAbs_FACE);
-        if (fx.More()) normShape = fx.Current();
-    }
-    if (normShape.ShapeType() == TopAbs_FACE) {
-        BRepGProp_Face prop(TopoDS::Face(normShape));
-        gp_Pnt center;
-        gp_Vec norm;
-        double u1, u2, v1, v2;
-        prop.Bounds(u1, u2, v1, v2);
-        prop.Normal((u1 + u2) * 0.5, (v1 + v2) * 0.5, center, norm);
-        if (norm.Magnitude() > 1e-10) {
-            m_extrudeNormal = glm::vec3(norm.X(), norm.Y(), norm.Z());
-            m_extrudeNormal = glm::normalize(m_extrudeNormal);
-        }
-        m_extrudeOrigin = glm::vec3(center.X(), center.Y(), center.Z());
-    }
-    // Point the on-screen arrow into the body for a Subtract so dragging toward
-    // the material deepens the cut.
-    if (mode == ExtrudeMode::Subtract) m_extrudeNormal = -m_extrudeNormal;
-
-    // Create initial preview body. The preview is always a NewBody (the solid
-    // tool volume) so the user sees the shape being swept; for a Subtract it is
-    // tinted/outlined red and the actual boolean cut happens on commit.
-    auto op = std::make_unique<ExtrudeOp>();
-    op->setProfile(profile);
-    op->setDistance(extrudeOpDistance());
-    op->setMode(ExtrudeMode::NewBody);
-    op->setSketchSource(m_extrudeSketchId);
-    {
-        const Operation* raw = op.get();
-        if (m_history->pushOperation(std::move(op), *m_document)) {
-            m_extrudePreviewOp = raw;
-            auto ids = m_document->getAllBodyIds();
-            m_extrudePreviewBodyId = ids.back();
-            m_meshesDirty = true;
-        }
-    }
+    cancelAllInteractivePreviews();
+    m_extrudeCtl.beginExtrude(iopContext(), profile, mode, targetBody,
+                              sourceSketchId);
 }
 
 void Application::updateInteractiveExtrude(bool applySnap) {
-    if (!m_extruding || m_extrudePreviewBodyId < 0) return;
-    if (!std::isfinite(m_extrudeDistance)) { m_extrudeDistance = 0.0f; return; }
-
-    // Snap the live distance to the corner-widget grid step before applying —
-    // mirrors updatePushPull (issue #24). Drag/commit paths snap; live typing
-    // and the steppers pass applySnap=false so a typed value stays exact.
-    if (applySnap && m_snapToGrid && m_sketchGridStep > 0.0f) {
-        const float step = m_sketchGridStep;
-        m_extrudeDistance = std::round(m_extrudeDistance / step) * step;
-        std::snprintf(m_extrudeInputBuf, sizeof(m_extrudeInputBuf),
-                      "%.1f", m_extrudeDistance);
-    }
-
-    // Remove old preview and create new one at current distance. The undo
-    // is VERIFIED against the recorded preview op so an outside history
-    // touch can never make us pop a committed step (see updatePushPull).
-    m_document->removeBody(m_extrudePreviewBodyId);
-    if (m_history->canUndo() &&
-        m_history->getStep(m_history->currentStep()) == m_extrudePreviewOp) {
-        m_history->undo(*m_document);
-    } else {
-        std::fprintf(stderr, "[Extrude] preview op no longer on top of "
-                             "history — resyncing without undo\n");
-    }
-    m_extrudePreviewOp = nullptr;
-
-    auto op = std::make_unique<ExtrudeOp>();
-    op->setProfile(m_extrudeProfile);
-    op->setDistance(extrudeOpDistance());
-    op->setMode(ExtrudeMode::NewBody);
-    op->setSketchSource(m_extrudeSketchId);
-    const Operation* raw = op.get();
-    if (m_history->pushOperation(std::move(op), *m_document)) {
-        m_extrudePreviewOp = raw;
-        auto ids = m_document->getAllBodyIds();
-        m_extrudePreviewBodyId = ids.back();
-        m_meshesDirty = true;
-    }
+    m_extrudeCtl.updateExtrude(iopContext(), applySnap);
 }
 
 void Application::commitInteractiveExtrude() {
-    if (m_extrudeMode == ExtrudeMode::Subtract && m_extrudeTargetBody >= 0) {
-        // Discard the NewBody tool preview and replace it with the real boolean
-        // cut against the body the sketch was drawn on.
-        if (m_extrudePreviewBodyId >= 0) {
-            m_document->removeBody(m_extrudePreviewBodyId);
-            if (m_history->canUndo() &&
-                m_history->getStep(m_history->currentStep()) ==
-                    m_extrudePreviewOp) {
-                m_history->undo(*m_document);
-            }
-            m_extrudePreviewOp = nullptr;
-        }
-        auto op = std::make_unique<ExtrudeOp>();
-        op->setProfile(m_extrudeProfile);
-        op->setDistance(extrudeOpDistance());
-        op->setMode(ExtrudeMode::Subtract);
-        op->setTargetBody(m_extrudeTargetBody);
-        op->setSketchSource(m_extrudeSketchId);
-        if (m_history->pushOperation(std::move(op), *m_document)) {
-            markDirty();
-            std::fprintf(stdout, "Subtracted %.1f mm from body %d\n",
-                         std::abs(m_extrudeDistance), m_extrudeTargetBody);
-        } else {
-            std::fprintf(stderr, "Subtract failed\n");
-        }
-    } else {
-        // NewBody: the preview op is already the result — just finalize.
-        std::fprintf(stdout, "Extruded %.1f mm\n", m_extrudeDistance);
-    }
-
-    m_extruding = false;
-    m_extrudeProfile.Nullify();
-    m_extrudePreviewBodyId = -1;
-    m_extrudeMode = ExtrudeMode::NewBody;
-    m_extrudeTargetBody = -1;
+    m_extrudeCtl.commit(iopContext());
+    markDirty();
     m_meshesDirty = true;
 }
 
 void Application::cancelInteractiveExtrude() {
-    if (m_extrudePreviewBodyId >= 0) {
-        m_document->removeBody(m_extrudePreviewBodyId);
-        if (m_history->canUndo() &&
-            m_history->getStep(m_history->currentStep()) ==
-                m_extrudePreviewOp) {
-            m_history->undo(*m_document);
-        }
-        m_extrudePreviewOp = nullptr;
-    }
-    m_extruding = false;
-    m_extrudeProfile.Nullify();
-    m_extrudePreviewBodyId = -1;
-    m_extrudeMode = ExtrudeMode::NewBody;
-    m_extrudeTargetBody = -1;
+    m_extrudeCtl.cancel(iopContext());
     m_meshesDirty = true;
 }
 

@@ -1095,7 +1095,7 @@ void Application::cancelActiveIops() {
 }
 
 bool Application::anyInteractivePreviewActive() const {
-    return anyIopActive() || m_extruding || m_pushPullActive ||
+    return anyIopActive() || m_extrudeCtl.active() || m_pushPullActive ||
            m_patternActive || m_threadActive;
 }
 
@@ -1103,7 +1103,7 @@ void Application::cancelAllInteractivePreviews() {
     cancelActiveIops();
     // Legacy history-replay previews write the document every frame; a
     // controller preview running beside one corrupts both restore paths.
-    if (m_extruding) cancelInteractiveExtrude();
+    if (m_extrudeCtl.active()) cancelInteractiveExtrude();
     if (m_pushPullActive) cancelPushPull();
     if (m_patternActive) cancelPattern();
     if (m_threadActive) cancelThread();
@@ -1124,7 +1124,7 @@ bool Application::imTouchActionCorner() const {
 }
 
 void Application::confirmActiveAction() {
-    if (m_extruding)       { commitInteractiveExtrude(); return; }
+    if (m_extrudeCtl.active())       { commitInteractiveExtrude(); return; }
     if (m_pushPullActive)  { commitPushPull(); return; }
     if (m_patternActive)   { commitPattern(); return; }
     if (m_threadActive) {
@@ -1141,7 +1141,7 @@ void Application::confirmActiveAction() {
 }
 
 void Application::cancelActiveAction() {
-    if (m_extruding)       { cancelInteractiveExtrude(); return; }
+    if (m_extrudeCtl.active())       { cancelInteractiveExtrude(); return; }
     if (m_pushPullActive)  { cancelPushPull(); return; }
     if (m_patternActive)   { cancelPattern(); return; }
     if (m_threadActive)    { cancelThread(); return; }
@@ -2555,7 +2555,7 @@ void Application::handleShortcuts() {
     // ImGui has text input focus. Always false on Android (no modifier keys).
     bool ctrlHeld = Window::isCtrlDown();
     if (ctrlHeld && ImGui::IsKeyPressed(ImGuiKey_Z, false)) {
-        if (!m_edgeOpActive && !m_extruding && !m_pushPullActive) {
+        if (!m_edgeOpActive && !m_extrudeCtl.active() && !m_pushPullActive) {
             // Mid-placement Ctrl+Z cancels the IN-PROGRESS shape first (the
             // editor convention — and Steve's muscle memory); the next
             // Ctrl+Z then undoes committed elements as usual.
@@ -2611,7 +2611,7 @@ void Application::handleShortcuts() {
         }
     }
     if (ctrlHeld && ImGui::IsKeyPressed(ImGuiKey_Y, false)) {
-        if (!m_edgeOpActive && !m_extruding && !m_pushPullActive) {
+        if (!m_edgeOpActive && !m_extrudeCtl.active() && !m_pushPullActive) {
             if (m_history->canRedo()) {
                 m_history->redo(*m_document);
                 const Operation* redone =
@@ -2901,7 +2901,7 @@ void Application::handleShortcuts() {
         } else if (false) {
         } else if (m_edgeOpActive) {
             cancelInteractiveEdgeOp();
-        } else if (m_extruding) {
+        } else if (m_extrudeCtl.active()) {
             cancelInteractiveExtrude();
         } else if (m_inSketchMode) {
             // Two-step Escape inside sketch mode:
@@ -2951,8 +2951,8 @@ void Application::handleShortcuts() {
         updateInteractiveEdgeOp();
         commitInteractiveEdgeOp();
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_Enter) && m_extruding) {
-        (void)materializr::parseFinite(m_extrudeInputBuf, m_extrudeDistance);
+    if (ImGui::IsKeyPressed(ImGuiKey_Enter) && m_extrudeCtl.active()) {
+        (void)materializr::parseFinite(m_extrudeCtl.inputBuf(), m_extrudeCtl.distanceRef());
         updateInteractiveExtrude();
         commitInteractiveExtrude();
     }
@@ -3092,8 +3092,9 @@ void Application::rebuildMeshes() {
                                                    angularDeflection);
             if (idx >= 0) {
                 m_shapeRenderer->setColor(idx, m_document->getBodyColor(id));
-                if (m_extruding && m_extrudeMode == ExtrudeMode::Subtract &&
-                    id == m_extrudePreviewBodyId) {
+                if (m_extrudeCtl.active() &&
+                    m_extrudeCtl.mode() == ExtrudeMode::Subtract &&
+                    id == m_extrudeCtl.previewBodyId()) {
                     m_shapeRenderer->setSubtractPreview(idx, true);
                 }
             }
@@ -3137,8 +3138,9 @@ void Application::rebuildMeshes() {
                                                angularDeflection);
         if (idx >= 0) {
             m_shapeRenderer->setColor(idx, m_document->getBodyColor(id));
-            if (m_extruding && m_extrudeMode == ExtrudeMode::Subtract &&
-                id == m_extrudePreviewBodyId) {
+            if (m_extrudeCtl.active() &&
+                m_extrudeCtl.mode() == ExtrudeMode::Subtract &&
+                id == m_extrudeCtl.previewBodyId()) {
                 m_shapeRenderer->setSubtractPreview(idx, true);
             }
         }

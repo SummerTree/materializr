@@ -57,6 +57,11 @@ public:
     bool deserializeParams(const std::string& blob) override;
     bool rehydrateFromReload(const ReloadState& state, Document& doc) override;
 
+    // The body this op minted (NewBody mode), or -1. Survives undo so a redo
+    // — and the interactive preview's undo/re-execute cycle — reuses the same
+    // id instead of minting a new one every frame.
+    int createdBodyId() const { return m_createdBodyId; }
+
 private:
     TopoDS_Shape m_profile;
     double m_distance = 10.0;

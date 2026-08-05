@@ -25,6 +25,7 @@
 
 #include "app/InteractiveOpController.h"
 #include "app/FaceOpControllers.h"
+#include "app/ExtrudeController.h"
 #include "app/CylindricalPick.h"
 #include <array>
 #include "modeling/ExtrudeOp.h" // for ExtrudeMode
@@ -616,9 +617,6 @@ private:
     // Geometry is left as-is — re-link resumes parametric control, it doesn't move.
     void relinkSketch(bool isBody, int id);
     void updateInteractiveExtrude(bool applySnap = true);
-    // Signed distance to pass to ExtrudeOp: Subtract cuts into the body (the
-    // profile normal points outward), so it uses the negated distance.
-    double extrudeOpDistance() const;
     void commitInteractiveExtrude();
     void cancelInteractiveExtrude();
 
@@ -1465,13 +1463,14 @@ private:
     ProjectSketchController m_projectSketchCtl;
     DefeatureController m_defeatureCtl;
     ResizeCylindricalController m_resizeCylCtl;
+    ExtrudeController m_extrudeCtl;
     // m_moveFaceCtl is declared up with its delegates; it joined this array
     // once its lifecycle overrides landed, so every generic loop — Esc/Enter
     // chains, single-flight, suppression, input/overlay/gizmo dispatch —
     // covers Move Face without a special case.
-    std::array<InteractiveOpController*, 7> m_iops{
+    std::array<InteractiveOpController*, 8> m_iops{
         &m_shellCtl, &m_taperCtl, &m_scaleFaceCtl, &m_projectSketchCtl,
-        &m_defeatureCtl, &m_resizeCylCtl, &m_moveFaceCtl};
+        &m_defeatureCtl, &m_resizeCylCtl, &m_moveFaceCtl, &m_extrudeCtl};
     IopContext iopContext();
     bool anyIopActive() const {
         for (auto* c : m_iops) if (c->active()) return true;
@@ -1990,29 +1989,8 @@ private:
     static glm::vec3 userAxisToWorldVec(int userIdx);
     static int       userAxisToWorldIdx(int userIdx);
 
-    // Interactive extrude state
-    bool m_extruding = false;
-    TopoDS_Shape m_extrudeProfile;
-    // Source sketch for the in-flight extrude. Stamped onto every ExtrudeOp
-    // we push (preview + final) so the cascade-on-sketch-edit walker can find
-    // them later. -1 means face-driven extrude (no source sketch; never
-    // cascades).
-    int m_extrudeSketchId = -1;
-    glm::vec3 m_extrudeNormal{0, 0, 1};
-    glm::vec3 m_extrudeOrigin{0};
-    float m_extrudeDistance = 5.0f;
-    int m_extrudePreviewBodyId = -1;
-    // The exact preview op we pushed — undo is VERIFIED against this so an
-    // outside history touch can never make the preview pop a committed step.
-    const Operation* m_extrudePreviewOp = nullptr;
-    char m_extrudeInputBuf[32] = "5.0";
-    bool m_extrudeInputFocus = true;
-    // NewBody (default) or Subtract: Subtract cuts the extruded profile out of
-    // m_extrudeTargetBody (the body the sketch was drawn on) on commit, and the
-    // live preview is shown in red.
-    ExtrudeMode m_extrudeMode = ExtrudeMode::NewBody;
-    int m_extrudeTargetBody = -1;
-
+    // Interactive extrude state now lives in ExtrudeController (declared
+    // with the other iops); it is the first user of the LiveOp preview model.
     // Right-click face context menu state
     int m_contextMenuBodyId = -1;
     TopoDS_Shape m_contextMenuFace;
