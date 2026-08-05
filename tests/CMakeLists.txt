@@ -571,6 +571,13 @@ add_executable(test_scale_face_exact test_scale_face_exact.cpp)
 target_link_libraries(test_scale_face_exact PRIVATE materializr_core gtest gtest_main)
 add_test(NAME test_scale_face_exact COMMAND test_scale_face_exact)
 
+# test_disabled_thread — a DISABLED Thread step must not leave its body
+# counting as threaded (isBodyThreaded skipped the isEnabled() check its
+# isBodyShelled sibling always had).
+add_executable(test_disabled_thread test_disabled_thread.cpp)
+target_link_libraries(test_disabled_thread PRIVATE materializr_core gtest gtest_main)
+add_test(NAME test_disabled_thread COMMAND test_disabled_thread)
+
 add_executable(test_plane_axes test_plane_axes.cpp)
 target_link_libraries(test_plane_axes PRIVATE materializr_core gtest gtest_main)
 add_test(NAME test_plane_axes COMMAND test_plane_axes)

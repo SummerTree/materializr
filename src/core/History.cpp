@@ -589,7 +589,14 @@ bool History::isBodyThreaded(int bodyId) const {
     for (int i = 0; i <= limit && i < static_cast<int>(m_operations.size());
          ++i) {
         const Operation* s = m_operations[i].get();
-        if (!s || s->typeId() != "thread") continue;
+        // A DISABLED thread is not in the model, so the body is not threaded:
+        // this gate only exists to make callers avoid the helicoid (ghost
+        // preview in Push/Pull, no live preview in Resize Cylindrical), and
+        // there is nothing to avoid. Missing the isEnabled() check left every
+        // later op degrading its preview for a thread the user had switched
+        // off — while reflowInsertionIndex(), which DOES check, saw no thread
+        // to reorder beneath. isBodyShelled() below always had it right.
+        if (!s || !s->isEnabled() || s->typeId() != "thread") continue;
         // ThreadOp doesn't override plannedBodyIds() (returns {}); the body it
         // modified is recorded in its diff. Mirror reflowInsertionIndex's
         // touchesPlanned() so the up-front refusal matches the commit-time one.
