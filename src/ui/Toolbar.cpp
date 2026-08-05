@@ -1005,9 +1005,20 @@ ToolAction Toolbar::renderSketchSelectedTools() {
     if (ImGui::Button("Edit Sketch", ImVec2(-1, bh(30))))
         action = ToolAction::EditSketch;
     tip("Re-enter sketch mode to revise this sketch's geometry.");
+    // Push/Pull before Extrude From, matching this layout's Region and Face
+    // panels. It was missing here entirely — the mirror of the rail's old
+    // "attached sketch gets no Extrude" gap (see railTools) — so a whole
+    // sketch could only ever spawn a new body, never modify its host in
+    // place. Both tools now exist in every layout for every sketch selection.
+    if (ImGui::Button("Push / Pull", ImVec2(-1, bh(30))))
+        action = ToolAction::PushPull;
+    tip("Drag the arrow to push the sketch's regions into the body beneath "
+        "them, or pull them out of it. Modifies that body in place — use "
+        "Extrude From for a separate body.");
     if (ImGui::Button("Extrude From", ImVec2(-1, bh(30))))
         action = ToolAction::ExtrudeSketch;
-    tip("Make a new body by extruding the sketch's closed regions. "
+    tip("Make a NEW body by extruding the sketch's closed regions, leaving "
+        "any host body unchanged. "
         "Whole-sketch extrude assumes ONE outer boundary - for multi-shape "
         "sketches (SVG imports, text), click individual regions in the "
         "viewport (Ctrl+click for several) and extrude those instead.");
