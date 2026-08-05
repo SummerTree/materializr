@@ -197,19 +197,30 @@ private:
 // draw + drag into drawOverlay/onViewportInput and drops the reference.
 class MoveFaceController : public InteractiveOpController {
 public:
-    // Transitional: Application_Viewport still draws and drags this gizmo, and
-    // Application still runs begin/update/commit. Goes away with slice 3 — the
-    // same way ScaleFace's public frame did once it owned its own input.
     MoveFaceState& st() { return m_st; }
     const MoveFaceState& st() const { return m_st; }
 
-    // Lifecycle. Not base overrides yet — see the note in the .cpp.
+    // The op-specific entry points (two ways in: a picked face, or a hole
+    // recognised from its rim edges). begin() itself stays unused — this
+    // controller predates the base's snapshot-preview model and keeps its
+    // own lifecycle; the base-virtual overrides below route the GENERIC
+    // call sites (Esc/Enter chains, single-flight) into it.
     void beginMoveFace(const IopContext& ctx, FaceXform kind);
     bool beginMoveHoleFromEdges(const IopContext& ctx);
     void updateMoveFace(const IopContext& ctx);
     void commitMoveFace(const IopContext& ctx);
     void cancelMoveFace(const IopContext& ctx);
     void moveFaceSlideSketches(const IopContext& ctx, const glm::vec3& v);
+
+    void update(const IopContext& ctx) override { updateMoveFace(ctx); }
+    void commit(const IopContext& ctx) override { commitMoveFace(ctx); }
+    void cancel(const IopContext& ctx) override { cancelMoveFace(ctx); }
+    // The panel is NOT scaffold-shaped: the banner + value wells anchor to
+    // the viewport window, so renderViewport calls renderMoveFacePanel where
+    // that window is current. The scaffold hook stays silent.
+    void renderPanel(const IopContext&) override {}
+    void renderMoveFacePanel(const IopContext& ctx, float uiScale);
+    bool wantsViewportInput() const override { return true; }
 
     // Gesture maths — pure functions of the state, so they moved first.
     bool faceXformNontrivial() const;

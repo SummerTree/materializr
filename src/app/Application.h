@@ -574,11 +574,7 @@ private:
     void moveFaceSlideSketches(const glm::vec3& v) {
         m_moveFaceCtl.moveFaceSlideSketches(iopContext(), v);
     }
-    // Move Face's state now belongs to its controller (slice 2). This
-    // reference keeps the existing call sites reading `m_mf.…` while the
-    // lifecycle migrates; slice 3 removes it along with the last user.
     materializr::MoveFaceController m_moveFaceCtl;
-    materializr::MoveFaceState& m_mf = m_moveFaceCtl.st();
     void beginInteractiveExtrude(const TopoDS_Shape& profile,
                                  ExtrudeMode mode = ExtrudeMode::NewBody,
                                  int targetBody = -1,
@@ -1469,9 +1465,13 @@ private:
     ProjectSketchController m_projectSketchCtl;
     DefeatureController m_defeatureCtl;
     ResizeCylindricalController m_resizeCylCtl;
-    std::array<InteractiveOpController*, 6> m_iops{
+    // m_moveFaceCtl is declared up with its delegates; it joined this array
+    // once its lifecycle overrides landed, so every generic loop — Esc/Enter
+    // chains, single-flight, suppression, input/overlay/gizmo dispatch —
+    // covers Move Face without a special case.
+    std::array<InteractiveOpController*, 7> m_iops{
         &m_shellCtl, &m_taperCtl, &m_scaleFaceCtl, &m_projectSketchCtl,
-        &m_defeatureCtl, &m_resizeCylCtl};
+        &m_defeatureCtl, &m_resizeCylCtl, &m_moveFaceCtl};
     IopContext iopContext();
     bool anyIopActive() const {
         for (auto* c : m_iops) if (c->active()) return true;

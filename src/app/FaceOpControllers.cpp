@@ -1,5 +1,9 @@
 #include "ui/StepperRow.h"
 #include "FaceOpControllers.h"
+#include "../ui/UiTheme.h"      // viewportBanner
+#include "../ui/NumField.h"     // inputNumber, btnConfirm/btnCancel
+#include "../ui/OpDialogGrip.h"
+#include "../touch_mode.h"
 #include "UserAxes.h"
 #include "../core/Document.h"
 #include "../core/SelectionManager.h"
@@ -1116,6 +1120,7 @@ void MoveFaceController::beginMoveFace(const IopContext& ctx, FaceXform kind) {
     if (ctx.refuseMesh("Move Face")) return;
     
     m_st.moveFaceActive = false;
+    setActive(false); // keep the base flag — what the generic loops gate on — in step
     m_st.moveFaceBodyId = -1;
     m_st.moveFaceFace.Nullify();
     m_st.faceXformKind = kind;
@@ -1198,6 +1203,7 @@ void MoveFaceController::beginMoveFace(const IopContext& ctx, FaceXform kind) {
                     if (!pts.empty()) m_st.moveFaceSilhouetteLoops.push_back(pts);
                 }
                 m_st.moveFaceActive = true;
+                setActive(true);
                 return;
             }
             // Refuse ONLY when the pick is plausibly a bore wall. buildVoid
@@ -1419,6 +1425,7 @@ void MoveFaceController::beginMoveFace(const IopContext& ctx, FaceXform kind) {
                   "applies when you release (re-shelled automatically).");
 
     m_st.moveFaceActive = true;
+    setActive(true);
 }
 
 bool MoveFaceController::beginMoveHoleFromEdges(const IopContext& ctx) {
@@ -1445,6 +1452,7 @@ bool MoveFaceController::beginMoveHoleFromEdges(const IopContext& ctx) {
     m_st.moveFaceVec = m_st.moveFaceBase = glm::vec3(0.0f);
     m_st.moveFaceDragging = false;
     m_st.moveFaceActive = true;
+    setActive(true);
     m_st.moveHoleMode = true;
     m_st.moveHoleOpMode = pick.mode;
     m_st.moveHoleRimEdge = pick.rimEdge;
@@ -1623,6 +1631,7 @@ void MoveFaceController::commitMoveFace(const IopContext& ctx) {
         ctx.selection.clear();
         m_st.moveHoleMode = false;
         m_st.moveFaceActive = false;
+        setActive(false);
         m_st.moveHoleWall.Nullify();
         ctx.markMeshesDirty();
         return;
@@ -1682,6 +1691,7 @@ void MoveFaceController::commitMoveFace(const IopContext& ctx) {
     m_st.moveFaceSketchIds.clear();
     m_st.moveFaceSketchPlanes0.clear();
     m_st.moveFaceActive = false;
+    setActive(false);
     m_st.moveHoleMode = false;
     m_st.moveHoleWall.Nullify();
     m_st.moveFaceBodyId = -1;
@@ -1706,6 +1716,7 @@ void MoveFaceController::cancelMoveFace(const IopContext& ctx) {
     m_st.moveFaceSketchIds.clear();
     m_st.moveFaceSketchPlanes0.clear();
     m_st.moveFaceActive = false;
+    setActive(false);
     m_st.moveHoleMode = false;
     m_st.moveHoleWall.Nullify();
     m_st.moveFaceBodyId = -1;
@@ -1981,6 +1992,162 @@ void MoveFaceController::drawOverlay(const IopOverlay& ov) const {
         }
         if (haveFirst && havePrev) ov.line(prev, first, col, 2.0f);
     }
+}
+
+// Move / Tilt / Scale Face: instructions + value wells + commit/cancel. The
+// body follows (loft) on release; this panel just dials exact values or bails.
+// NOT the scaffold panel: the banner + the well anchor to the VIEWPORT window,
+// so renderViewport calls this while that window is current.
+void MoveFaceController::renderMoveFacePanel(const IopContext& ctx,
+                                             float uiScale) {
+    if (!m_st.moveFaceActive) return;
+    const bool isRot = m_st.faceXformKind == FaceXform::Rotate;
+    const bool isScl = m_st.faceXformKind == FaceXform::Scale;
+    materializr::viewportBanner(
+        ImVec4(0.2f, 1.0f, 0.5f, 1.0f),
+        materializr::touchMode()
+            ? "%s - drag a handle, then Confirm / Cancel."
+            : "%s - drag a handle. Enter to confirm, Escape to cancel.",
+        isRot ? "TILT / TWIST FACE (rings about its centre)"
+              : isScl ? "SCALE FACE (about its centre)"
+                      : "MOVE FACE (slide in plane)");
+
+    ImGui::SetNextWindowPos(ImVec2(ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - 250.0f * uiScale,
+                                   ImGui::GetWindowPos().y + 50), ImGuiCond_Appearing);
+    ImGui::SetNextWindowSizeConstraints(ImVec2(240.0f * uiScale, 0.0f),
+                                        ImVec2(240.0f * uiScale, 100000.0f));
+    ImGui::Begin("##MoveFaceInput", nullptr,
+        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking |
+        ImGuiWindowFlags_AlwaysAutoResize);
+    opDialogDragGrip(uiScale);
+    if (isRot) {
+        // Colour the label to the active ring (red = axis B, green = A).
+        ImVec4 lc = (m_st.moveFaceGrab == 1) ? ImVec4(0.4f, 0.95f, 0.45f, 1.0f)
+                                             : ImVec4(1.0f, 0.45f, 0.45f, 1.0f);
+        ImGui::TextColored(lc, "Tilt (deg)"); ImGui::Separator();
+        float deg = m_st.moveFaceAngle * 57.2957795f;
+        bool ch = false;
+        ImGui::SetNextItemWidth(150);
+        ImGui::TextDisabled("%.1f deg", deg);
+        if (materializr::stepperRow("tiltStep", &deg,
+                                    /*allowNegative=*/true, -90.0f, 90.0f))
+            ch = true;
+        ImGui::SetNextItemWidth(90);
+        if (materializr::inputNumber("deg", &deg, 1.0f, 5.0f, "%.1f")) ch = true;
+        ImGui::Checkbox("Snap 1 deg", &m_st.moveFaceRotSnap);
+        if (ch) {
+            if (m_st.moveFaceRotSnap) deg = std::round(deg);
+            m_st.moveFaceAngle = deg / 57.2957795f;
+            m_st.moveFaceIsTwist = false; // editing tilt switches the gesture to tilt
+            if (glm::length(m_st.moveFaceRotAxis) < 0.5f)
+                m_st.moveFaceRotAxis = m_st.moveFaceAxisB;
+            updateMoveFace(ctx);
+        }
+        // Twist = the third (blue) ring, about the face normal. Editable
+        // here too so an exact angle can be dialled without dragging.
+        ImGui::Spacing();
+        ImGui::TextColored(ImVec4(0.55f, 0.68f, 1.0f, 1.0f), "Twist (deg)");
+        ImGui::Separator();
+        float twdeg = m_st.moveFaceTwist * 57.2957795f;
+        bool twch = false;
+        ImGui::SetNextItemWidth(150);
+        ImGui::TextDisabled("%.1f deg", twdeg);
+        if (materializr::stepperRow("twistStep", &twdeg,
+                                    /*allowNegative=*/true, -180.0f, 180.0f))
+            twch = true;
+        ImGui::SetNextItemWidth(90);
+        if (materializr::inputNumber("deg##tw", &twdeg, 1.0f, 5.0f, "%.1f")) twch = true;
+        if (twch) {
+            if (m_st.moveFaceRotSnap) twdeg = std::round(twdeg);
+            m_st.moveFaceTwist = twdeg / 57.2957795f;
+            m_st.moveFaceIsTwist = true; // editing twist switches the gesture to twist
+            updateMoveFace(ctx);
+        }
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.80f, 0.35f, 1.0f));
+        ImGui::PushTextWrapPos(230.0f);
+        ImGui::TextWrapped(
+            "Tilt and Twist are separate ops — one gesture does either a "
+            "tilt OR a twist, not both. For a tapered-and-twisted face, "
+            "commit one then the other.");
+        ImGui::PopTextWrapPos();
+        ImGui::PopStyleColor();
+    } else if (isScl) {
+        ImGui::Text("Scale (%%)"); ImGui::Separator();
+        bool ch = false;
+        if (ImGui::Checkbox("Uniform", &m_st.moveFaceScaleUniform)) {
+            if (m_st.moveFaceScaleUniform)
+                m_st.moveFaceScale = 0.5f * (m_st.moveFaceScaleA + m_st.moveFaceScaleB);
+            else
+                m_st.moveFaceScaleA = m_st.moveFaceScaleB = m_st.moveFaceScale;
+            ch = true;
+        }
+        if (m_st.moveFaceScaleUniform) {
+            float pct = m_st.moveFaceScale * 100.0f;
+            ImGui::SetNextItemWidth(150);
+            ImGui::TextDisabled("%.0f %%", pct);
+            if (materializr::stepperRow("sclStep", &pct,
+                                        /*allowNegative=*/true, 10.0f,
+                                        400.0f, /*zeroValue=*/100.0f))
+                ch = true;
+            ImGui::SetNextItemWidth(90);
+            if (materializr::inputNumber("%", &pct, 5.0f, 25.0f, "%.0f")) ch = true;
+            if (ch) m_st.moveFaceScale = std::max(0.1f, pct / 100.0f);
+        } else {
+            float a = m_st.moveFaceScaleA * 100.0f, b = m_st.moveFaceScaleB * 100.0f;
+            ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.45f, 1.0f), "Axis A (red)");
+            ImGui::SetNextItemWidth(150);
+            ImGui::TextDisabled("%.0f %%", a);
+            if (materializr::stepperRow("sclAStep", &a,
+                                        /*allowNegative=*/true, 10.0f,
+                                        400.0f, /*zeroValue=*/100.0f))
+                ch = true;
+            ImGui::SetNextItemWidth(90);
+            if (materializr::inputNumber("% A", &a, 5.0f, 25.0f, "%.0f")) ch = true;
+            ImGui::TextColored(ImVec4(0.4f, 0.95f, 0.45f, 1.0f), "Axis B (green)");
+            ImGui::SetNextItemWidth(150);
+            ImGui::TextDisabled("%.0f %%", b);
+            if (materializr::stepperRow("sclBStep", &b,
+                                        /*allowNegative=*/true, 10.0f,
+                                        400.0f, /*zeroValue=*/100.0f))
+                ch = true;
+            ImGui::SetNextItemWidth(90);
+            if (materializr::inputNumber("% B", &b, 5.0f, 25.0f, "%.0f")) ch = true;
+            if (ch) {
+                m_st.moveFaceScaleA = std::max(0.1f, a / 100.0f);
+                m_st.moveFaceScaleB = std::max(0.1f, b / 100.0f);
+            }
+        }
+        if (ch) updateMoveFace(ctx);
+    } else {
+        ImGui::Text("Slide (mm)"); ImGui::Separator();
+        ImGui::Text("(%.1f, %.1f, %.1f)  |%.1f|",
+                    m_st.moveFaceVec.x, m_st.moveFaceVec.y, m_st.moveFaceVec.z,
+                    glm::length(m_st.moveFaceVec));
+    }
+
+    // Read-out of what the SELECTION will do (the selection IS the control
+    // now). A hole stays put unless you also pick its top edge (slants) or
+    // its wall (vertical tube).
+    if (!m_st.moveFaceHoleVertical.empty()) {
+        ImGui::Separator();
+        int nvert = 0, nslant = 0;
+        for (bool v : m_st.moveFaceHoleVertical) if (v) ++nvert;
+        for (bool s : m_st.moveFaceHoleSlant)    if (s) ++nslant;
+        int nstatic = static_cast<int>(m_st.moveFaceHoleVertical.size()) - nvert - nslant;
+        ImGui::TextWrapped("Holes: %d stay, %d slant, %d vertical.",
+                           nstatic, nslant, nvert);
+        ImGui::TextDisabled("Pick a hole's top edge to slant it, its wall to "
+                            "keep it a vertical tube.");
+    }
+
+    if (!ctx.cornerCommitUi) {   // im-touch: corner ✓/✗ FABs instead
+        ImGui::Spacing();
+        if (ImGui::Button(materializr::btnConfirm(), ImVec2(110, 0))) commitMoveFace(ctx);
+        ImGui::SameLine();
+        if (ImGui::Button(materializr::btnCancel(), ImVec2(110, 0))) cancelMoveFace(ctx);
+    }
+    ImGui::End();
 }
 
 // Face gizmo: Move/Scale show two in-plane arrows; Rotate shows two rings

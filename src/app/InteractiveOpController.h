@@ -64,13 +64,18 @@ public:
     virtual ~InteractiveOpController() = default;
 
     bool begin(const IopContext& ctx);
-    void update(const IopContext& ctx);
-    void commit(const IopContext& ctx);
-    void cancel(const IopContext& ctx);
+    // Virtual so a controller with a custom lifecycle (Move Face predates the
+    // base's snapshot-preview model) can route the GENERIC call sites — the
+    // Esc/Enter chains, single-flight cancellation — into its own logic.
+    virtual void update(const IopContext& ctx);
+    virtual void commit(const IopContext& ctx);
+    virtual void cancel(const IopContext& ctx);
 
     // Draws nothing when inactive. The scaffold handles window placement,
-    // title, Confirm/Cancel buttons, and Enter/Esc keys.
-    void renderPanel(const IopContext& ctx);
+    // title, Confirm/Cancel buttons, and Enter/Esc keys. Virtual for
+    // controllers whose panel isn't scaffold-shaped (Move Face anchors its
+    // value wells to the viewport window and renders them from there).
+    virtual void renderPanel(const IopContext& ctx);
 
     bool active() const { return m_active; }
     bool previewOk() const { return m_previewOk; }
@@ -133,6 +138,9 @@ protected:
 
     void requestCommit() { m_commitRequested = true; }
     void setDraggingHandle(bool d) { m_draggingHandle = d; }
+    // For custom-lifecycle controllers only: keeps the base active() flag —
+    // what every generic loop gates on — in step with their own state.
+    void setActive(bool a) { m_active = a; }
 
     int bodyId() const { return m_bodyId; }
     const TopoDS_Shape& snapshot() const { return m_snapshot; }
