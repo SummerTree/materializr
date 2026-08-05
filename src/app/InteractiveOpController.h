@@ -11,6 +11,21 @@ class Operation;
 
 namespace materializr {
 
+// Where a viewport-anchored panel should sit and at what scale. The app knows
+// the layout; a controller only needs the numbers, so this crosses the
+// boundary instead of imTouchLayout()/uiScale()/the action-anchor members.
+struct IopPanelPlace {
+    float uiScale = 1.0f;
+    // im-touch layout: the panel collapses to a single tappable value well
+    // (no header, hint or steppers).
+    bool  imTouch = false;
+    // im-touch only: anchor the panel beside the action's own geometry (the
+    // arrow tip), like the sketch bubbles. False = the fixed top-right spot.
+    bool  anchorValid = false;
+    float anchorX = 0.0f;
+    float anchorY = 0.0f;
+};
+
 // Everything an interactive-op controller needs from the app, without
 // seeing the Application god-class. Built on demand by Application.
 struct IopContext {
@@ -39,6 +54,9 @@ struct IopContext {
     // Grid snap, for gestures that quantise a drag (Move Face's slide).
     bool  snapToGrid = false;
     float gridStep = 0.0f;
+    // Panel placement for controllers that render their own viewport-anchored
+    // panel (Extrude, Move Face) rather than the scaffold's.
+    IopPanelPlace panel;
 };
 
 // Base for "popup with live preview" modeling operations (Shell, Taper,

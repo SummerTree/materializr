@@ -31,18 +31,21 @@ public:
     bool beginExtrude(const IopContext& ctx, const TopoDS_Shape& profile,
                       ExtrudeMode mode, int targetBody, int sourceSketchId);
 
-    // The arrow's frame, for the viewport gizmo + drag (still in Application).
+    // The arrow's frame — Application still DRAWS the dimension arrow (it
+    // shares the extrude/push-pull/edge-op arrow renderer).
     const glm::vec3& origin() const { return m_origin; }
     const glm::vec3& normal() const { return m_normal; }
     float distance() const { return m_distance; }
-    // Transitional: the panel's ImGui widgets and the arrow drag bind
-    // straight to this float. Goes away when the panel + drag move in.
-    float& distanceRef() { return m_distance; }
-    char* inputBuf() { return m_inputBuf; }
-    int inputBufSize() const { return static_cast<int>(sizeof(m_inputBuf)); }
-    bool takeInputFocus() { bool f = m_inputFocus; m_inputFocus = false; return f; }
     ExtrudeMode mode() const { return m_mode; }
     int previewBodyId() const;
+
+    // The distance panel (banner + value well + Confirm/Cancel). Called from
+    // renderViewport where the viewport window is current, because it anchors
+    // to that window's rect — same arrangement as Move Face's.
+    void renderExtrudePanel(const IopContext& ctx);
+    // Enter-to-confirm from the global key handler: take whatever is in the
+    // text field, then commit. (This op has no scaffold panel to catch it.)
+    void confirmFromKey(const IopContext& ctx);
 
     // Re-run the preview at the current distance. applySnap=false keeps a
     // typed value exact (the grid step would round it under the user).
@@ -56,9 +59,11 @@ protected:
     bool syncLiveOp(Operation& op) override;
     std::unique_ptr<Operation> buildCommitOp(const IopContext& ctx) override;
     void panelBody(const IopContext& ctx, bool& changed) override;
-    // The panel lives in Application_Viewport (its distance well anchors to
-    // the viewport window, like Move Face's). Scaffold stays silent.
+    // The panel is renderExtrudePanel (viewport-anchored), so the scaffold's
+    // stays silent.
     void renderPanel(const IopContext&) override {}
+    bool wantsViewportInput() const override { return true; }
+    void onViewportInput(const IopViewport& vp, const IopContext& ctx) override;
     void onCleanup() override;
 
 private:

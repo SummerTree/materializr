@@ -1,5 +1,13 @@
 #include "ExtrudeController.h"
 #include "../core/Document.h"
+#include "../core/NumParse.h"
+#include "../ui/UiTheme.h"       // viewportBanner
+#include "../ui/NumField.h"      // btnConfirm / btnCancel
+#include "../ui/StepperRow.h"
+#include "../ui/TouchWidgets.h"  // im-touch number-pad amount field
+#include "../ui/OpDialogGrip.h"
+#include "../touch_mode.h"
+#include <imgui.h>
 #include <BRep_Tool.hxx>
 #include <BRepGProp_Face.hxx>
 #include <Geom_Plane.hxx>
@@ -135,9 +143,138 @@ int ExtrudeController::previewBodyId() const {
     return (op && livePreviewApplied()) ? op->createdBodyId() : -1;
 }
 
+// Left-drag anywhere in the viewport moves the distance along the arrow's
+// normal. No handle to latch — the whole viewport is the drag surface — so
+// draggingHandle() stays false and the camera keeps its own claim (the
+// dispatch loop skips this while the camera is dragging).
+void ExtrudeController::onViewportInput(const IopViewport& vp,
+                                        const IopContext& ctx) {
+    if (!active() || !vp.dragging) return;
+    m_distance += vp.dragAlongAxis(m_origin, m_normal, vp.mouseDelta);
+    std::snprintf(m_inputBuf, sizeof(m_inputBuf), "%.1f", m_distance);
+    updateExtrude(ctx);
+}
+
+void ExtrudeController::renderExtrudePanel(const IopContext& ctx) {
+    if (!active()) return;
+    const float s = ctx.panel.uiScale;
+    const bool imTouch = ctx.panel.imTouch;
+
+    materializr::viewportBanner(
+        ImVec4(1.0f, 0.8f, 0.2f, 1.0f),
+        materializr::touchMode()
+            ? "EXTRUDE - Drag in viewport or type distance, then Confirm / Cancel."
+            : "EXTRUDE - Drag in viewport or type distance. Enter to confirm, Escape to cancel.");
+
+    // Floating distance input panel. im-touch: anchored just off the extrude
+    // arrow's tip, like the sketch bubbles; other layouts (or a tip behind
+    // the camera) keep the fixed top-right spot.
+    bool extAnchored = false;
+    if (imTouch && ctx.panel.anchorValid) {
+        const ImVec2 vwp = ImGui::GetWindowPos();
+        const float vww = ImGui::GetWindowWidth();
+        float ax = std::min(std::max(ctx.panel.anchorX + 24.0f * s, vwp.x + 8.0f),
+                            vwp.x + vww - 250.0f * s);
+        float ay = std::max(ctx.panel.anchorY + 12.0f * s, vwp.y + 8.0f);
+        ImGui::SetNextWindowPos(ImVec2(ax, ay), ImGuiCond_Appearing);
+        extAnchored = true;
+    }
+    if (!extAnchored)
+        ImGui::SetNextWindowPos(ImVec2(
+            std::max(ImGui::GetWindowPos().x + 6.0f,
+                     ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - 250.0f * s),
+            ImGui::GetWindowPos().y + 50), ImGuiCond_Appearing);
+    // Pin the width (min == max) so moving the panel can't feed back into
+    // the value field's content-avail width and ratchet the window wider.
+    ImGui::SetNextWindowSizeConstraints(ImVec2(240.0f * s, 0.0f),
+                                        ImVec2(240.0f * s, 100000.0f));
+    ImGui::Begin("##ExtrudeInput", nullptr,
+        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking |
+        ImGuiWindowFlags_AlwaysAutoResize);
+    opDialogDragGrip(s);
+
+    if (!imTouch) {   // im-touch: just the value well below
+        ImGui::Text("Extrude Distance (mm)");
+        ImGui::Separator();
+    }
+
+    if (m_inputFocus) {
+        if (!materializr::touchMode())
+            ImGui::SetKeyboardFocusHere();  // touch: drag to set distance, or tap the field to type
+        m_inputFocus = false;
+    }
+
+    bool doCommit = false, doCancel = false;
+    if (imTouch) {
+        // im-touch: the WHOLE panel is this one tappable value well — no
+        // header, hint or steppers (Steve: the full "distance dialog" kept
+        // showing up; drag for coarse, pad for exact).
+        if (touchui::amountField("extAmt", "Distance", &m_distance,
+                                 "mm", 1, /*allowSign=*/true)) {
+            std::snprintf(m_inputBuf, sizeof(m_inputBuf), "%.1f", m_distance);
+            updateExtrude(ctx, /*applySnap=*/false);  // typed = exact
+        }
+        // touch: raise the soft keyboard only when the field is TAPPED (not
+        // on open, which would cover the drag handle). ImGui's own
+        // click-activation doesn't focus the field in this transient overlay
+        // popup, so re-assert focus on the tap (issue #22).
+        if (materializr::touchMode() && ImGui::IsItemClicked())
+            ImGui::SetKeyboardFocusHere(-1);
+    } else {
+        if (ImGui::InputText("##dist", m_inputBuf, sizeof(m_inputBuf),
+                             ImGuiInputTextFlags_EnterReturnsTrue)) {
+            // Enter pressed — commit (parseFinite: keep last on garbage)
+            (void)materializr::parseFinite(m_inputBuf, m_distance);
+            updateExtrude(ctx);
+            doCommit = true;
+        } else {
+            // Update distance from text as user types
+            float parsed = m_distance;
+            if (materializr::parseFinite(m_inputBuf, parsed) &&
+                std::abs(parsed - m_distance) > 0.01f && std::abs(parsed) > 0.01f) {
+                m_distance = parsed;
+                updateExtrude(ctx, /*applySnap=*/false);  // live typing = exact
+            }
+        }
+        ImGui::SameLine();
+        ImGui::Text("mm");
+    }
+
+    // Quick-nudge stepper (replaces the slider): ±10/1/0.1, and 0 to clear
+    // the extrusion mid-preview. Desktop only — im-touch stays a single well.
+    if (!imTouch &&
+        materializr::stepperRow("extrudeStep", &m_distance,
+                                /*allowNegative=*/true, -50.0f, 50.0f)) {
+        std::snprintf(m_inputBuf, sizeof(m_inputBuf), "%.1f", m_distance);
+        updateExtrude(ctx, /*applySnap=*/false);  // steppers override the grid
+    }
+
+    if (!ctx.cornerCommitUi) {   // im-touch: corner ✓/✗ FABs instead
+        ImGui::Spacing();
+        if (ImGui::Button(materializr::btnConfirm(), ImVec2(110, 0)))
+            doCommit = true;
+        ImGui::SameLine();
+        if (ImGui::Button(materializr::btnCancel(), ImVec2(110, 0)))
+            doCancel = true;
+    }
+    ImGui::End();
+    // Commit/cancel AFTER End() — they tear the controller's state down, and
+    // the window has to be closed first.
+    if (doCommit) commit(ctx);
+    else if (doCancel) cancel(ctx);
+}
+
+void ExtrudeController::confirmFromKey(const IopContext& ctx) {
+    if (!active()) return;
+    (void)materializr::parseFinite(m_inputBuf, m_distance);
+    updateExtrude(ctx);
+    commit(ctx);
+}
+
 void ExtrudeController::panelBody(const IopContext&, bool&) {
-    // Unused: the panel lives in Application_Viewport (renderPanel is
-    // overridden silent) because its distance well anchors to the viewport.
+    // Unused: renderExtrudePanel draws the whole thing (renderPanel is
+    // overridden silent) because the value well anchors to the viewport.
 }
 
 void ExtrudeController::onCleanup() {

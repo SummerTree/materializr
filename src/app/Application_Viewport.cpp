@@ -1523,7 +1523,7 @@ void Application::renderViewport() {
                         m_actionAnchorW =
                             m_extrudeCtl.active()
                                 ? m_extrudeCtl.origin() +
-                                      m_extrudeCtl.normal() * m_extrudeCtl.distanceRef()
+                                      m_extrudeCtl.normal() * m_extrudeCtl.distance()
                             : m_pushPullActive
                                 ? m_pushPullOrigin +
                                       m_pushPullNormal * m_pushPullDistance
@@ -1539,9 +1539,9 @@ void Application::renderViewport() {
                 }
             }
             if (m_extrudeCtl.active()) {
-                std::snprintf(dbuf, sizeof(dbuf), "%.1f mm", std::abs(m_extrudeCtl.distanceRef()));
+                std::snprintf(dbuf, sizeof(dbuf), "%.1f mm", std::abs(m_extrudeCtl.distance()));
                 drawDim(m_extrudeCtl.origin(),
-                        m_extrudeCtl.origin() + m_extrudeCtl.normal() * m_extrudeCtl.distanceRef(), dbuf,
+                        m_extrudeCtl.origin() + m_extrudeCtl.normal() * m_extrudeCtl.distance(), dbuf,
                         DimStyle::Bold);
             } else if (m_pushPullActive && m_pushPullHasArrow) {
                 // Arrow out of the face + signed-distance measurement.
@@ -3808,15 +3808,8 @@ void Application::renderViewport() {
             const glm::vec3 viewDirW =
                 glm::normalize(cam.getTarget() - cam.getPosition());
 
-            // Interactive extrude drag: left-drag moves distance along normal
-            if (m_extrudeCtl.active() && !camDragging &&
-                ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
-                glm::vec2 md(io.MouseDelta.x, io.MouseDelta.y);
-                m_extrudeCtl.distanceRef() += projectDragOntoNormal(m_extrudeCtl.origin(), m_extrudeCtl.normal(),
-                                                           md, proj * view, vpPx, viewDirW);
-                std::snprintf(m_extrudeCtl.inputBuf(), m_extrudeCtl.inputBufSize(), "%.1f", m_extrudeCtl.distanceRef());
-                updateInteractiveExtrude();
-            }
+            // (Interactive extrude's drag is ExtrudeController::onViewportInput,
+            // dispatched with the other controllers' below.)
 
             // Push/Pull face arrow: left-drag moves the distance along the face normal.
             // Scale Face gizmo input: press near a handle tip claims it,
@@ -7191,115 +7184,9 @@ void Application::renderViewport() {
                                     "Arrows: Move | Rings: Rotate | Cubes: Scale");
     }
 
-    // Interactive extrude UI
-    if (m_extrudeCtl.active()) {
-        materializr::viewportBanner(
-            ImVec4(1.0f, 0.8f, 0.2f, 1.0f),
-            materializr::touchMode()
-                ? "EXTRUDE - Drag in viewport or type distance, then Confirm / Cancel."
-                : "EXTRUDE - Drag in viewport or type distance. Enter to confirm, Escape to cancel.");
-
-        // Floating distance input panel. im-touch: anchored just off the
-        // extrude arrow's tip, like the sketch bubbles; other layouts (or a
-        // tip behind the camera) keep the fixed top-right spot.
-        bool extAnchored = false;
-        if (imTouchLayout() && m_actionAnchorValid) {
-            const float s2 = uiScale();
-            const ImVec2 vwp = ImGui::GetWindowPos();
-            const float vww = ImGui::GetWindowWidth();
-            float ax = std::min(std::max(m_actionAnchorX + 24.0f * s2,
-                                         vwp.x + 8.0f),
-                                vwp.x + vww - 250.0f * s2);
-            float ay = std::max(m_actionAnchorY + 12.0f * s2, vwp.y + 8.0f);
-            ImGui::SetNextWindowPos(ImVec2(ax, ay), ImGuiCond_Appearing);
-            extAnchored = true;
-        }
-        if (!extAnchored)
-            ImGui::SetNextWindowPos(ImVec2(
-                std::max(ImGui::GetWindowPos().x + 6.0f,
-                         ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - 250.0f * uiScale()),
-                ImGui::GetWindowPos().y + 50), ImGuiCond_Appearing);
-        // Pin the width (min == max) so moving the panel can't feed back into
-        // the value field's content-avail width and ratchet the window wider.
-        ImGui::SetNextWindowSizeConstraints(ImVec2(240.0f * uiScale(), 0.0f),
-                                            ImVec2(240.0f * uiScale(), 100000.0f));
-        ImGui::Begin("##ExtrudeInput", nullptr,
-            ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-            ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking |
-            ImGuiWindowFlags_AlwaysAutoResize);
-        opDialogDragGrip(uiScale());
-
-        if (!imTouchLayout()) {   // im-touch: just the value well below
-            ImGui::Text("Extrude Distance (mm)");
-            ImGui::Separator();
-        }
-
-        if (m_extrudeCtl.takeInputFocus()) {
-            if (!materializr::touchMode())
-                ImGui::SetKeyboardFocusHere();  // touch: drag to set distance, or tap the field to type
-        }
-
-        bool valueChanged = false;
-        if (imTouchLayout()) {
-            // im-touch: the WHOLE panel is this one tappable value well —
-            // no header, hint or steppers (Steve: the full "distance
-            // dialog" kept showing up; drag for coarse, pad for exact).
-            if (touchui::amountField("extAmt", "Distance", &m_extrudeCtl.distanceRef(),
-                                     "mm", 1, /*allowSign=*/true)) {
-                std::snprintf(m_extrudeCtl.inputBuf(), m_extrudeCtl.inputBufSize(),
-                              "%.1f", m_extrudeCtl.distanceRef());
-                updateInteractiveExtrude(/*applySnap=*/false);  // typed = exact
-            }
-            // touch: raise the soft keyboard only when the field is TAPPED (not
-            // on open, which would cover the drag handle). ImGui's own
-            // click-activation doesn't focus the field in this transient overlay
-            // popup, so re-assert focus on the tap (issue #22).
-            if (materializr::touchMode() && ImGui::IsItemClicked())
-                ImGui::SetKeyboardFocusHere(-1);
-        } else {
-        if (ImGui::InputText("##dist", m_extrudeCtl.inputBuf(), m_extrudeCtl.inputBufSize(),
-                             ImGuiInputTextFlags_EnterReturnsTrue)) {
-            // Enter pressed — commit (parseFinite: keep last on garbage)
-            (void)materializr::parseFinite(m_extrudeCtl.inputBuf(), m_extrudeCtl.distanceRef());
-            updateInteractiveExtrude();
-            commitInteractiveExtrude();
-        } else {
-            // Update distance from text as user types
-            float parsed = m_extrudeCtl.distanceRef();
-            if (materializr::parseFinite(m_extrudeCtl.inputBuf(), parsed) &&
-                std::abs(parsed - m_extrudeCtl.distanceRef()) > 0.01f && std::abs(parsed) > 0.01f) {
-                m_extrudeCtl.distanceRef() = parsed;
-                updateInteractiveExtrude(/*applySnap=*/false);  // live typing = exact
-            }
-        }
-
-        ImGui::SameLine();
-        ImGui::Text("mm");
-        }
-
-        // Quick-nudge stepper (replaces the slider): ±10/1/0.1, and 0 to
-        // clear the extrusion mid-preview. Desktop only — im-touch stays a
-        // single well.
-        if (!imTouchLayout() &&
-            materializr::stepperRow("extrudeStep", &m_extrudeCtl.distanceRef(),
-                                    /*allowNegative=*/true, -50.0f, 50.0f)) {
-            std::snprintf(m_extrudeCtl.inputBuf(), m_extrudeCtl.inputBufSize(), "%.1f", m_extrudeCtl.distanceRef());
-            updateInteractiveExtrude(/*applySnap=*/false);  // steppers override the grid
-        }
-
-        if (!imTouchActionCorner()) {   // im-touch: corner ✓/✗ FABs instead
-            ImGui::Spacing();
-            if (ImGui::Button(materializr::btnConfirm(), ImVec2(110, 0))) {
-                commitInteractiveExtrude();
-            }
-            ImGui::SameLine();
-            if (ImGui::Button(materializr::btnCancel(), ImVec2(110, 0))) {
-                cancelInteractiveExtrude();
-            }
-        }
-
-        ImGui::End();
-    }
+    // Interactive extrude UI — banner + distance well live in the
+    // controller; called here because the well anchors to THIS window.
+    m_extrudeCtl.renderExtrudePanel(iopContext());
 
     // Interactive Push/Pull UI
     if (m_pushPullActive) {

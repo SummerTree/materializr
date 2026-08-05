@@ -1062,7 +1062,10 @@ materializr::IopContext Application::iopContext() {
         imTouchLayout() && !m_inSketchMode,
         [this](const char* m) { showToast(m); },
         [this](const char* op) { return refuseMeshSelection(op); },
-        m_snapToGrid, m_sketchGridStep};
+        m_snapToGrid, m_sketchGridStep,
+        materializr::IopPanelPlace{uiScale(), imTouchLayout(),
+                                   m_actionAnchorValid, m_actionAnchorX,
+                                   m_actionAnchorY}};
 }
 
 // Seed the placement rotation (shared by the Text and SVG tools) so the
@@ -2951,10 +2954,10 @@ void Application::handleShortcuts() {
         updateInteractiveEdgeOp();
         commitInteractiveEdgeOp();
     }
+    // Extrude has no scaffold panel (which is where the other iops catch
+    // Enter), so its Enter-to-confirm lives here — same as Move Face's.
     if (ImGui::IsKeyPressed(ImGuiKey_Enter) && m_extrudeCtl.active()) {
-        (void)materializr::parseFinite(m_extrudeCtl.inputBuf(), m_extrudeCtl.distanceRef());
-        updateInteractiveExtrude();
-        commitInteractiveExtrude();
+        m_extrudeCtl.confirmFromKey(iopContext());
     }
     if (ImGui::IsKeyPressed(ImGuiKey_Enter) && m_pushPullActive) {
         (void)materializr::parseFinite(m_pushPullInputBuf, m_pushPullDistance);
