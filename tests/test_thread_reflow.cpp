@@ -35,6 +35,7 @@
 #include <gp_Ax2.hxx>
 #include <gp_Ax3.hxx>
 #include <gp_Pln.hxx>
+#include <Standard_Version.hxx>
 #include <cmath>
 #include <cstdio>
 #include <memory>
@@ -89,7 +90,29 @@ TopoDS_Shape transverseCutter(double z, double r = 2.0) {
 
 } // namespace
 
+// These two drive a Boolean THROUGH a cut thread and require the kernel to
+// re-cut the helix on the modified rod. OCCT < 7.9 cannot: every fallback in
+// ThreadOp's chain gives out in turn ("compound cut failed" -> "per-turn:
+// result invalid after heal" -> "boolean cut FAILED"), so the reflow leaves
+// the rod unthreaded and the volume assertions below are unreachable.
+// Reproduced on a source-built 7.7.0 (issue #80, reported from Slackware's
+// packaged 7.7.0); identical on 7.9.3 -> passes. We build and ship 7.9.3 on
+// every platform, so this is a limitation of an older kernel, not a
+// regression. Skip loudly rather than fail, so a source build against a
+// distro OCCT reports honestly.
+#define MZR_REQUIRE_OCCT_79()                                                 \
+    do {                                                                      \
+        if (OCC_VERSION_MAJOR < 7 ||                                          \
+            (OCC_VERSION_MAJOR == 7 && OCC_VERSION_MINOR < 9)) {              \
+            GTEST_SKIP() << "needs OCCT >= 7.9 (building against "            \
+                         << OCC_VERSION_MAJOR << "." << OCC_VERSION_MINOR     \
+                         << "): re-cutting a thread through a Boolean fails " \
+                            "in the older kernel. Materializr ships 7.9.3.";  \
+        }                                                                     \
+    } while (0)
+
 TEST(ThreadReflow, SubtractOnThreadedBodyReflowsBeneathThread) {
+    MZR_REQUIRE_OCCT_79();
     Document doc;
     History hist;
     TopoDS_Shape rod = BRepPrimAPI_MakeCylinder(R, L).Shape();
@@ -340,6 +363,7 @@ TEST(ThreadReflow, ThreadRunsThroughEndChamfer) {
 }
 
 TEST(ThreadReflow, UndoRedoAcrossReflowedTimeline) {
+    MZR_REQUIRE_OCCT_79();
     Document doc;
     History hist;
     TopoDS_Shape rod = BRepPrimAPI_MakeCylinder(R, L).Shape();

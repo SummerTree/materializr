@@ -95,7 +95,30 @@ add_library(materializr_core STATIC
     # touchMode() is off — but the symbol still has to resolve at link time,
     # and this list is separate from the app's, so it does not inherit it.
     ${CMAKE_SOURCE_DIR}/src/ui/TouchWidgets.cpp
+    # Installs OCCT's signal handler for every test binary — see the file for
+    # why tests must run in the app's signal environment.
+    ${CMAKE_CURRENT_SOURCE_DIR}/TestSignalInit.cpp
 )
+
+# The other half of that mechanism, and the one that was missing: the app
+# defines OCC_CONVERT_SIGNALS on ITS target, but ShellOp.cpp & co. are compiled
+# AGAIN into this library, which never got it — so every OCC_CATCH_SIGNALS in
+# the code under test expanded to nothing and a kernel fault killed the test
+# binary outright (issue #80, visible on OCCT 7.7.0). It has to be set here,
+# where those sources are actually compiled; setting it on a test EXECUTABLE
+# does nothing for them, since executables only link this library.
+if(NOT WIN32)
+    target_compile_definitions(materializr_core PRIVATE OCC_CONVERT_SIGNALS)
+    # And force TestSignalInit.cpp's object INTO every test binary. Its
+    # initialiser is referenced by nothing, and a static archive contributes
+    # only the members whose symbols are needed — so the linker dropped it and
+    # the handler was never installed (nm showed no OSD::SetSignal in the test
+    # binary at all). `-u` on the consumer's link line makes ld pull the member
+    # in. An OBJECT library would also fix it, but this archive RELIES on
+    # dead-stripping: SketchTool.cpp references Text/SVG symbols that live in
+    # the app, and the handful of tests needing them supply their own stubs.
+    target_link_options(materializr_core INTERFACE "-u" "mzrInstallOcctSignalHandler")
+endif()
 
 target_include_directories(materializr_core PUBLIC
     ${CMAKE_SOURCE_DIR}/src
