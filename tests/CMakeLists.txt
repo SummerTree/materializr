@@ -117,7 +117,16 @@ if(NOT WIN32)
     # in. An OBJECT library would also fix it, but this archive RELIES on
     # dead-stripping: SketchTool.cpp references Text/SVG symbols that live in
     # the app, and the handful of tests needing them supply their own stubs.
-    target_link_options(materializr_core INTERFACE "-u" "mzrInstallOcctSignalHandler")
+    # `-u` takes the LINKER-level name, and those differ by object format:
+    # Mach-O prefixes C symbols with an underscore, ELF does not. Passing the
+    # ELF spelling to Apple's ld fails the link outright with
+    # "Undefined symbols ... mzrInstallOcctSignalHandler, referenced from
+    # <initial-undefines>" — it looks for a symbol that cannot exist there.
+    if(APPLE)
+        target_link_options(materializr_core INTERFACE "-u" "_mzrInstallOcctSignalHandler")
+    else()
+        target_link_options(materializr_core INTERFACE "-u" "mzrInstallOcctSignalHandler")
+    endif()
 endif()
 
 target_include_directories(materializr_core PUBLIC
