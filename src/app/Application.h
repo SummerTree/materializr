@@ -27,6 +27,7 @@
 #include "app/FaceOpControllers.h"
 #include "app/ExtrudeController.h"
 #include "app/PushPullController.h"
+#include "app/EdgeOpController.h"
 #include "app/LiveOpPreview.h"
 #include "app/CylindricalPick.h"
 #include <array>
@@ -1204,77 +1205,38 @@ private:
     };
     ScaleMmEdit m_scaleMmEdit[3];
 
-    // Interactive fillet/chamfer state
-    enum class EdgeOpType { None, Fillet, Chamfer };
-    EdgeOpType m_edgeOpType = EdgeOpType::None;
-    bool m_edgeOpActive = false;
-    int m_edgeOpBodyId = -1;
-    std::vector<TopoDS_Shape> m_edgeOpEdges;
-    float m_edgeOpValue = 1.0f;
-    char m_edgeOpInputBuf[32] = "1.0";
-    bool m_edgeOpInputFocus = true;
-    TopoDS_Shape m_edgeOpPreviousShape;
-    // First selected edge's midpoint + direction, for the drag handle and the
-    // radius/distance measurement readout.
-    glm::vec3 m_edgeOpMid{0.0f};
-    glm::vec3 m_edgeOpDir{1.0f, 0.0f, 0.0f};   // along the edge
-    glm::vec3 m_edgeOpOutDir{0.0f, 0.0f, 1.0f}; // perpendicular, pointing out of the body
-    bool m_edgeOpHasHandle = false;
-    // Two-distance (asymmetric) chamfer. When on, the op takes a second setback
-    // along the OTHER adjacent face, dragged via a second arrow. Chamfer-only,
-    // single-edge for now. m_edgeOpFaceDirA/B are the two in-face drag
-    // directions (A = ChamferOp's reference face = faces.First()). m_edgeOpGrab
-    // latches which arrow a drag owns: 0 = A (distance 1), 1 = B (distance 2).
-    bool  m_edgeOpTwoDist = false;
-    float m_edgeOpValue2 = 0.0f;
-    char  m_edgeOpInputBuf2[32] = "1.0";
-    glm::vec3 m_edgeOpFaceDirA{0.0f, 0.0f, 1.0f};
-    glm::vec3 m_edgeOpFaceDirB{0.0f, 1.0f, 0.0f};
-    bool  m_edgeOpHasFaceDirs = false;
-    bool  m_edgeOpCanTwoDist = false; // selection supports a consistent A/B chamfer
-    int   m_edgeOpGrab = -1; // -1 none, 0 = arrow A, 1 = arrow B (during a drag)
-    // Set on the left-click frame iff the cursor was near the edge-op arrow
-    // line; cleared on release. Joins gizmoOwnsDrag so trackpad-mode left-
-    // orbit can't steal the drag — and conversely, dragging from empty
-    // space orbits the camera instead of yanking the value, matching the
-    // Scale Face pattern. (Steve: chamfer / fillet arrows didn't grab the
-    // cursor in trackpad mode.)
-    bool  m_edgeOpDragging = false;
-    // History index of the op being re-edited. -1 means "creating new" — the
-    // commit path then pushes a fresh FilletOp / ChamferOp. >=0 means "editing
-    // existing" — commit updates the op's parameter and calls editStep().
-    int m_edgeOpEditingIndex = -1;
-    // The body whose fillet/chamfer FACE was clicked to start an edit. Used to
-    // detect a baked feature: if that body's geometry doesn't change after the
-    // edit, the operation drives a different/deleted body and the clicked
-    // geometry has no editable op behind it — we tell the user instead of
-    // silently doing nothing.
+    // Interactive fillet/chamfer — the tool lives in EdgeOpController now.
+    // Application keeps thin delegates plus the two accessors the shared
+    // dimension-arrow renderer needs.
+    using EdgeOpType = materializr::EdgeOpKind;
+    materializr::EdgeOpController m_edgeCtl;
+    void beginInteractiveEdgeOp(EdgeOpType type) {
+        cancelAllInteractivePreviews();
+        m_edgeCtl.beginEdgeOp(iopContext(), type);
+        m_meshesDirty = true;
+    }
+    // Re-edit the FilletOp or ChamferOp at the given history index. Pulls the
+    // existing radius/distance + edges + body id from the op, snapshots its
+    // pre-state for live preview, and reuses the same drag handle + popup UI
+    // as creation. Triggered by clicking a face the op produced.
+    void beginInteractiveEdgeOpEdit(int historyIndex) {
+        cancelAllInteractivePreviews();
+        m_edgeCtl.beginEdgeOpEdit(iopContext(), historyIndex, m_edgeOpPickedBodyId);
+        m_meshesDirty = true;
+    }
+    void updateInteractiveEdgeOp() { m_edgeCtl.updateEdgeOp(iopContext()); }
+    void commitInteractiveEdgeOp() {
+        m_edgeCtl.commit(iopContext());
+        m_meshesDirty = true;
+    }
+    void cancelInteractiveEdgeOp() {
+        m_edgeCtl.cancel(iopContext());
+        m_meshesDirty = true;
+    }
+    // The body whose fillet/chamfer FACE was clicked to start an edit; handed
+    // to the controller at begin so it can spot a baked (uneditable) feature.
     int m_edgeOpPickedBodyId = -1;
-    // Pre-edit geometry of the picked body, captured BEFORE the first editStep
-    // preview runs. Commit compares against these values to detect a frozen op
-    // (one that never actually changes the body). Capturing here rather than in
-    // commitInteractiveEdgeOp avoids a false-positive where the preview already
-    // brought the body to the new radius and the commit's editStep then looks
-    // "unchanged" because both snapshots are at the same new value.
-    double m_edgeOpPrePickedVol  = 0.0;
-    double m_edgeOpPrePickedArea = 0.0;
-    // The radius/distance the op had when the edit began. Cancel (and the
-    // confirm-at-zero "treat as cancel" path) restores it before replaying,
-    // since the edit-mode live preview mutates the real op's parameter.
-    float m_edgeOpOrigValue = 0.0f;
-    float m_edgeOpOrigValue2 = 0.0f; // second distance at edit-begin (cancel restore)
-    // Every body's shape at edit-begin (before any preview). If the edit can't
-    // rebuild — a fillet/chamfer whose edges reference geometry a feature later
-    // consumed, which fails on execute() but loaded fine — commit/cancel
-    // restore this so the model is left exactly as it was instead of a stranded
-    // half-replayed (planar) state. See restoreEdgeOpSnapshot().
-    std::map<int, TopoDS_Shape> m_edgeOpDocSnapshot;
 
-    // Compute m_edgeOpFaceDirA/B — the two in-face drag directions for the
-    // first selected edge (A = the face ChamferOp uses for distance 1). Sets
-    // m_edgeOpHasFaceDirs. Requires m_edgeOpEdges + m_edgeOpPreviousShape +
-    // m_edgeOpMid/m_edgeOpDir to already be set.
-    void computeEdgeOpFaceDirs();
     // Refuse a modelling op whose selection includes an imported mesh, and say
     // why. See core/MeshGuard.h — an import is a REFERENCE body: sketch on it
     // and snap to it, but nothing rewrites its topology. Returns true when the
@@ -1288,29 +1250,6 @@ private:
         cancelAllInteractivePreviews();
         return m_moveFaceCtl.beginMoveHoleFromEdges(iopContext());
     }
-
-    void beginInteractiveEdgeOp(EdgeOpType type);
-    // Re-edit the FilletOp or ChamferOp at the given history index. Pulls the
-    // existing radius/distance + edges + body id from the op, snapshots its
-    // pre-state for live preview, and reuses the same drag handle + popup UI
-    // as creation. Triggered by clicking a face the op produced.
-    void beginInteractiveEdgeOpEdit(int historyIndex);
-    // Re-runs the live preview at m_edgeOpValue / m_edgeOpValue2. Returns
-    // true iff a non-zero preview was successfully applied; false on a
-    // zero/edit-mode-skip or a kernel failure (the snapshot is restored in
-    // that case). Begin uses the return value to probe a starting radius
-    // for new fillets so a fresh op shows a visible preview right away.
-    bool updateInteractiveEdgeOp();
-    void commitInteractiveEdgeOp();
-    void cancelInteractiveEdgeOp();
-    // Restore every body to m_edgeOpDocSnapshot and mark history fully applied
-    // (see the snapshot member). Returns true if a snapshot was present.
-    bool restoreEdgeOpSnapshot();
-    // Re-resolve every fillet/chamfer op's generated-face mapping against the
-    // current bodies. Must run after ANY editStep replay (commit, cancel, or
-    // zero-value bail) because the replay re-runs each op's execute(), leaving
-    // its faces at their pre-downstream-Transform positions until rebound.
-    void refreshAllEdgeOpFaces();
 
     // Resize-cylindrical (edit a closed cylindrical/conical face's diameter,
     // or a single circular edge of one) ====================================
@@ -1430,10 +1369,10 @@ private:
     // once its lifecycle overrides landed, so every generic loop — Esc/Enter
     // chains, single-flight, suppression, input/overlay/gizmo dispatch —
     // covers Move Face without a special case.
-    std::array<InteractiveOpController*, 9> m_iops{
+    std::array<InteractiveOpController*, 10> m_iops{
         &m_shellCtl, &m_taperCtl, &m_scaleFaceCtl, &m_projectSketchCtl,
         &m_defeatureCtl, &m_resizeCylCtl, &m_moveFaceCtl, &m_extrudeCtl,
-        &m_ppCtl};
+        &m_ppCtl, &m_edgeCtl};
     IopContext iopContext();
     bool anyIopActive() const {
         for (auto* c : m_iops) if (c->active()) return true;

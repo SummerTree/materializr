@@ -1086,7 +1086,12 @@ materializr::IopContext Application::iopContext() {
             m_shapeRenderer->setSubtractPreview(slot, cut);
             m_shapeRenderer->setColor(slot, glm::vec3(0.55f, 0.75f, 1.0f));
         },
-        [this] { if (m_shapeRenderer) m_shapeRenderer->removeBody(kGhostPreviewId); }};
+        [this] { if (m_shapeRenderer) m_shapeRenderer->removeBody(kGhostPreviewId); },
+        [this](int bid) {
+            for (const auto& [sid, bodies] : sketchBodyLinks())
+                if (bodies.count(bid)) return sid;
+            return -1;
+        }};
 }
 
 // Seed the placement rotation (shared by the Text and SVG tools) so the
@@ -1136,7 +1141,7 @@ void Application::cancelAllInteractivePreviews() {
     // snapshotted it as its "pre-state" and Cancel restored the preview,
     // not the original). (Steve: "switching tools, the action that was
     // never committed gets a weird half-cancel I can't undo".)
-    if (m_edgeOpActive) cancelInteractiveEdgeOp();
+    if (m_edgeCtl.active()) cancelInteractiveEdgeOp();
 }
 
 // im-touch corner-hosted action commit UI — see Application.h. The EdgeOp
@@ -1144,7 +1149,7 @@ void Application::cancelAllInteractivePreviews() {
 // here (same set cancelAllInteractivePreviews covers).
 bool Application::imTouchActionCorner() const {
     return imTouchLayout() && !m_inSketchMode &&
-           (anyInteractivePreviewActive() || m_edgeOpActive);
+           (anyInteractivePreviewActive() || m_edgeCtl.active());
 }
 
 void Application::confirmActiveAction() {
@@ -1158,7 +1163,7 @@ void Application::confirmActiveAction() {
             commitThread();
         return;
     }
-    if (m_edgeOpActive)    { commitInteractiveEdgeOp(); return; }
+    if (m_edgeCtl.active())    { commitInteractiveEdgeOp(); return; }
     auto ctx = iopContext();
     for (auto* c : m_iops)
         if (c->active()) { c->commit(ctx); return; }
@@ -1169,7 +1174,7 @@ void Application::cancelActiveAction() {
     if (m_ppCtl.active())  { cancelPushPull(); return; }
     if (m_patternActive)   { cancelPattern(); return; }
     if (m_threadActive)    { cancelThread(); return; }
-    if (m_edgeOpActive)    { cancelInteractiveEdgeOp(); return; }
+    if (m_edgeCtl.active())    { cancelInteractiveEdgeOp(); return; }
     auto ctx = iopContext();
     for (auto* c : m_iops)
         if (c->active()) { c->cancel(ctx); return; }
@@ -2580,7 +2585,7 @@ void Application::handleShortcuts() {
     // ImGui has text input focus. Always false on Android (no modifier keys).
     bool ctrlHeld = Window::isCtrlDown();
     if (ctrlHeld && ImGui::IsKeyPressed(ImGuiKey_Z, false)) {
-        if (!m_edgeOpActive && !m_extrudeCtl.active() && !m_ppCtl.active()) {
+        if (!m_edgeCtl.active() && !m_extrudeCtl.active() && !m_ppCtl.active()) {
             // Mid-placement Ctrl+Z cancels the IN-PROGRESS shape first (the
             // editor convention — and Steve's muscle memory); the next
             // Ctrl+Z then undoes committed elements as usual.
@@ -2636,7 +2641,7 @@ void Application::handleShortcuts() {
         }
     }
     if (ctrlHeld && ImGui::IsKeyPressed(ImGuiKey_Y, false)) {
-        if (!m_edgeOpActive && !m_extrudeCtl.active() && !m_ppCtl.active()) {
+        if (!m_edgeCtl.active() && !m_extrudeCtl.active() && !m_ppCtl.active()) {
             if (m_history->canRedo()) {
                 m_history->redo(*m_document);
                 const Operation* redone =
@@ -2922,8 +2927,7 @@ void Application::handleShortcuts() {
             for (auto* c : m_iops)
                 if (c->active()) { c->cancel(iopContext()); break; }
         } else if (false) {
-        } else if (m_edgeOpActive) {
-            cancelInteractiveEdgeOp();
+        } else if (false) {   // edge ops ride the generic m_iops chain now
         } else if (m_extrudeCtl.active()) {
             cancelInteractiveExtrude();
         } else if (m_inSketchMode) {
@@ -2969,10 +2973,9 @@ void Application::handleShortcuts() {
             }
         }
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_Enter) && m_edgeOpActive) {
-        (void)materializr::parseFinite(m_edgeOpInputBuf, m_edgeOpValue);
-        updateInteractiveEdgeOp();
-        commitInteractiveEdgeOp();
+    if (ImGui::IsKeyPressed(ImGuiKey_Enter) && m_edgeCtl.active()) {
+        m_edgeCtl.confirmFromKey(iopContext());
+        m_meshesDirty = true;
     }
     // Extrude has no scaffold panel (which is where the other iops catch
     // Enter), so its Enter-to-confirm lives here — same as Move Face's.
@@ -3748,7 +3751,7 @@ void Application::rebuildHistoryFromProject(const ProjectHistory& hist,
     // (potentially after downstream Transforms). Re-resolve each fillet/chamfer's
     // generated-face indices against the final body so ownsFace() matches the
     // face positions the user actually sees and can click.
-    refreshAllEdgeOpFaces();
+    materializr::refreshAllEdgeOpFaces(*m_history, *m_document);
 
     // Retrofit generative anchors onto fillets/chamfers loaded from a project
     // that predates the feature (their saved params carry no anchor= key). Do
@@ -6439,7 +6442,7 @@ void Application::writeProjectRecoveryIfDue() {
     // and never below the history tip (the file only persists applied steps, so a
     // below-tip save would silently drop the redo tail).
     if (m_history && m_history->canRedo()) return;
-    if (anyInteractivePreviewActive() || m_inSketchMode || m_edgeOpActive)
+    if (anyInteractivePreviewActive() || m_inSketchMode || m_edgeCtl.active())
         return;
     const int bodies = m_document ? m_document->bodyCount() : 0;
     const int curStep = m_history ? m_history->currentStep() : -1;
@@ -6714,7 +6717,7 @@ void Application::run() {
             // wasteful on the iGPU, a battery/thermal sink on mobile.
             bool interactive =
                 m_inSketchMode || m_ppCtl.active() || m_gizmoDragging ||
-                m_edgeOpActive || m_moveFaceCtl.active() ||
+                m_edgeCtl.active() || m_moveFaceCtl.active() ||
                 m_revolveActive;
             if (!interactive)
                 for (auto* c : m_iops) if (c && c->active()) { interactive = true; break; }
@@ -6731,7 +6734,7 @@ void Application::run() {
                 if (m_inSketchMode)            st += "sketch ";
                 if (m_ppCtl.active())          st += "pushpull ";
                 if (m_gizmoDragging)           st += "gizmo ";
-                if (m_edgeOpActive)            st += "edgeop ";
+                if (m_edgeCtl.active())            st += "edgeop ";
                 if (m_moveFaceCtl.active())       st += "moveface ";
                 if (m_revolveActive)           st += "revolve ";
                 if (m_deferredHeavyTask)       st += "heavy ";
@@ -6918,7 +6921,7 @@ void Application::run() {
                 if (m_history && m_history->canRedo()) {
                     // hold off — keep checking each interval
                 } else if (anyInteractivePreviewActive() || m_inSketchMode ||
-                           m_edgeOpActive) {
+                           m_edgeCtl.active()) {
                     // hold off — an autosave must never cancel (or serialize) a
                     // live tool preview / an in-progress sketch out from under
                     // the user (a half-baked uncommitted-sketch state has

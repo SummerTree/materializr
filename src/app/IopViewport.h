@@ -70,6 +70,22 @@ struct IopOverlay {
     // Text with its own backing plate, offset clear of the anchor — the
     // percentage readouts every handle draws.
     std::function<void(glm::vec2 at, const char* text, unsigned rgba)> label;
+
+    // Filled triangle — arrow HEADS. (`label` and `disc` were enough while
+    // Move Face was the only user; the edge ops draw real arrows.)
+    std::function<void(glm::vec2 a, glm::vec2 b, glm::vec2 c,
+                       unsigned rgba)> triangle;
+    // Rectangle. thickness <= 0 fills it.
+    std::function<void(glm::vec2 min, glm::vec2 max, unsigned rgba,
+                       float rounding, float thickness)> rect;
+    // Bare text + its measured size, for a readout that draws its own plate in
+    // its own colour — `label` hard-codes both.
+    std::function<void(glm::vec2 at, const char* text, unsigned rgba)> text;
+    std::function<glm::vec2(const char* text)> textSize;
+
+    // Cursor position in window pixels, for a readout that follows the pointer
+    // rather than the geometry.
+    glm::vec2 mouse{0.0f};
 };
 
 // The REAL 3D gizmo meshes — depth-tested cones, torus rings and cubes drawn

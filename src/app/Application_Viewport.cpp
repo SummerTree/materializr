@@ -523,7 +523,7 @@ void Application::renderViewport() {
             // that's when fine snapping actually matters.
             bool interactive = m_inSketchMode || m_gizmoDragging ||
                                m_extrudeCtl.active() || m_ppCtl.active() ||
-                               m_edgeOpActive;
+                               m_edgeCtl.active();
             float minorAlpha = 1.0f;
             if (!interactive) {
                 // This used to walk every visible body's bbox on every frame
@@ -770,7 +770,7 @@ void Application::renderViewport() {
         // this guard the rotate/move gizmo "sticks around" on top of those
         // popups' previews, looking like an extra widget the user can grab.
         const bool anyInteractiveOpActive =
-            m_inSketchMode || m_extrudeCtl.active() || m_edgeOpActive ||
+            m_inSketchMode || m_extrudeCtl.active() || m_edgeCtl.active() ||
             m_ppCtl.active() || anyIopActive() ||
             m_patternActive || m_loftActive || m_planeOpActive ||
             m_sketchPatternActive || m_revolveActive;
@@ -905,7 +905,7 @@ void Application::renderViewport() {
         // (sketch-edit, extrude, push/pull, edge ops, pattern, loft) still
         // suppress the gizmo as before.
         const bool blockedByOtherOp =
-            m_inSketchMode || m_extrudeCtl.active() || m_edgeOpActive ||
+            m_inSketchMode || m_extrudeCtl.active() || m_edgeCtl.active() ||
             m_ppCtl.active() || anyIopActive() ||
             m_patternActive || m_loftActive || m_sketchPatternActive;
         // Construction-axis gizmo — Move only. Same arming pattern as
@@ -1500,6 +1500,31 @@ void Application::renderViewport() {
                                       IM_COL32(20, 20, 28, 220), 3.0f);
                     dl->AddText(tp, col, txt);
                 };
+                ov.triangle = [&](glm::vec2 a, glm::vec2 b, glm::vec2 c,
+                                  unsigned col) {
+                    dl->AddTriangleFilled(ImVec2(a.x, a.y), ImVec2(b.x, b.y),
+                                          ImVec2(c.x, c.y), col);
+                };
+                ov.rect = [&](glm::vec2 mn, glm::vec2 mx, unsigned col,
+                              float rounding, float thickness) {
+                    if (thickness <= 0.0f)
+                        dl->AddRectFilled(ImVec2(mn.x, mn.y), ImVec2(mx.x, mx.y),
+                                          col, rounding);
+                    else
+                        dl->AddRect(ImVec2(mn.x, mn.y), ImVec2(mx.x, mx.y), col,
+                                    rounding, 0, thickness);
+                };
+                ov.text = [&](glm::vec2 at, const char* txt, unsigned col) {
+                    dl->AddText(ImVec2(at.x, at.y), col, txt);
+                };
+                ov.textSize = [&](const char* txt) {
+                    ImVec2 ts = ImGui::CalcTextSize(txt);
+                    return glm::vec2(ts.x, ts.y);
+                };
+                {
+                    ImVec2 mp = ImGui::GetMousePos();
+                    ov.mouse = glm::vec2(mp.x, mp.y);
+                }
                 for (const auto* c : m_iops)
                     if (c->active() && c->wantsViewportInput())
                         c->drawOverlay(ov);
@@ -1515,7 +1540,7 @@ void Application::renderViewport() {
             {
                 const bool actionLive =
                     m_extrudeCtl.active() || (m_ppCtl.active() && m_ppCtl.hasArrow()) ||
-                    m_edgeOpActive;
+                    m_edgeCtl.active();
                 if (!actionLive) m_actionAnchorLatched = false;
                 m_actionAnchorValid = false;
                 if (actionLive) {
@@ -1527,7 +1552,7 @@ void Application::renderViewport() {
                             : m_ppCtl.active()
                                 ? m_ppCtl.origin() +
                                       m_ppCtl.normal() * m_ppCtl.distance()
-                                : m_edgeOpMid;   // fillet/chamfer: edge midpoint
+                                : m_edgeCtl.mid();   // fillet/chamfer: edge midpoint
                         m_actionAnchorLatched = true;
                     }
                     ImVec2 aS;
@@ -1660,167 +1685,6 @@ void Application::renderViewport() {
                         IM_COL32(255, 200, 60, 255), 3.0f, 0, 1.5f);
                     dl->AddText(tp, IM_COL32(255, 200, 60, 255), dbuf);
                 }
-            } else if (m_edgeOpActive && m_edgeOpHasHandle &&
-                       m_edgeOpTwoDist && m_edgeOpHasFaceDirs) {
-                // Two-distance chamfer: one single-head arrow per adjacent
-                // face. Drawn AT the edge with a tip pointing outward — the
-                // arrow line is also the click-and-drag target (the input
-                // handler hit-tests this same line), so what you see is
-                // what you click. Replaces an older double-headed
-                // dimension-line visual whose offset and double arrows
-                // made the click target unfindable. (Steve: arrows should
-                // point AWAY from the corner, not be double-ended.)
-                auto edgeArrow = [&](glm::vec3 fromW, glm::vec3 toW,
-                                     ImU32 col, bool grabbed) {
-                    ImVec2 a, b;
-                    if (!toImg(fromW, a) || !toImg(toW, b)) return;
-                    ImVec2 d(b.x - a.x, b.y - a.y);
-                    float len = std::sqrt(d.x * d.x + d.y * d.y);
-                    if (len < 4.0f) return;
-                    d.x /= len; d.y /= len;
-                    ImVec2 perp(-d.y, d.x);
-                    const ImU32 outline = IM_COL32(20, 20, 28, 230);
-                    const float thick = grabbed ? 4.0f : 3.0f;
-                    const float ah    = grabbed ? 15.0f : 13.0f;
-                    dl->AddLine(a, b, outline, thick + 2.0f);
-                    dl->AddLine(a, b, col, thick);
-                    ImVec2 base(b.x - d.x * ah, b.y - d.y * ah);
-                    ImVec2 w1(base.x + perp.x * ah * 0.5f,
-                              base.y + perp.y * ah * 0.5f);
-                    ImVec2 w2(base.x - perp.x * ah * 0.5f,
-                              base.y - perp.y * ah * 0.5f);
-                    // Slightly oversized halo behind the head.
-                    ImVec2 hb(base.x - d.x * 1.6f, base.y - d.y * 1.6f);
-                    ImVec2 hw1(hb.x + perp.x * (ah * 0.5f + 1.6f),
-                               hb.y + perp.y * (ah * 0.5f + 1.6f));
-                    ImVec2 hw2(hb.x - perp.x * (ah * 0.5f + 1.6f),
-                               hb.y - perp.y * (ah * 0.5f + 1.6f));
-                    ImVec2 ht(b.x + d.x * 1.6f, b.y + d.y * 1.6f);
-                    dl->AddTriangleFilled(ht, hw1, hw2, outline);
-                    dl->AddTriangleFilled(b, w1, w2, col);
-                };
-                auto twoArrow = [&](glm::vec3 dir, float val, const char* tag,
-                                    ImU32 col, bool grabbed) {
-                    glm::vec3 tipW = m_edgeOpMid + dir * std::max(val, 0.6f);
-                    edgeArrow(m_edgeOpMid, tipW, col, grabbed);
-                    ImVec2 sp;
-                    if (!toImg(tipW, sp)) return;
-                    char b[40];
-                    std::snprintf(b, sizeof(b), "%s %.1f mm", tag, val);
-                    ImVec2 ts = ImGui::CalcTextSize(b);
-                    ImVec2 tp(sp.x + 10.0f, sp.y - ts.y * 0.5f);
-                    dl->AddRectFilled(ImVec2(tp.x - 5, tp.y - 3),
-                                      ImVec2(tp.x + ts.x + 5, tp.y + ts.y + 3),
-                                      IM_COL32(20, 20, 28, 235), 3.0f);
-                    dl->AddRect(ImVec2(tp.x - 5, tp.y - 3),
-                                ImVec2(tp.x + ts.x + 5, tp.y + ts.y + 3),
-                                col, 3.0f, 0, grabbed ? 2.5f : 1.5f);
-                    dl->AddText(tp, col, b);
-                };
-                twoArrow(m_edgeOpFaceDirA, m_edgeOpValue,  "A",
-                         IM_COL32(255, 200, 60, 255), m_edgeOpGrab == 0);
-                twoArrow(m_edgeOpFaceDirB, m_edgeOpValue2, "B",
-                         IM_COL32(120, 210, 255, 255), m_edgeOpGrab == 1);
-            } else if (m_edgeOpActive && m_edgeOpHasHandle) {
-                // Single-head arrow straight out of the edge (outward,
-                // perpendicular). Minimum 1 mm visible even at value=0 so
-                // the user can see + click the handle BEFORE any value is
-                // set. Matches the hit-test in the input section: clicking
-                // anywhere along this line claims the drag.
-                glm::vec3 tipW = m_edgeOpMid + m_edgeOpOutDir *
-                                   std::max(m_edgeOpValue, 1.0f);
-                ImVec2 a, b;
-                if (toImg(m_edgeOpMid, a) && toImg(tipW, b)) {
-                    ImVec2 d(b.x - a.x, b.y - a.y);
-                    float len = std::sqrt(d.x * d.x + d.y * d.y);
-                    if (len > 4.0f) {
-                        d.x /= len; d.y /= len;
-                        ImVec2 perp(-d.y, d.x);
-                        const ImU32 outline = IM_COL32(20, 20, 28, 230);
-                        const ImU32 col     = IM_COL32(255, 200, 60, 255);
-                        const float thick = 3.0f;
-                        const float ah    = 13.0f;
-                        dl->AddLine(a, b, outline, thick + 2.0f);
-                        dl->AddLine(a, b, col, thick);
-                        ImVec2 base(b.x - d.x * ah, b.y - d.y * ah);
-                        ImVec2 w1(base.x + perp.x * ah * 0.5f,
-                                  base.y + perp.y * ah * 0.5f);
-                        ImVec2 w2(base.x - perp.x * ah * 0.5f,
-                                  base.y - perp.y * ah * 0.5f);
-                        ImVec2 hb(base.x - d.x * 1.6f, base.y - d.y * 1.6f);
-                        ImVec2 hw1(hb.x + perp.x * (ah * 0.5f + 1.6f),
-                                   hb.y + perp.y * (ah * 0.5f + 1.6f));
-                        ImVec2 hw2(hb.x - perp.x * (ah * 0.5f + 1.6f),
-                                   hb.y - perp.y * (ah * 0.5f + 1.6f));
-                        ImVec2 ht(b.x + d.x * 1.6f, b.y + d.y * 1.6f);
-                        dl->AddTriangleFilled(ht, hw1, hw2, outline);
-                        dl->AddTriangleFilled(b, w1, w2, col);
-                    }
-                }
-                std::snprintf(dbuf, sizeof(dbuf), "%.1f mm", m_edgeOpValue);
-                ImVec2 mp = ImGui::GetMousePos();
-                ImVec2 ts = ImGui::CalcTextSize(dbuf);
-                ImVec2 tp(mp.x + 14.0f, mp.y - ts.y * 0.5f);
-                dl->AddRectFilled(
-                    ImVec2(tp.x - 5, tp.y - 3),
-                    ImVec2(tp.x + ts.x + 5, tp.y + ts.y + 3),
-                    IM_COL32(20, 20, 28, 235), 3.0f);
-                dl->AddRect(
-                    ImVec2(tp.x - 5, tp.y - 3),
-                    ImVec2(tp.x + ts.x + 5, tp.y + ts.y + 3),
-                    IM_COL32(255, 200, 60, 255), 3.0f, 0, 1.5f);
-                dl->AddText(tp, IM_COL32(255, 200, 60, 255), dbuf);
-            } else if (m_gizmoDragging && glm::length(m_gizmoTotalDelta) > 1e-3f) {
-                // Translate drag: dimension line from the WORLD ORIGIN to the
-                // current pivot. Snap matches the rule used by the actual
-                // transform — absolute-position snap when snap-to-grid is on,
-                // so the readout shows whole-mm (or whole-grid-step) coords
-                // and the label tracks what the body/sketch is doing.
-                glm::vec3 cc = m_gizmoSharedPivot + m_gizmoTotalDelta;
-                // For the user-Z (world-Y) component of the displayed tuple
-                // we want the BOTTOM of the body, not the centre. Translate
-                // moves the whole body rigidly, so bottom-Y after drag =
-                // bottom-Y at start + delta.y. The pivot stays the centre
-                // (gizmo placement is unchanged) but `bottomCC.y` flows into
-                // the readout below.
-                glm::vec3 bottomCC = cc;
-                bottomCC.y = m_gizmoSharedBottomY + m_gizmoTotalDelta.y;
-                if (m_snapToGrid && m_sketchGridStep > 0.0f) {
-                    float step = m_sketchGridStep;
-                    auto s = [&](float v){ return std::round(v/step)*step; };
-                    cc       = glm::vec3(s(cc.x),       s(cc.y),       s(cc.z));
-                    bottomCC = glm::vec3(s(bottomCC.x), s(bottomCC.y), s(bottomCC.z));
-                }
-                // Label leads with the dragged axis name. We map from the
-                // Y-up world internals to the user's Z-up convention so the
-                // letter and the coord tuple match what the ViewCube + gizmo
-                // arrows say:
-                //   red (world +X) -> user X
-                //   green (world +Y) -> user Z
-                //   blue (world +Z) -> user Y
-                // Same mapping for the parenthetical tuple, which is
-                // shown in (user X, user Y, user Z) order.
-                float ax = std::abs(m_gizmoTotalDelta.x);
-                float ay = std::abs(m_gizmoTotalDelta.y);
-                float az = std::abs(m_gizmoTotalDelta.z);
-                // Lead label: which axis dominates the drag delta. axV uses
-                // bottomCC for the Z (world-Y) leg, cc for X/Y — so the
-                // single-axis readout matches the tuple's user-Z column.
-                char axL = '?'; float axV = 0.0f;
-                if (ax >= ay && ax >= az && ax > 1e-3f) { axL = 'X'; axV = cc.x; }
-                else if (ay >= az && ay > 1e-3f)         { axL = 'Z'; axV = bottomCC.y; }
-                else if (az > 1e-3f)                      { axL = 'Y'; axV = cc.z; }
-                if (axL == '?') {
-                    std::snprintf(dbuf, sizeof(dbuf),
-                                  "%.2f mm  (%.2f, %.2f, %.2f)",
-                                  glm::length(cc), cc.x, cc.z, bottomCC.y);
-                } else {
-                    std::snprintf(dbuf, sizeof(dbuf),
-                                  "%c %.2f mm   (%.2f, %.2f, %.2f)",
-                                  axL, axV, cc.x, cc.z, bottomCC.y);
-                }
-                glm::vec3 origin(0.0f);
-                drawDim(origin, cc, dbuf);
             }
 
             // Rotate (°) / Scale (%) readout near the body during a gizmo drag —
@@ -3407,7 +3271,7 @@ void Application::renderViewport() {
             if (m_inSketchMode && m_sketchTool &&
                 m_sketchTool->getMode() != SketchToolMode::Select)
                 allowLongPress = false;
-            if (m_ppCtl.active() || m_extrudeCtl.active() || m_edgeOpActive ||
+            if (m_ppCtl.active() || m_extrudeCtl.active() || m_edgeCtl.active() ||
                 anyIopActive())
                 allowLongPress = false;
             if (m_window) m_window->setTouchOverViewport(allowLongPress);
@@ -3496,12 +3360,12 @@ void Application::renderViewport() {
             // this, trackpad mode — left-orbit, left-pan — would steal the
             // subsequent drag-threshold frame and run orbit instead of the
             // axis drag, so the gizmo "felt unclickable". Same story for
-            // the fillet / chamfer arrow handles via m_edgeOpDragging,
+            // the fillet / chamfer arrow handles via m_edgeCtl.dragging(),
             // which the edge-op click hit-test sets on the down-frame
             // when the cursor is near the visible arrow line.
             bool gizmoOwnsDrag = m_gizmoDragging ||
                                  anyIopDraggingHandle() ||
-                                 m_edgeOpDragging ||
+                                 m_edgeCtl.dragging() ||
                                  m_ppCtl.sticky();
             if (materializr::touchMode()) {
                 // A one-finger press-and-hold drives box-select, not orbit/pan — so
@@ -3522,7 +3386,7 @@ void Application::renderViewport() {
             // the gate never fires and the op "doesn't work".
             const bool toolWantsDrag =
                 m_inSketchMode || m_ppCtl.active() || m_extrudeCtl.active() ||
-                m_edgeOpActive || anyIopActive();
+                m_edgeCtl.active() || anyIopActive();
             if (materializr::touchMode()) {
                 // Touch has no hover and the one finger is the only pointer, so the
                 // tool always owns the drag. Two-finger still pans/zooms; Move (nav
@@ -3550,7 +3414,7 @@ void Application::renderViewport() {
                 // is already pan. Don't let it orbit; the box-select code below
                 // claims the drag. Only in the bare 3D view (no sketch/op running).
                 if (leftIsCamera && io.KeyAlt && !m_inSketchMode && !m_extrudeCtl.active() &&
-                    !m_ppCtl.active() && !m_edgeOpActive && !m_gizmoDragging)
+                    !m_ppCtl.active() && !m_edgeCtl.active() && !m_gizmoDragging)
                     suppressCamDrag = true;
             }
             // Pan depth anchor: Camera::pan is exact 1:1 screen tracking, but in
@@ -3874,141 +3738,11 @@ void Application::renderViewport() {
                 }
             }
 
-            // Fillet/Chamfer claim: on left-down, if the cursor is within
-            // ~12 px of the visible arrow line(s), set m_edgeOpDragging
-            // so gizmoOwnsDrag (above) suppresses orbit on the next drag
-            // frame. Without the click claim, trackpad-mode left-orbit
-            // grabbed the drag-threshold frame and the arrows felt dead.
-            // Minimum visible arrow length (1 mm single / 0.6 mm per
-            // chamfer-arrow) makes the hit area reachable even at value=0.
-            if (m_edgeOpActive && m_edgeOpHasHandle &&
-                ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-                ImVec2 mp = ImGui::GetMousePos();
-                auto toScreen = [&](const glm::vec3& w, ImVec2& out) -> bool {
-                    glm::vec4 clip = proj * view * glm::vec4(w, 1.0f);
-                    if (clip.w <= 1e-6f) return false;
-                    glm::vec3 ndc = glm::vec3(clip) / clip.w;
-                    ImVec2 wp = ImGui::GetItemRectMin();
-                    out = ImVec2(wp.x + (ndc.x * 0.5f + 0.5f) * contentSize.x,
-                                 wp.y + (0.5f - ndc.y * 0.5f) * contentSize.y);
-                    return true;
-                };
-                auto distToSeg = [&](ImVec2 a, ImVec2 b) {
-                    float dx = b.x - a.x, dy = b.y - a.y;
-                    float len2 = dx * dx + dy * dy;
-                    float qx, qy;
-                    if (len2 < 1e-6f) {
-                        qx = mp.x - a.x; qy = mp.y - a.y;
-                    } else {
-                        float t = ((mp.x - a.x) * dx +
-                                   (mp.y - a.y) * dy) / len2;
-                        t = std::max(0.0f, std::min(1.0f, t));
-                        qx = mp.x - (a.x + t * dx);
-                        qy = mp.y - (a.y + t * dy);
-                    }
-                    return std::sqrt(qx * qx + qy * qy);
-                };
-                ImVec2 cs;
-                bool gotC = toScreen(m_edgeOpMid, cs);
-                const float pick = 12.0f;
-                if (gotC && m_edgeOpTwoDist && m_edgeOpHasFaceDirs) {
-                    glm::vec3 tipA = m_edgeOpMid + m_edgeOpFaceDirA *
-                                         std::max(m_edgeOpValue,  0.6f);
-                    glm::vec3 tipB = m_edgeOpMid + m_edgeOpFaceDirB *
-                                         std::max(m_edgeOpValue2, 0.6f);
-                    ImVec2 sa, sb;
-                    if ((toScreen(tipA, sa) && distToSeg(cs, sa) < pick) ||
-                        (toScreen(tipB, sb) && distToSeg(cs, sb) < pick))
-                        m_edgeOpDragging = true;
-                } else if (gotC) {
-                    glm::vec3 tip = m_edgeOpMid + m_edgeOpOutDir *
-                                      std::max(m_edgeOpValue, 1.0f);
-                    ImVec2 s;
-                    if (toScreen(tip, s) && distToSeg(cs, s) < pick)
-                        m_edgeOpDragging = true;
-                }
-            }
-
-            // Fillet/Chamfer drag handle: left-drag sets the radius/distance to the
-            // perpendicular distance from the edge to the cursor (on a plane through
-            // the edge midpoint facing the camera). Gated on m_edgeOpDragging so a
-            // click outside the arrow line orbits the camera instead.
-            if (m_edgeOpActive && m_edgeOpHasHandle && m_edgeOpDragging &&
-                ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
-                ImVec2 mp = ImGui::GetMousePos();
-                ImVec2 wp = ImGui::GetItemRectMin();
-                glm::mat4 invVP = glm::inverse(proj * view);
-                float nx = ((mp.x - wp.x) / contentSize.x) * 2.0f - 1.0f;
-                float ny = 1.0f - ((mp.y - wp.y) / contentSize.y) * 2.0f;
-                glm::vec4 np = invVP * glm::vec4(nx, ny, -1.0f, 1.0f);
-                glm::vec4 fp = invVP * glm::vec4(nx, ny, 1.0f, 1.0f);
-                glm::vec3 ro(np / np.w), rd = glm::normalize(glm::vec3(fp / fp.w) - ro);
-                glm::vec3 camFwd = glm::normalize(cam.getTarget() - cam.getPosition());
-                float denom = glm::dot(rd, camFwd);
-                if (std::abs(denom) > 1e-6f) {
-                    float t = glm::dot(m_edgeOpMid - ro, camFwd) / denom;
-                    glm::vec3 hit = ro + rd * t;
-                    if (m_edgeOpTwoDist && m_edgeOpHasFaceDirs) {
-                        // Two arrows: latch the one whose tip is nearest the
-                        // cursor at drag start, then drag along that face's dir.
-                        auto w2s = [&](glm::vec3 w, ImVec2& out) -> bool {
-                            glm::vec4 c = proj * view * glm::vec4(w, 1.0f);
-                            if (c.w <= 1e-6f) return false;
-                            out = ImVec2(wp.x + (c.x / c.w * 0.5f + 0.5f) * contentSize.x,
-                                         wp.y + (1.0f - (c.y / c.w * 0.5f + 0.5f)) * contentSize.y);
-                            return true;
-                        };
-                        if (m_edgeOpGrab < 0) {
-                            auto sd = [&](glm::vec3 dir, float v) -> float {
-                                glm::vec3 tip = m_edgeOpMid + dir * std::max(v, 0.6f);
-                                ImVec2 s;
-                                if (!w2s(tip, s)) return 1e18f;
-                                float dx = s.x - mp.x, dy = s.y - mp.y;
-                                return dx * dx + dy * dy;
-                            };
-                            m_edgeOpGrab =
-                                (sd(m_edgeOpFaceDirA, m_edgeOpValue) <=
-                                 sd(m_edgeOpFaceDirB, m_edgeOpValue2)) ? 0 : 1;
-                        }
-                        glm::vec3 dir = (m_edgeOpGrab == 0) ? m_edgeOpFaceDirA
-                                                            : m_edgeOpFaceDirB;
-                        float proj = glm::dot(hit - m_edgeOpMid, dir);
-                        float val = (proj <= 0.0f) ? 0.0f : std::max(0.1f, proj);
-                        val = std::round(val * 10.0f) / 10.0f;
-                        if (m_edgeOpGrab == 0) {
-                            m_edgeOpValue = val;
-                            std::snprintf(m_edgeOpInputBuf, sizeof(m_edgeOpInputBuf), "%.1f", val);
-                        } else {
-                            m_edgeOpValue2 = val;
-                            std::snprintf(m_edgeOpInputBuf2, sizeof(m_edgeOpInputBuf2), "%.1f", val);
-                        }
-                        updateInteractiveEdgeOp();
-                    } else {
-                    // Signed distance along the outward arrow: dragging away from the
-                    // edge grows the value (≥0.1 mm); dragging back toward/through the
-                    // edge returns to 0 (no change).
-                    float proj = glm::dot(hit - m_edgeOpMid, m_edgeOpOutDir);
-                    m_edgeOpValue = (proj <= 0.0f) ? 0.0f : std::max(0.1f, proj);
-                    // Quantise the drag to the displayed precision (0.1 mm):
-                    // every readout shows %.1f, so committing the raw float
-                    // stored "1.9948" behind an on-screen "2.0" — visible
-                    // later in the Properties editor after a reload.
-                    m_edgeOpValue = std::round(m_edgeOpValue * 10.0f) / 10.0f;
-                    std::snprintf(m_edgeOpInputBuf, sizeof(m_edgeOpInputBuf), "%.1f", m_edgeOpValue);
-                    updateInteractiveEdgeOp();
-                    }
-                }
-            } else if (m_edgeOpActive &&
-                       (m_edgeOpDragging || m_edgeOpGrab >= 0) &&
-                       !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
-                m_edgeOpGrab = -1;       // re-pick the chamfer arrow on next claim
-                m_edgeOpDragging = false; // re-claim required for the next drag
-            }
 
             // Gizmo input + Face hover highlighting + picking (suppressed while an
             // interactive op owns the left-drag: extrude, push/pull, fillet/chamfer,
             // or the pattern axis-origin picker).
-            if (!m_inSketchMode && !m_extrudeCtl.active() && !m_ppCtl.active() && !m_edgeOpActive &&
+            if (!m_inSketchMode && !m_extrudeCtl.active() && !m_ppCtl.active() && !m_edgeCtl.active() &&
                 !anyIopWantsViewportInput() &&
                 !(m_patternActive && m_patternPickingOrigin)) {
                 ImVec2 mousePos = ImGui::GetMousePos();
@@ -5317,7 +5051,7 @@ void Application::renderViewport() {
                             // "Clear" button is the deliberate reset.
                             const bool projecting = m_projectSketchCtl.active();
                             bool boxEligible = !m_inSketchMode && !m_extrudeCtl.active() &&
-                                !m_ppCtl.active() && !m_edgeOpActive && !m_gizmoDragging &&
+                                !m_ppCtl.active() && !m_edgeCtl.active() && !m_gizmoDragging &&
                                 !projecting &&
                                 // Normally box-select needs Left free of the camera;
                                 // in trackpad / left-camera mode, Alt+Left frees it.
@@ -5343,7 +5077,7 @@ void Application::renderViewport() {
                         // empty-space path never fires under touch).
                         if (m_window && m_window->isTouchHoldSelect() && m_boxSelect &&
                             !m_boxSelect->isActive() && !m_inSketchMode && !m_extrudeCtl.active() &&
-                            !m_ppCtl.active() && !m_edgeOpActive && !m_gizmoDragging) {
+                            !m_ppCtl.active() && !m_edgeCtl.active() && !m_gizmoDragging) {
                             ImVec2 mp = ImGui::GetMousePos();
                             ImVec2 wp = ImGui::GetItemRectMin();
                             m_boxSelect->begin(glm::vec2(mp.x - wp.x, mp.y - wp.y));
@@ -6667,7 +6401,7 @@ void Application::renderViewport() {
         // the im-touch layout parks its sketch Finish/Discard FABs in that
         // corner, which buried it.)
         const bool navLockRelevant = m_inSketchMode ||
-            m_ppCtl.active() || m_extrudeCtl.active() || m_edgeOpActive ||
+            m_ppCtl.active() || m_extrudeCtl.active() || m_edgeCtl.active() ||
             anyIopActive();
         if (!navLockRelevant) m_moveModeToggle = false;
         if ((selectionContext && (multiInLegacy || deleteHere)) ||
@@ -7153,173 +6887,9 @@ void Application::renderViewport() {
     // controller; called here because the well anchors to THIS window.
     m_ppCtl.renderPushPullPanel(iopContext());
 
-    // Interactive fillet/chamfer UI
-    if (m_edgeOpActive) {
-        const char* opName = m_edgeOpType == EdgeOpType::Fillet ? "FILLET" : "CHAMFER";
-        const char* label = m_edgeOpType == EdgeOpType::Fillet ? "Radius (mm)" : "Distance (mm)";
-
-        materializr::viewportBanner(
-            ImVec4(0.2f, 1.0f, 0.5f, 1.0f),
-            materializr::touchMode()
-                ? "%s - Type value or use slider, then Confirm / Cancel."
-                : "%s - Type value or use slider. Enter to confirm, Escape to cancel.", opName);
-
-        // im-touch: anchor the well next to the edge being rounded/cut
-        // (latched midpoint — static while values change, same rule as the
-        // sketch fields); other layouts keep the fixed top-right spot.
-        bool edgeAnchored = false;
-        if (imTouchLayout() && m_actionAnchorValid) {
-            const float s2 = uiScale();
-            const ImVec2 vwp = ImGui::GetWindowPos();
-            const float vww = ImGui::GetWindowWidth();
-            float ax = std::min(std::max(m_actionAnchorX + 24.0f * s2,
-                                         vwp.x + 8.0f),
-                                vwp.x + vww - 250.0f * s2);
-            float ay = std::max(m_actionAnchorY + 12.0f * s2, vwp.y + 8.0f);
-            ImGui::SetNextWindowPos(ImVec2(ax, ay), ImGuiCond_Appearing);
-            edgeAnchored = true;
-        }
-        if (!edgeAnchored)
-            ImGui::SetNextWindowPos(ImVec2(
-                std::max(ImGui::GetWindowPos().x + 6.0f,
-                         ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - 250.0f * uiScale()),
-                ImGui::GetWindowPos().y + 50), ImGuiCond_Appearing);
-        // Pin the width (min == max) so moving the panel can't feed back into
-        // the value field's content-avail width and ratchet the window wider.
-        ImGui::SetNextWindowSizeConstraints(ImVec2(240.0f * uiScale(), 0.0f),
-                                            ImVec2(240.0f * uiScale(), 100000.0f));
-        ImGui::Begin("##EdgeOpInput", nullptr,
-            ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-            ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking |
-            ImGuiWindowFlags_AlwaysAutoResize);
-        opDialogDragGrip(uiScale());
-
-        if (!imTouchLayout()) {   // im-touch: just the value well below
-            ImGui::Text("%s", label);
-            ImGui::Separator();
-        }
-
-        if (m_edgeOpInputFocus) {
-            if (!materializr::touchMode())
-                ImGui::SetKeyboardFocusHere();  // touch: drag the handle, or tap the field to type
-            m_edgeOpInputFocus = false;
-        }
-
-        if (imTouchLayout()) {
-            // im-touch: the panel is the value well (+ the chamfer's
-            // two-distance controls below) — no header, hint or steppers.
-            if (touchui::amountField(
-                    "edgeAmt",
-                    m_edgeOpType == EdgeOpType::Fillet ? "Radius" : "Distance",
-                    &m_edgeOpValue, "mm", 1, /*allowSign=*/false,
-                    0.1f, 20.0f)) {
-                std::snprintf(m_edgeOpInputBuf, sizeof(m_edgeOpInputBuf),
-                              "%.1f", m_edgeOpValue);
-                updateInteractiveEdgeOp();
-            }
-            // touch: raise the keyboard on TAP, not on open (see the Extrude
-            // field, issue #22).
-            if (materializr::touchMode() && ImGui::IsItemClicked())
-                ImGui::SetKeyboardFocusHere(-1);
-        } else {
-        if (ImGui::InputText("##val", m_edgeOpInputBuf, sizeof(m_edgeOpInputBuf),
-                             ImGuiInputTextFlags_EnterReturnsTrue)) {
-            (void)materializr::parseFinite(m_edgeOpInputBuf, m_edgeOpValue);
-            updateInteractiveEdgeOp();
-            commitInteractiveEdgeOp();
-        } else {
-            float parsed = m_edgeOpValue;
-            if (materializr::parseFinite(m_edgeOpInputBuf, parsed) &&
-                std::abs(parsed - m_edgeOpValue) > 0.01f && parsed > 0.01f) {
-                m_edgeOpValue = parsed;
-                updateInteractiveEdgeOp();
-            }
-        }
-
-        ImGui::SameLine();
-        ImGui::Text("mm");
-        }
-
-        // Quick-nudge stepper (replaces the slider). Positive-only for a
-        // radius / setback; 0 shows the original body mid-preview (updateInter-
-        // activeEdgeOp restores it at ~0). Confirming at 0 still cancels — zero
-        // fillet = no fillet. Desktop only — im-touch stays a single well.
-        if (!imTouchLayout() &&
-            materializr::stepperRow("edgeStep", &m_edgeOpValue,
-                                    /*allowNegative=*/false, 0.1f, 20.0f)) {
-            std::snprintf(m_edgeOpInputBuf, sizeof(m_edgeOpInputBuf), "%.1f", m_edgeOpValue);
-            updateInteractiveEdgeOp();
-        }
-
-        // Asymmetric chamfer: a second setback along the other face. Offered
-        // for any chamfer whose edges share a common face (single edge always
-        // qualifies; a coplanar edge loop does too). Two arrows: A=amber, B=blue.
-        if (m_edgeOpType == EdgeOpType::Chamfer && m_edgeOpCanTwoDist) {
-            ImGui::Spacing();
-            if (ImGui::Checkbox("Two distances (A / B)", &m_edgeOpTwoDist)) {
-                if (m_edgeOpTwoDist && m_edgeOpValue2 < 0.1f) {
-                    m_edgeOpValue2 = std::max(0.1f, m_edgeOpValue); // seed B from A
-                    std::snprintf(m_edgeOpInputBuf2, sizeof(m_edgeOpInputBuf2),
-                                  "%.1f", m_edgeOpValue2);
-                }
-                m_edgeOpGrab = -1;
-                updateInteractiveEdgeOp();
-            }
-            if (m_edgeOpTwoDist) {
-                if (!imTouchLayout())
-                    ImGui::TextColored(materializr::accentText(),
-                                       "Distance B (other face)");
-                if (imTouchLayout()) {
-                    if (touchui::amountField("edgeAmt2", "Distance B",
-                                             &m_edgeOpValue2, "mm", 1,
-                                             /*allowSign=*/false,
-                                             0.1f, 20.0f)) {
-                        std::snprintf(m_edgeOpInputBuf2,
-                                      sizeof(m_edgeOpInputBuf2), "%.1f",
-                                      m_edgeOpValue2);
-                        updateInteractiveEdgeOp();
-                    }
-                } else {
-                if (ImGui::InputText("##val2", m_edgeOpInputBuf2,
-                                     sizeof(m_edgeOpInputBuf2),
-                                     ImGuiInputTextFlags_EnterReturnsTrue)) {
-                    (void)materializr::parseFinite(m_edgeOpInputBuf2, m_edgeOpValue2);
-                    updateInteractiveEdgeOp();
-                    commitInteractiveEdgeOp();
-                } else {
-                    float p2 = m_edgeOpValue2;
-                    if (materializr::parseFinite(m_edgeOpInputBuf2, p2) &&
-                        std::abs(p2 - m_edgeOpValue2) > 0.01f && p2 > 0.01f) {
-                        m_edgeOpValue2 = p2;
-                        updateInteractiveEdgeOp();
-                    }
-                }
-                ImGui::SameLine();
-                ImGui::Text("mm");
-                }
-                if (!imTouchLayout() &&
-                    materializr::stepperRow("edgeStep2", &m_edgeOpValue2,
-                                            /*allowNegative=*/false, 0.1f, 20.0f)) {
-                    std::snprintf(m_edgeOpInputBuf2, sizeof(m_edgeOpInputBuf2),
-                                  "%.1f", m_edgeOpValue2);
-                    updateInteractiveEdgeOp();
-                }
-            }
-        }
-
-        if (!imTouchActionCorner()) {   // im-touch: corner ✓/✗ FABs instead
-            ImGui::Spacing();
-            if (ImGui::Button(materializr::btnConfirm(), ImVec2(110, 0))) {
-                commitInteractiveEdgeOp();
-            }
-            ImGui::SameLine();
-            if (ImGui::Button(materializr::btnCancel(), ImVec2(110, 0))) {
-                cancelInteractiveEdgeOp();
-            }
-        }
-
-        ImGui::End();
-    }
+    // Interactive fillet/chamfer UI — banner + value well live in the
+    // controller; called here because the well anchors to THIS window.
+    m_edgeCtl.renderEdgeOpPanel(iopContext());
 
     // Move / Tilt / Scale Face: banner + value wells + commit/cancel. Lives
     // in the controller; called from here because the wells anchor to THIS

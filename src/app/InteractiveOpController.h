@@ -95,6 +95,10 @@ struct IopContext {
     // already crosses this line); the renderer slot and colour stay the app's.
     std::function<void(const TopoDS_Shape& tool, bool cut)> showGhost;
     std::function<void()> clearGhost;
+
+    // The sketch that drives this body, or -1. Generative anchoring: a fillet
+    // records it so a filleted corner can follow a later dimension edit.
+    std::function<int(int bodyId)> sketchForBody;
 };
 
 // Base for "popup with live preview" modeling operations (Shell, Taper,
@@ -129,6 +133,18 @@ struct IopContext {
 //     the preview bookkeeping. The base now owns that engine so the next op
 //     doesn't have to re-derive it.
 //
+//   HistoryEdit — the op is ALREADY on History and its parameter is the thing
+//     being dragged: re-opening a committed fillet by clicking the face it
+//     produced. Neither model above works. SnapshotBody would restore one body
+//     and lose everything DOWNSTREAM of the step (a chamfer stacked on that
+//     fillet flickers out for the length of the drag); LiveOp assumes an
+//     unrecorded instance. So the preview IS the real replay — mutate the
+//     step's parameter and call History::editStep. The controller owns
+//     update/commit/cancel for this model (the policy is all op-specific:
+//     which parameter, which failure message); the base only skips the other
+//     two models' bookkeeping. The mechanism — whole-document snapshot,
+//     edit-state snapshot, restore-on-failed-replay — is HistoryEditPreview.h.
+//
 // Lifecycle contract:
 //   begin   — capture params from the selection (onBegin); snapshot the
 //             target body (SnapshotBody only); run the first preview.
@@ -146,7 +162,7 @@ class InteractiveOpController {
 public:
     virtual ~InteractiveOpController() = default;
 
-    enum class PreviewModel { SnapshotBody, LiveOp };
+    enum class PreviewModel { SnapshotBody, LiveOp, HistoryEdit };
 
     // onBegin() return value for a LiveOp controller with no single existing
     // body to snapshot — a free-space extrude CREATES its body, so there is
@@ -253,6 +269,15 @@ protected:
 
     void requestCommit() { m_commitRequested = true; }
     void setDraggingHandle(bool d) { m_draggingHandle = d; }
+    // For a controller that runs its own preview (HistoryEdit) and has to
+    // report whether the frame landed.
+    void setPreviewOk(bool ok) { m_previewOk = ok; }
+    // HistoryEdit: the "pre-state" shape isn't the current body — it is the
+    // edited op's own getPreviousShape(). Set it from onBegin.
+    void setSnapshot(const TopoDS_Shape& s) { m_snapshot = s; }
+    // Tear the controller down WITHOUT touching the document — for a
+    // controller whose commit/cancel already put the model where it belongs.
+    void teardown() { cleanup(); }
     // For custom-lifecycle controllers only: keeps the base active() flag —
     // what every generic loop gates on — in step with their own state.
     void setActive(bool a) { m_active = a; }

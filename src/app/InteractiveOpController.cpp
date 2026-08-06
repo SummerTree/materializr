@@ -13,6 +13,16 @@ namespace materializr {
 bool InteractiveOpController::begin(const IopContext& ctx) {
     int body = onBegin(ctx);
     if (body == -1) return false;   // refused
+    if (previewModel() == PreviewModel::HistoryEdit) {
+        // No document snapshot here: the controller supplied its own pre-state
+        // (the edited op's), and the whole-document guard is
+        // HistoryEditPreview's job. Everything else is the controller's.
+        m_bodyId = body;
+        m_active = true;
+        m_commitRequested = false;
+        update(ctx);
+        return true;
+    }
     if (previewModel() == PreviewModel::LiveOp) {
         // Nothing to snapshot: the live instance's own undo() is the restore
         // path, and the target may not exist yet (a free-space extrude mints
@@ -39,6 +49,9 @@ bool InteractiveOpController::begin(const IopContext& ctx) {
 
 void InteractiveOpController::update(const IopContext& ctx) {
     if (!m_active) return;
+    // HistoryEdit controllers override update/commit/cancel outright — the
+    // policy is entirely op-specific. Reaching the base here means one forgot.
+    if (previewModel() == PreviewModel::HistoryEdit) return;
     if (previewModel() == PreviewModel::LiveOp) { updateLive(ctx); return; }
     if (m_bodyId < 0) return;
     if (!wantsLivePreview(ctx)) {
@@ -95,6 +108,7 @@ void InteractiveOpController::updateLive(const IopContext& ctx) {
 
 void InteractiveOpController::commit(const IopContext& ctx) {
     if (!m_active) return;
+    if (previewModel() == PreviewModel::HistoryEdit) { cleanup(); return; }
     if (previewModel() == PreviewModel::LiveOp) {
         // A different op to record? Undo the preview and push it properly,
         // so History executes it against the un-previewed document.
@@ -152,6 +166,7 @@ void InteractiveOpController::commit(const IopContext& ctx) {
 }
 
 void InteractiveOpController::cancel(const IopContext& ctx) {
+    if (previewModel() == PreviewModel::HistoryEdit) { cleanup(); return; }
     if (previewModel() == PreviewModel::LiveOp) {
         if (m_liveApplied && m_liveOp) {
             try { m_liveOp->undo(ctx.doc); } catch (...) {}
