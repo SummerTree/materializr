@@ -74,6 +74,26 @@ public:
     // twin of renderPluginButtons' click handling.
     void fireRailPlugin(int index);
 
+    // ── The catalogue is the single source of WHICH tools a context offers ──
+    //
+    // railTools() above is that catalogue. It used to serve the modern and
+    // im-touch rails ONLY, while the classic Tools palette ran a completely
+    // parallel set of render*Tools() functions — two hand-maintained lists
+    // that happened to agree. They did not always: Push/Pull was missing from
+    // classic, "Move Hole" shipped to the rails only, and Toolbar.cpp's own
+    // comments record both. Every such gap is invisible until a user in one
+    // layout can't reach a feature.
+    //
+    // Now classic consults the catalogue too. It keeps its OWN presentation —
+    // section headers, the Move/Rotate/Scale row, the Fabrication group — and
+    // asks the catalogue only whether a tool applies right now. A tool added
+    // to railTools() therefore appears in all three layouts: with bespoke
+    // placement in classic if someone wrote a button for it, and via
+    // renderCatalogRemainder() at the end of its section if nobody did.
+    //
+    // Valid only during render() (the catalogue is snapshotted per frame).
+    bool catalogOffers(ToolAction a) const;
+
     void setSketchMode(bool active);
     bool isSketchMode() const;
 
@@ -196,11 +216,13 @@ private:
     ToolAction renderAxisSelectedTools();
     ToolAction renderSketchRegionTools();
     ToolAction renderNoSelectionTools();
-    // includePluginButtons=false suppresses HasBodies plugin contributions
-    // (Split / Duplicate / Pattern / etc.) when the body tools are rendered
-    // as a fallback under a Face selection — those are whole-body operations
-    // that don't make sense while the user is interacting with a face.
-    ToolAction renderBodyTools(bool includePluginButtons = true);
+    // primaryContext=false means "rendered as a FALL-THROUGH under a Face
+    // selection, purely for the Transform row". It then suppresses the
+    // HasBodies plugin contributions (Split / Duplicate / Pattern — whole-body
+    // operations that don't apply while the user is interacting with a face),
+    // the Fabrication group, and the catalogue-remainder net, which would
+    // otherwise re-render every FACE tool renderFaceTools just placed.
+    ToolAction renderBodyTools(bool primaryContext = true);
     ToolAction renderFaceTools();
     ToolAction renderEdgeTools();
 
@@ -222,6 +244,20 @@ private:
     void renderAddAxisMenu();
 
     void tip(const char* text) const;
+
+    // The catalogue for THIS frame, snapshotted at the top of render() so the
+    // per-context renderers can consult it without rebuilding it per button
+    // (it walks the plugin registry and, on a face, probes history for the
+    // owning fillet/chamfer).
+    std::vector<RailTool> m_catalog;
+    // Render every catalogue entry the caller did NOT handle itself, as a
+    // plain full-width button. This is the anti-drift net: a tool added to
+    // railTools() shows up in classic even if nobody wrote a bespoke button
+    // for it. `handled` lists the actions the caller has already placed — or
+    // deliberately suppresses (classic drops Measure, which lives in the View
+    // menu). Plugin entries are skipped: classic renders those through
+    // renderPluginButtons at its own chosen point.
+    ToolAction renderCatalogRemainder(std::initializer_list<ToolAction> handled);
 };
 
 } // namespace materializr
