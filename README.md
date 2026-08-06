@@ -97,7 +97,9 @@ guide curves), **boundary fill**, booleans, fillet/chamfer, shell, mirror,
 linear & circular patterns, split, and **separate** (break a body's
 disconnected solids into individual bodies). Drop in a **primitive** (box,
 cylinder, sphere, cone, torus) when that's the faster start. Direct face
-editing: **taper** (draft), **scale face** (pinch a wing tip into a winglet),
+editing: **draft** (moulding draft angle, several faces at one angle, and it
+works on curved walls — a cylinder drafts into a cone), **scale face** (pinch a
+wing tip into a winglet),
 **twist a face** about its normal to spiral the walls, edit a hole or boss to
 an exact diameter.
 
@@ -223,8 +225,8 @@ this would exist without them.
 
 - [Dear ImGui](https://github.com/ocornut/imgui) — immediate-mode GUI,
   used for every panel and overlay (MIT).
-- [GLFW](https://www.glfw.org/) — window, input, and OpenGL context
-  creation (zlib).
+- [SDL2](https://www.libsdl.org/) — window, input, and OpenGL context
+  creation on every platform, desktop and mobile alike (zlib).
 - [GLEW](https://glew.sourceforge.net/) — OpenGL extension loading on
   Windows (modified BSD / MIT).
 

@@ -103,12 +103,28 @@ immediately to avoid "banding"), plane/axis lifecycle events, `ToastEvent`
 (non-UI code surfaces a message without depending on `Application`), and
 `ShutdownEvent`.
 
-### Interactive-op controllers (`src/app/InteractiveOpController.*`, `FaceOpControllers.*`)
-Ops that need live viewport picking + a modal popup (shell, taper, scale-face,
-move-face…) are driven by `InteractiveOpController` subclasses. `IopContext` is
-a slim struct giving a controller what it needs from the app *without* seeing
-the whole `Application` class. This is the in-progress extraction of interactive
-UX out of the large `Application` god-class.
+### Interactive-op controllers (`src/app/InteractiveOpController.*`)
+**Every** op with a live preview is an `InteractiveOpController` subclass, and
+they all live in one array on `Application`. Membership is what drives the
+Esc/Enter chains, single-flight cancellation, gizmo suppression and viewport
+input/overlay dispatch — so adding an op no longer means hand-editing four
+separate lists, which was a recurring source of half-registered tools.
+
+Three structs are the whole boundary, and no ImGui or renderer type crosses
+them: `IopContext` (what a controller needs from the document side),
+`IopViewport` (pointer state, pick ray, camera frame) and `IopOverlay` /
+`IopGizmo3D` (drawing). Screen positions are `glm::vec2`, colours are packed
+`0xAABBGGRR`.
+
+Two render phases, and they must not be mixed up: `drawGizmos3D()` runs during
+the 3D pass while the viewport FBO is still bound, so its meshes depth-test
+against the scene; `drawOverlay()` runs later, while the ImGui draw list is
+built. A raw GL call in the second phase hits the window framebuffer and the
+UI paints straight over it.
+
+A controller picks one of three preview models — see *Three preview models* in
+`architecture.md` for what each is for and why choosing wrong is a bug:
+`SnapshotBody`, `LiveOp`, `HistoryEdit`.
 
 ### Coordinate convention
 The world is **Y-up** (ground = world XZ plane); the **UI is Z-up** (the user's
@@ -137,14 +153,24 @@ apply this conversion so parts stand up correctly for printing.
 |---|---|
 | `Application.{cpp,h}` | The host/god-class: lifecycle, the main run loop, render-on-demand gating, settings, panel ownership, font resolution. Split across the files below (one class, multiple translation units). |
 | `Application_Viewport.cpp` | Viewport input: camera control, picking, gizmo handling, grid, box-select, sketch picking (largest TU). |
-| `Application_InteractiveOps.cpp` | Interactive-op orchestration: the sketch↔body **link model**, `cascadeFromSketchEdit`, re-derive vs rigid-move logic, relink. |
+| `Application_InteractiveOps.cpp` | What is left of the ops here: the sketch↔body **link model**, `cascadeFromSketchEdit`, re-derive vs rigid-move logic, relink, sketch-region picking, and the ops that aren't controllers yet (thread, revolve, pattern, loft, sketch-pattern). |
 | `Application_Dialogs.cpp` | Modal popups: Revolve/Lathe, Thread, Text, Subtract, dimension/scale, plus their progress frames. |
 | `layout/LayoutCommon.{cpp,h}` | Chrome shared by ALL interface layouts: dockspace host, the menu item lists (incl. plugin menu contributions), overflow popup, shared undo helpers. Add features/plugin entry points HERE so every layout gets them — see the header's contract comment. |
 | `layout/classic/ClassicLayout.cpp` | Classic layout (`UiLayout::Classic`): main menu bar + touch panel-collapse handles (the docked panels render from `run()`). |
 | `layout/modern/ModernLayout.cpp` | Modern layout (`UiLayout::Modern`): top app bar, left tool rail, right side panel; pins the viewport rect. |
 | `layout/imtouch/ImTouchLayout.cpp` | im-touch layout (`UiLayout::ImTouch`): full-bleed viewport with floating overlays — chip, tool bar, model tree, history timeline, create FAB. |
-| `InteractiveOpController.{cpp,h}` | Base class + `IopContext` for popup-driven interactive ops. |
-| `FaceOpControllers.{cpp,h}` | Concrete controllers — Shell, Taper, Scale-Face, Move-Face, etc. |
+| `InteractiveOpController.{cpp,h}` | Base class + `IopContext`: lifecycle, panel scaffold, and the three preview models. |
+| `IopViewport.h` | The viewport/drawing side of the boundary — `IopViewport`, `IopOverlay`, `IopGizmo3D`. |
+| `FaceOpControllers.{cpp,h}` | Shell, Draft (TaperOp), Scale-Face, Project-Sketch, Defeature, Resize-Cylindrical, Move-Face. |
+| `ExtrudeController.{cpp,h}` | Interactive Extrude — the first `LiveOp` user. |
+| `PushPullController.{cpp,h}` + `PushPullState.h` | Interactive Push/Pull, incl. the ghost preview for dense bodies and the smart-cut commit reroute. |
+| `EdgeOpController.{cpp,h}` | Fillet / Chamfer. The only op with two preview models: `SnapshotBody` to create, `HistoryEdit` to re-open a committed one. |
+| `LiveOpPreview.{cpp,h}` | The `LiveOp` engine for ops that are NOT controllers — Pattern, Loft, Boundary Fill, the construction popups. |
+| `HistoryEditPreview.{cpp,h}` | Whole-document snapshot + `editStep` replay + restore-on-failure, behind `HistoryEdit`. |
+| `MoveFaceState.h` | Move Face's parameter block (owned by its controller). |
+| `CylindricalPick.{cpp,h}` | The cylindrical-face pick result, returned by value rather than left in members. |
+| `ProjectSession.{cpp,h}` | Per-tab project session state. |
+| `ui_layout_bridge.{cpp,h}` | Global getter/setter so plugins can read and switch the interface layout without a `PluginContext` round-trip. |
 | `UserAxes.h` | Helper for user-facing axis definitions. |
 | `Window.{cpp,h}` | SDL window + GL context creation, foreground/focus state, swap. |
 | `IconData.h` | Embedded window/app icon bytes. |
@@ -205,7 +231,7 @@ The heart of the kernel-facing code. Grouped by role:
 | File | Purpose |
 |---|---|
 | `MoveFaceOp.{cpp,h}` | Move a face, respecting feature boundaries. |
-| `ScaleFaceOp.{cpp,h}` · `TaperOp.{cpp,h}` | Scale a face (U/V) / draft-angle taper. |
+| `ScaleFaceOp.{cpp,h}` · `TaperOp.{cpp,h}` | Scale a face (U/V) / draft angle. `TaperOp` is shown to the user as **Draft**; `typeId()` stays `"taper"` because it is the on-disk key. |
 | `MoveHoleOp.{cpp,h}` · `ResizeCylindricalOp.{cpp,h}` | Reposition a hole / resize a hole or boss to an exact diameter. |
 
 **Boolean & split**
@@ -347,9 +373,17 @@ from being stripped.
   `SelectionHighlight.cpp`, `SelectionManager.cpp`.
 - **A sketch edit doesn't propagate to its body** → the link model in
   `Application_InteractiveOps.cpp` (`cascadeFromSketchEdit`, `bodySafelyRederivable`).
-- **An interactive popup op (shell/taper/scale-face) misbehaves** →
+- **An interactive popup op (shell/draft/scale-face) misbehaves** →
   `FaceOpControllers.cpp` + `InteractiveOpController.cpp`, popups in
   `Application_Dialogs.cpp`.
+- **Push/Pull, Extrude or Fillet/Chamfer misbehaves** → their own controllers,
+  `PushPullController.cpp` / `ExtrudeController.cpp` / `EdgeOpController.cpp`.
+  If the symptom is "the preview left something behind" or "a body changed id
+  mid-drag", suspect the preview model first — see *Three preview models* in
+  `architecture.md`.
+- **A tool is missing from ONE layout** → it isn't in `Toolbar::railTools()`,
+  which is the catalogue all three layouts read. (Sketch mode is the one
+  exception; it still has per-layout lists.)
 - **File save/load or an export format is broken** → the matching file in
   `src/io/` (native = `ProjectIO.cpp`).
 - **A panel renders wrong** → the matching `src/ui/*Panel.cpp`.

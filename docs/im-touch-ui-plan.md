@@ -149,7 +149,22 @@ icons crisp at 1×/2×; no style leakage into the desktop shell.
 **Exit criteria:** top bar + right panel fully functional over a live
 project; every action verified identical to its desktop counterpart.
 
-## Phase 3 — Tool rail (the real work)
+## Phase 3 — Tool rail (the real work) — **DELIVERED**
+
+> **Status (2026-08-06, `27e80f5`):** the catalogue exists and all three
+> layouts read it. It landed as `Toolbar::railTools()` rather than the
+> `availableTools()` sketched below, and it took the opposite approach to
+> step 1: the desktop renderers were NOT replaced by a generic renderer over
+> the catalogue. Classic's presentation is genuinely different — section
+> headers, a three-across Move/Rotate/Scale row, a Fabrication group — and a
+> generic renderer would have flattened all of it. Instead the catalogue owns
+> **availability** (`catalogOffers(action)` gates each classic button) and each
+> layout owns **presentation**, with `renderCatalogRemainder()` rendering
+> anything a layout doesn't place itself. That last part is the anti-drift
+> net: a tool added to the catalogue reaches every layout even if nobody
+> writes a button for it. Sketch mode is deliberately excluded — its palette
+> is inseparable from its chrome (solver badge, inference cycle, polygon-sides
+> popout, constraint buttons keyed to selection arity).
 
 The rail must show *the right tools for the current context* — exactly what
 `Toolbar` already computes, but its catalogue is welded to immediate-mode
@@ -210,7 +225,7 @@ desktop toolbar pixel-unchanged.
 
 | Risk | Mitigation |
 |---|---|
-| `Toolbar` catalogue refactor destabilizes the desktop toolbar | It's the Phase 3 heart; do it as its own PR with before/after screenshots; the generic renderer must reproduce current layout exactly |
+| `Toolbar` catalogue refactor destabilizes the desktop toolbar | Real risk, and it did bite: under a FACE selection `renderBodyTools` runs as a fall-through for the Transform row only, where the catalogue is full of face tools — the remainder net re-rendered every one. Caught on the headless rig, fixed with a `primaryContext` flag. Verify each selection context visually. |
 | Two shells drift over time | Shared catalogue + shared menu-item lists + shared panel content are the drift firewalls; shell code is layout-only |
 | ImGui fixed windows + saved imgui.ini interact badly | Touch shell windows use `##` names not present in the ini and `NoSavedSettings`; dockspace never renders while active |
 | Icon licensing | Lucide is ISC; add to FONT-CREDITS.md + licenses/ like existing fonts |

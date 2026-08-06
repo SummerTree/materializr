@@ -35,8 +35,10 @@ make -j$(nproc)
 ./materializr
 ```
 
-GLFW, GLM, and Dear ImGui (docking branch) are pulled in via CMake
-`FetchContent`, so they don't need to be installed system-wide.
+SDL2, GLM, and Dear ImGui are pulled in via CMake `FetchContent`, so they
+don't need to be installed system-wide. (A system SDL2 is used when present;
+otherwise 2.30.9 is built from source, which needs the X11 dev headers the GL
+stack already requires.)
 
 ### Tests
 

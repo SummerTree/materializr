@@ -102,10 +102,10 @@ ToolAction Toolbar::render() {
     return action;
 }
 
-// Primary tools of the current selection context, for the im-touch rail.
-// The dispatch mirrors render() above and each list is the head of the
-// matching render*Tools() — if you add a primary tool there, add it here
-// (full catalogue unification tracked in docs/im-touch-ui-plan.md Phase 3).
+// THE tool catalogue: which tools the current selection context offers.
+// All three layouts read this — the rails render it directly, and classic
+// gates its own buttons on catalogOffers() (see Toolbar.h). Add a tool HERE
+// and every layout gets it. The dispatch below mirrors render()'s.
 std::vector<Toolbar::RailTool> Toolbar::railTools() const {
     std::vector<RailTool> t;
     auto add = [&](const char* icon, const char* label, ToolAction a,

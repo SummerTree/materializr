@@ -3,6 +3,70 @@
 All notable changes to Materializr are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow SemVer.
 
+## [Unreleased]
+
+### Added
+
+- **Move a hole.** Select a hole's rim edge and drag: one rim tilts the bore,
+  one straight side reshapes it, both rims slide the whole hole across the face
+  it pierces. Clicking the bore wall itself also offers Move, for the
+  slide-the-whole-hole case. The selection picks the verb, and the drag
+  previews the verb it will commit.
+- **Push / Pull and Extrude are both offered for a sketch**, whichever it is
+  attached to. A sketch drawn on a face used to offer only Push — exactly when
+  "make this a separate body instead of fusing it" is what you want.
+  Attachment now picks the ORDER of the two, not which one exists.
+- **Lathe on a selected sketch in the classic layout.** It had always been
+  there in the modern and im-touch rails.
+
+### Changed
+
+- **Taper is now called Draft.** It reads as a weaker Rotate under the old
+  name, and for one flat face that is nearly true. It is the moulding-draft
+  operation: several faces at one angle about a fixed neutral plane, and it
+  works on curved walls, where Rotate isn't offered at all — a cylinder drafts
+  into a cone. The tooltips now say so. Saved projects are unaffected.
+- **Previews no longer appear in the History panel.** Pattern, Loft, Boundary
+  Fill and the two construction popups used to add a real, undoable step the
+  moment their panel opened, and take it away again on each change — so Ctrl+Z
+  reached into the middle of a gesture and the panel listed a step you hadn't
+  committed to. History now stays put until Apply.
+- **Scale Face is one control that grows and shrinks**, instead of asking you
+  to pick a mode first, and it no longer offers a range the chosen mode can't
+  deliver.
+- **Imported meshes are reference bodies.** Sketch on them and snap to them,
+  but modelling ops decline them with an explanation rather than producing
+  broken geometry.
+- Saving no longer pays for compression that bought almost nothing — large
+  projects write faster.
+
+### Fixed
+
+- **A body could change id on every frame of a drag.** Extrude's preview
+  created a new body per keystroke; anything referring to it downstream saw a
+  different body each time.
+- **Scaling a circular face by the same amount in both directions kept it a
+  circle.** It was being rebuilt as a spline, which left the side walls subtly
+  wrong and could leave a sliver behind when pushed back down.
+- **Move Face refused to move a flat cap**, mistaking it for a pocket.
+- **The Move Face arrows pointed the wrong way** in several cases — flipping
+  with an incidental normal direction, and coloured by the world axes rather
+  than the ones shown in the UI.
+- **A disabled Thread step still counted as threaded**, so operations kept
+  reflowing beneath a thread that wasn't there.
+- **Windows builds have been broken since the hole work landed** — `near` is a
+  `windows.h` macro.
+- Scale Face and Taper had become **unreachable** in a shipped build; both are
+  their own entries again.
+
+### Internal
+
+Most of the work in this cycle doesn't show up above: the interactive
+operations (Move Face, Extrude, Push/Pull, fillet/chamfer, the face ops) moved
+out of the `Application` god-class into self-contained controllers, and every
+live preview was moved off the history stack. See `docs/architecture.md` for
+the three preview models and why the distinction matters.
+
 ## [1.6.0] — 2026-08-02
 
 ### Added
