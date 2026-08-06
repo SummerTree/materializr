@@ -1563,7 +1563,9 @@ private:
     };
     bool m_bfillActive = false;
     std::vector<BFillProfile> m_bfillProfiles;
-    bool m_bfillPreviewPushed = false;
+    // ONE BoundaryFillOp toggled against the document; History sees it only
+    // at commit. See LiveOpPreview.
+    materializr::LiveOpPreview m_bfillPreview;
 
     void beginBoundaryFill();
     void updateBoundaryFill();
@@ -1604,7 +1606,9 @@ private:
     double m_planeOpOffset = 0.0;
     gp_Pln m_planeOpBaseFace;     // host face's plane when Parallel-to-Face is available
     bool m_planeOpHaveFace = false;
-    bool m_planeOpPreviewPushed = false;
+    // The preview ConstructionPlaneOp — rebuilt per frame (parameters vary by
+    // kind) but never pushed onto History until commit. See LiveOpPreview.
+    materializr::LiveOpPreview m_planeOpPreview;
     char m_planeOpOffsetBuf[32] = "0.0";
     // Typeable "rotate by N° around X/Y/Z" applied to the current preview
     // plane via Document::setPlane. Keeps the offset slider + base
@@ -1656,7 +1660,8 @@ private:
     int  m_axisOpKindIdx = 0;     // 0=WorldX,1=userY,2=userZ,3=Cyl,4=Edge,5=2Pts,6=FaceNormal,7=2Planes
     double m_axisOpOrigin[3] = {0.0, 0.0, 0.0}; // world coords
     char m_axisOpOriginBuf[3][24] = {"0.0", "0.0", "0.0"};
-    bool m_axisOpPreviewPushed = false;
+    // Same arrangement as the plane popup's preview. See LiveOpPreview.
+    materializr::LiveOpPreview m_axisOpPreview;
 
     // Selection-derived inputs for kind indices 3–7, captured at
     // beginConstructionAxis. Each reduces to an (origin, direction) the host

@@ -11,9 +11,9 @@ namespace materializr {
 // preview. History sees nothing until commit().
 //
 // This is the engine InteractiveOpController calls PreviewModel::LiveOp, in a
-// form an op that is NOT (yet) a controller can use. It exists because five
+// form an op that is NOT a controller can use. It exists because five
 // interactive ops — Pattern, Loft, Boundary Fill, Construction Plane,
-// Construction Axis — still previewed the other way:
+// Construction Axis — all previewed the other way:
 //
 //     if (m_fooPreviewPushed && m_history->canUndo()) m_history->undo(doc);
 //     ...

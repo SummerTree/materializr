@@ -1264,7 +1264,7 @@ void Application::beginBoundaryFill() {
         return;
     }
 
-    m_bfillPreviewPushed = false;
+    m_bfillPreview.clear(*m_document);
     m_bfillActive = true;
     updateBoundaryFill();
 }
@@ -1273,35 +1273,31 @@ void Application::updateBoundaryFill() {
     if (!m_bfillActive || !m_history || !m_document) return;
     if (m_bfillProfiles.size() < 2) return;
 
-    if (m_bfillPreviewPushed && m_history->canUndo()) {
-        m_history->undo(*m_document);
-        m_bfillPreviewPushed = false;
-    }
-
-    auto op = std::make_unique<BoundaryFillOp>();
+    // Retract the applied preview, re-sync the SAME instance, re-execute.
+    // History sees nothing until commit — see LiveOpPreview for the three
+    // bugs the old push-a-real-step-per-frame version carried.
+    m_bfillPreview.retract(*m_document);
+    if (!m_bfillPreview.op())
+        m_bfillPreview.hold(std::make_unique<BoundaryFillOp>(), *m_document);
+    auto* op = static_cast<BoundaryFillOp*>(m_bfillPreview.op());
+    op->clearProfiles();
     for (const BFillProfile& p : m_bfillProfiles)
         op->addProfile(p.outer, p.holes, p.plane);
-    if (m_history->pushOperation(std::move(op), *m_document)) {
-        m_bfillPreviewPushed = true;
-    } else {
+    if (!m_bfillPreview.apply(*m_document))
         showToast("Boundary Fill: the silhouettes don't enclose a common "
                   "volume - make sure they overlap in space.");
-    }
     m_meshesDirty = true;
 }
 
 void Application::commitBoundaryFill() {
+    m_bfillPreview.commit(*m_history);   // record the applied instance as-is
     m_bfillActive = false;
-    m_bfillPreviewPushed = false;
     m_bfillProfiles.clear();
     m_meshesDirty = true;
 }
 
 void Application::cancelBoundaryFill() {
-    if (m_bfillPreviewPushed && m_history && m_history->canUndo()) {
-        m_history->undo(*m_document);
-        m_bfillPreviewPushed = false;
-    }
+    m_bfillPreview.clear(*m_document);
     m_bfillActive = false;
     m_bfillProfiles.clear();
     m_meshesDirty = true;
@@ -1433,7 +1429,7 @@ void Application::beginConstructionPlane() {
     m_planeOpOffset = 0.0;
     std::snprintf(m_planeOpOffsetBuf, sizeof(m_planeOpOffsetBuf), "%.2f",
                   m_planeOpOffset);
-    m_planeOpPreviewPushed = false;
+    m_planeOpPreview.clear(*m_document);
     m_planeOpActive = true;
 
     updateConstructionPlane();
@@ -1452,10 +1448,10 @@ void Application::beginConstructionPlaneMode(int kindIdx) {
 void Application::updateConstructionPlane() {
     if (!m_planeOpActive || !m_history || !m_document) return;
 
-    if (m_planeOpPreviewPushed && m_history->canUndo()) {
-        m_history->undo(*m_document);
-        m_planeOpPreviewPushed = false;
-    }
+    // Retract the applied preview before building the next one. The op is
+    // rebuilt per frame (its parameters vary by kind, not by setter), but it
+    // never reaches History until commit — see LiveOpPreview.
+    m_planeOpPreview.retract(*m_document);
 
     auto op = std::make_unique<ConstructionPlaneOp>();
     switch (m_planeOpKindIdx) {
@@ -1517,9 +1513,9 @@ void Application::updateConstructionPlane() {
             break;
         }
     }
-    if (m_history->pushOperation(std::move(op), *m_document)) {
-        m_planeOpPreviewPushed = true;
-        // Auto-select the freshly-pushed plane so the move/rotate gizmo
+    m_planeOpPreview.hold(std::move(op), *m_document);
+    if (m_planeOpPreview.apply(*m_document)) {
+        // Auto-select the freshly-previewed plane so the move/rotate gizmo
         // appears on it. ConstructionPlaneOp::execute push_backs to
         // Document, so the just-added id is the back of getAllPlaneIds().
         auto ids = m_document->getAllPlaneIds();
@@ -1534,16 +1530,13 @@ void Application::updateConstructionPlane() {
 }
 
 void Application::commitConstructionPlane() {
+    m_planeOpPreview.commit(*m_history);
     m_planeOpActive = false;
-    m_planeOpPreviewPushed = false;
     m_meshesDirty = true;
 }
 
 void Application::cancelConstructionPlane() {
-    if (m_planeOpPreviewPushed && m_history->canUndo()) {
-        m_history->undo(*m_document);
-        m_planeOpPreviewPushed = false;
-    }
+    m_planeOpPreview.clear(*m_document);
     m_planeOpActive = false;
     m_meshesDirty = true;
 }
@@ -1784,7 +1777,7 @@ void Application::beginConstructionAxis() {
     else if (m_axisOpHaveFaceNormal) m_axisOpKindIdx = 6;
     else                             m_axisOpKindIdx = 2;
 
-    m_axisOpPreviewPushed = false;
+    m_axisOpPreview.clear(*m_document);
     updateConstructionAxis();
 }
 
@@ -1840,10 +1833,7 @@ void Application::updateConstructionAxis() {
 
     // Undo the previous preview so we don't stack axes on every radio /
     // origin tweak (same dance the plane popup uses).
-    if (m_axisOpPreviewPushed && m_history->canUndo()) {
-        m_history->undo(*m_document);
-        m_axisOpPreviewPushed = false;
-    }
+    m_axisOpPreview.retract(*m_document);
 
     auto op = std::make_unique<ConstructionAxisOp>();
     if (m_axisOpKindIdx <= 2) {
@@ -1891,9 +1881,9 @@ void Application::updateConstructionAxis() {
         }
     }
 
-    if (m_history->pushOperation(std::move(op), *m_document)) {
-        m_axisOpPreviewPushed = true;
-        // Auto-select the freshly-pushed axis so click-Move workflows pick
+    m_axisOpPreview.hold(std::move(op), *m_document);
+    if (m_axisOpPreview.apply(*m_document)) {
+        // Auto-select the freshly-previewed axis so click-Move workflows pick
         // it up immediately. Mirrors the construction-plane popup.
         auto ids = m_document->getAllAxisIds();
         if (!ids.empty()) {
@@ -1907,16 +1897,13 @@ void Application::updateConstructionAxis() {
 }
 
 void Application::commitConstructionAxis() {
+    m_axisOpPreview.commit(*m_history);
     m_axisOpActive = false;
-    m_axisOpPreviewPushed = false;
     m_meshesDirty = true;
 }
 
 void Application::cancelConstructionAxis() {
-    if (m_axisOpPreviewPushed && m_history->canUndo()) {
-        m_history->undo(*m_document);
-        m_axisOpPreviewPushed = false;
-    }
+    m_axisOpPreview.clear(*m_document);
     m_axisOpActive = false;
     m_meshesDirty = true;
 }
