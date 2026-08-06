@@ -200,6 +200,7 @@ add_executable(materializr
     src/app/FaceOpControllers.cpp
     src/app/ExtrudeController.cpp
     src/app/PushPullController.cpp
+    src/app/LiveOpPreview.cpp
     src/app/Application_Dialogs.cpp
     src/app/Application_InteractiveOps.cpp
     src/app/layout/LayoutCommon.cpp

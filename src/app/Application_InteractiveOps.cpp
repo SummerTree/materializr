@@ -1287,7 +1287,7 @@ void Application::beginPattern(PatternKind kind) {
         }
     } catch (...) {}
     m_patternPickingOrigin = false;
-    m_patternPreviewPushed = false;
+    m_patternPreview.clear(*m_document);
     m_patternInputFocus    = true;
     std::snprintf(m_patternCountBuf,    sizeof(m_patternCountBuf),    "%d", m_patternCount);
     std::snprintf(m_patternDistanceBuf, sizeof(m_patternDistanceBuf), "%.2f", m_patternDistance);
@@ -1300,19 +1300,20 @@ void Application::beginPattern(PatternKind kind) {
 void Application::updatePattern() {
     if (!m_patternActive || m_patternBodyId < 0) return;
 
-    // Undo the previous preview op (if any) before pushing the new one — keeps
-    // history clean so the eventual commit leaves exactly one PatternOp.
-    if (m_patternPreviewPushed && m_history->canUndo()) {
-        m_history->undo(*m_document);
-        m_patternPreviewPushed = false;
-    }
+    // Retract the applied preview so the new parameters land on a clean
+    // document. NOT a history undo: the preview never reaches History (see
+    // LiveOpPreview for the three bugs that came of doing it that way), and
+    // the SAME PatternOp instance is re-used, so its id-reuse pool keeps every
+    // copy's body id stable across the whole gesture.
+    m_patternPreview.retract(*m_document);
     if (m_patternCount < 2) {
         // Nothing to preview at count=1 (a pattern of 1 is just the source).
         m_meshesDirty = true;
         return;
     }
-
-    auto op = std::make_unique<PatternOp>();
+    if (!m_patternPreview.op())
+        m_patternPreview.hold(std::make_unique<PatternOp>(), *m_document);
+    auto* op = static_cast<PatternOp*>(m_patternPreview.op());
     op->setBody(m_patternBodyId);
 
     // Axis direction comes from the chosen world axis, or — when the user
@@ -1345,27 +1346,23 @@ void Application::updatePattern() {
         op->setRadialOrigin(originX, originY, originZ);
         op->setTotalAngle(m_patternAngle);
     }
-    if (m_history->pushOperation(std::move(op), *m_document)) {
-        m_patternPreviewPushed = true;
-    }
+    m_patternPreview.apply(*m_document);
     m_meshesDirty = true;
 }
 
 void Application::commitPattern() {
-    // The preview op IS the final op — leave it on history at the current
-    // values. Just clear the popup state.
+    // The previewed instance IS the final op — record it without re-running
+    // it. (It used to already BE a history step by this point, which is what
+    // made the preview undoable mid-gesture.)
+    m_patternPreview.commit(*m_history);
     m_patternActive        = false;
     m_patternPickingOrigin = false;
-    m_patternPreviewPushed = false;
     m_patternBodyId        = -1;
     m_meshesDirty = true;
 }
 
 void Application::cancelPattern() {
-    if (m_patternPreviewPushed && m_history->canUndo()) {
-        m_history->undo(*m_document);
-        m_patternPreviewPushed = false;
-    }
+    m_patternPreview.clear(*m_document);
     m_patternActive        = false;
     m_patternPickingOrigin = false;
     m_patternBodyId        = -1;
@@ -1509,7 +1506,7 @@ void Application::beginLoft() {
 
     m_loftSolid = true;
     m_loftRuled = false;
-    m_loftPreviewPushed = false;
+    m_loftPreview.clear(*m_document);
     m_loftActive = true;
 
     updateLoft();
@@ -1520,27 +1517,38 @@ void Application::updateLoft() {
     if (m_loftRailsMode ? m_loftSections.empty() : m_loftSections.size() < 2)
         return;
 
-    // Undo previous preview so history accumulates exactly one op.
-    if (m_loftPreviewPushed && m_history->canUndo()) {
-        m_history->undo(*m_document);
-        m_loftPreviewPushed = false;
-    }
+    // Retract the applied preview so the new parameters land on a clean
+    // document. NOT a history undo — the preview never reaches History, and
+    // holding ONE instance keeps the lofted body's id stable while the user
+    // flips and reorders sections (see LiveOpPreview).
+    m_loftPreview.retract(*m_document);
 
     if (m_loftRailsMode) {
-        auto gop = std::make_unique<GuidedLoftOp>();
-        gop->setBase(m_loftSections[0].outer, m_loftBasePlane);
-        for (const LoftRail& r : m_loftRails) gop->addRail(r.wire);
-        gop->setSolid(m_loftSolid);
-        if (m_history->pushOperation(std::move(gop), *m_document))
-            m_loftPreviewPushed = true;
-        else
+        // Rails mode is a DIFFERENT op class, so switching into it swaps the
+        // held instance rather than re-syncing it.
+        auto* held = dynamic_cast<GuidedLoftOp*>(m_loftPreview.op());
+        if (!held) {
+            m_loftPreview.hold(std::make_unique<GuidedLoftOp>(), *m_document);
+            held = static_cast<GuidedLoftOp*>(m_loftPreview.op());
+        }
+        held->setBase(m_loftSections[0].outer, m_loftBasePlane);
+        held->clearRails();
+        for (const LoftRail& r : m_loftRails) held->addRail(r.wire);
+        held->setSolid(m_loftSolid);
+        if (!m_loftPreview.apply(*m_document))
             showToast("Guided loft failed - rails must rise away from the "
                       "base profile's plane.");
         m_meshesDirty = true;
         return;
     }
 
-    auto op = std::make_unique<LoftOp>();
+    auto* held = dynamic_cast<LoftOp*>(m_loftPreview.op());
+    if (!held) {
+        m_loftPreview.hold(std::make_unique<LoftOp>(), *m_document);
+        held = static_cast<LoftOp*>(m_loftPreview.op());
+    }
+    LoftOp* op = held;
+    op->clearProfiles();
     for (const LoftSection& sec : m_loftSections) {
         // Flip reverses the wire's vertex order so it pairs differently
         // against its neighbours — the standard remedy for the "apex pinch /
@@ -1558,15 +1566,14 @@ void Application::updateLoft() {
     }
     op->setSolid(m_loftSolid);
     op->setRuled(m_loftRuled);
-    if (m_history->pushOperation(std::move(op), *m_document)) {
-        m_loftPreviewPushed = true;
-    }
+    m_loftPreview.apply(*m_document);
     m_meshesDirty = true;
 }
 
 void Application::commitLoft() {
+    // Record the already-applied instance without re-running it.
+    m_loftPreview.commit(*m_history);
     m_loftActive = false;
-    m_loftPreviewPushed = false;
     m_loftSections.clear();
     m_loftRails.clear();
     m_loftRailsMode = false;
@@ -1853,10 +1860,7 @@ void Application::cascadeFromSketchEdit(int sketchId) {
 }
 
 void Application::cancelLoft() {
-    if (m_loftPreviewPushed && m_history->canUndo()) {
-        m_history->undo(*m_document);
-        m_loftPreviewPushed = false;
-    }
+    m_loftPreview.clear(*m_document);
     m_loftActive = false;
     m_loftSections.clear();
     m_loftRails.clear();

@@ -27,6 +27,7 @@
 #include "app/FaceOpControllers.h"
 #include "app/ExtrudeController.h"
 #include "app/PushPullController.h"
+#include "app/LiveOpPreview.h"
 #include "app/CylindricalPick.h"
 #include <array>
 #include "modeling/ExtrudeOp.h" // for ExtrudeMode
@@ -1554,7 +1555,10 @@ private:
     float m_patternAngle = 360.0f;   // radial: total sweep in degrees
     float m_patternOriginX = 0.0f, m_patternOriginY = 0.0f, m_patternOriginZ = 0.0f;
     bool m_patternPickingOrigin = false; // viewport is in axis-origin-pick mode
-    bool m_patternPreviewPushed = false; // true while a preview PatternOp is on history
+    // The live preview: ONE PatternOp toggled against the document, recorded
+    // on History only at commit. Replaced a real history step pushed and
+    // undone every frame — see LiveOpPreview for what that cost.
+    materializr::LiveOpPreview m_patternPreview;
     bool m_patternInputFocus = true;
     char m_patternCountBuf[16] = "3";
     char m_patternDistanceBuf[32] = "5.0";
@@ -1586,7 +1590,9 @@ private:
     std::vector<LoftSection> m_loftSections;
     bool m_loftSolid = true;
     bool m_loftRuled = false;
-    bool m_loftPreviewPushed = false;
+    // ONE LoftOp (or GuidedLoftOp in rails mode) toggled against the document;
+    // History sees it only at commit. See LiveOpPreview.
+    materializr::LiveOpPreview m_loftPreview;
     // Guided ("rails") mode: selected sketches WITHOUT a closed region are
     // treated as open rail curves when exactly one closed base profile is also
     // selected — beginLoft auto-detects and the panel switches to the rails
