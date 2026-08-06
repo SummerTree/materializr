@@ -30,7 +30,9 @@ public:
 
     bool execute(Document& doc) override;
     bool undo(Document& doc) override;
-    std::string name() const override { return "Taper"; }
+    // User-facing name is "Draft" (the manufacturing term); typeId() below
+    // stays "taper" because it is the on-disk key.
+    std::string name() const override { return "Draft"; }
     std::string description() const override;
     void renderProperties() override;
     std::string typeId() const override { return "taper"; }

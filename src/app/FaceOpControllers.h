@@ -32,11 +32,15 @@ private:
     bool m_inputFocus = true;
 };
 
-// ─── Taper ───────────────────────────────────────────────────────────────────
-// Draft the picked face(s) by an angle about the body's base.
+// ─── Draft (TaperOp) ─────────────────────────────────────────────────────────
+// Tilt the picked face(s) by an angle about a fixed neutral plane — OCCT's
+// BRepOffsetAPI_DraftAngle, the moulding-draft operation. Named "Taper"
+// internally (class, ToolAction, typeId) because the on-disk key is "taper";
+// only the user-facing wording is "Draft", which is what the manufacturing
+// world calls it and what stops it reading as a weaker Rotate.
 class TaperController : public InteractiveOpController {
 protected:
-    const char* title() const override { return "Taper"; }
+    const char* title() const override { return "Draft"; }
     int onBegin(const IopContext& ctx) override;
     std::unique_ptr<Operation> buildOp(const IopContext& ctx) override;
     void panelBody(const IopContext& ctx, bool& changed) override;

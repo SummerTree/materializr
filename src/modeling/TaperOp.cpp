@@ -129,13 +129,13 @@ bool TaperOp::undo(Document& doc) {
 
 std::string TaperOp::description() const {
     char buf[96];
-    std::snprintf(buf, sizeof(buf), "Taper %.1f deg (%d face(s))",
+    std::snprintf(buf, sizeof(buf), "Draft %.1f deg (%d face(s))",
                   m_angleDeg, m_faces.Size());
     return buf;
 }
 
 void TaperOp::renderProperties() {
-    ImGui::Text("Taper");
+    ImGui::Text("Draft");
     ImGui::Separator();
     materializr::inputNumber("Angle (deg)", &m_angleDeg, 0.5, 5.0, "%.1f");
     ImGui::Text("Faces: %d", m_faces.Size());

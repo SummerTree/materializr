@@ -316,9 +316,11 @@ std::vector<Toolbar::RailTool> Toolbar::railTools() const {
         }
         // Taper takes cylindrical and conical faces too (it drafts along their
         // own axis), so it is NOT gated on the face being flat.
-        add(MZ_ICON_SPLIT, "Taper", ToolAction::Taper, false,
-            "Draft the selected face(s) by an angle about the body's base — "
-            "the pull direction a moulded or printed part needs.");
+        add(MZ_ICON_SPLIT, "Draft", ToolAction::Taper, false,
+            "Draft angle for moulding or printing: tilt the selected face(s) "
+            "by an angle about a fixed neutral plane. Unlike Rotate it takes "
+            "SEVERAL faces at one angle (all four walls of a box) and works on "
+            "curved faces too \xE2\x80\x94 a cylinder drafts into a cone.");
         add(MZ_ICON_REPAIR,   "Repair",  ToolAction::RemoveFace, false,
             "Delete the face and heal the body over it.");
         add(MZ_ICON_PROJECT,  "Project", ToolAction::ProjectSketch, false,
@@ -943,10 +945,11 @@ ToolAction Toolbar::renderFaceTools() {
     btn(ToolAction::ScaleFace, "Scale Face",
         "Re-slope the side walls toward a scaled copy of this face \xE2\x80\x94 under "
         "100% tapers it in, over 100% flares it out. Blend length in the popup.");
-    btn(ToolAction::Taper, "Taper",
-        "Draft the picked face(s) by an angle about the body's base \xE2\x80\x94 the pull "
-        "direction a moulded or printed part needs. Works on cylindrical and "
-        "conical faces too.");
+    btn(ToolAction::Taper, "Draft",
+        "Draft angle for moulding or printing: tilt the picked face(s) by an "
+        "angle about a fixed neutral plane. Unlike Rotate it takes SEVERAL "
+        "faces at one angle (all four walls of a box) and works on cylindrical "
+        "and conical faces too \xE2\x80\x94 a cylinder drafts into a cone.");
     btn(ToolAction::RemoveFace, "Repair Geometry",
         "Delete the picked face(s) and heal the surrounding faces back together "
         "\xE2\x80\x94 take a baked fillet/chamfer back to a sharp edge so it can be "

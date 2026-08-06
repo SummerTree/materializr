@@ -309,7 +309,7 @@ void TaperController::panelBody(const IopContext& ctx, bool& changed) {
     } else {
         ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + 240.0f);
         ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.4f, 1.0f),
-                           "No preview: this face can't taper along the "
+                           "No preview: this face can't draft along the "
                            "current Pull axis. Try another axis, Flip base, "
                            "or pick a side face.");
         ImGui::TextDisabled("Note: only flat / cylindrical / conical walls "
