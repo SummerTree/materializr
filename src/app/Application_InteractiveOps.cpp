@@ -1210,13 +1210,13 @@ Application::SketchRegionHit Application::pickSketchRegion(float screenX, float 
 void Application::beginPushPull() {
     if (refuseMeshSelection("Push/Pull")) return;
     cancelActiveIops();
-    m_pushPullTargets.clear();
-    m_pushPullPreviewBodyIds.clear();
-    m_pushPullPreviousBodies.clear();
-    m_pushPullLiveOp.reset();
-    m_pushPullPreviewApplied = false;
-    m_pushPullSymmetric = false;
-    m_pushPullDistanceRaw = 0.0f;
+    m_pp.targets.clear();
+    m_pp.previewBodyIds.clear();
+    m_pp.previousBodies.clear();
+    m_pp.liveOp.reset();
+    m_pp.previewApplied = false;
+    m_pp.symmetric = false;
+    m_pp.distanceRaw = 0.0f;
 
     // Gather all selected SketchRegion entries AND body face selections.
     bool curvedFaceSkipped = false;   // a rounded/fillet face was picked (#28)
@@ -1231,7 +1231,7 @@ void Application::beginPushPull() {
             if (!sketch) continue;
             auto regions = sketch->buildRegions();
             if (e.subShapeIndex < 0 || e.subShapeIndex >= static_cast<int>(regions.size())) continue;
-            PushPullTarget t;
+            materializr::PushPullState::Target t;
             t.sketchId = e.sketchId;
             t.regionIndex = e.subShapeIndex;
             // A DETACHED sketch has been deliberately broken away from its
@@ -1257,11 +1257,11 @@ void Application::beginPushPull() {
                 int host = findBodyUnderRegion(t.profile, sketch->getPlane());
                 if (host >= 0) t.sourceBodyId = host;
             }
-            m_pushPullTargets.push_back(t);
+            m_pp.targets.push_back(t);
         } else if (e.type == SelectionType::Face && !e.shape.IsNull()) {
             // Push/Pull on a body face: face is the profile, the owning body is the source.
             // Positive distance extrudes outward (Fuse), negative cuts inward (Cut).
-            PushPullTarget t;
+            materializr::PushPullState::Target t;
             t.sketchId = -1;
             t.regionIndex = -1;
             t.sourceBodyId = e.bodyId;
@@ -1273,7 +1273,7 @@ void Application::beginPushPull() {
             // planarity test as "Sketch on face"; a flat face bounded by fillets
             // still pushes fine — this only rejects the rounded face itself. #28
             if (!faceIsPlanar(t.profile)) { curvedFaceSkipped = true; continue; }
-            m_pushPullTargets.push_back(t);
+            m_pp.targets.push_back(t);
         } else if (e.type == SelectionType::Sketch && e.sketchId >= 0) {
             // Whole-sketch push/pull (selected from the Items panel, no specific
             // region): push/pull EVERY region of the sketch. Mirrors the
@@ -1287,7 +1287,7 @@ void Application::beginPushPull() {
             auto regions = sketch->buildRegions();
             for (int ri = 0; ri < static_cast<int>(regions.size()); ++ri) {
                 if (regions[ri].face.IsNull()) continue;
-                PushPullTarget t;
+                materializr::PushPullState::Target t;
                 t.sketchId = e.sketchId;
                 t.regionIndex = ri;
                 t.sourceBodyId = sketch->isDetachedFromBody()
@@ -1298,7 +1298,7 @@ void Application::beginPushPull() {
                     int host = findBodyUnderRegion(t.profile, sketch->getPlane());
                     if (host >= 0) t.sourceBodyId = host;
                 }
-                m_pushPullTargets.push_back(t);
+                m_pp.targets.push_back(t);
             }
         }
     }
@@ -1308,7 +1308,7 @@ void Application::beginPushPull() {
         showToast("Push/Pull works on flat faces \xE2\x80\x94 not curved or "
                   "fillet faces.");
     }
-    if (m_pushPullTargets.empty()) {
+    if (m_pp.targets.empty()) {
         if (!curvedFaceSkipped)
             std::fprintf(stderr, "Push/Pull: select a sketch region or a body face first\n");
         return;
@@ -1333,9 +1333,9 @@ void Application::beginPushPull() {
     // direction. Sign-correct it so positive distance still points outward
     // (positive dot product with the UV-midpoint normal preserves the
     // "fuse for +, cut for −" convention the user expects).
-    m_pushPullHasArrow = false;
+    m_pp.hasArrow = false;
     try {
-        const auto& tgt0 = m_pushPullTargets.front();
+        const auto& tgt0 = m_pp.targets.front();
         const TopoDS_Face& f = tgt0.profile;
         if (!f.IsNull()) {
             BRepGProp_Face prop(f);
@@ -1375,17 +1375,17 @@ void Application::beginPushPull() {
                     dir = correctedOutwardNormal(
                         m_document->getBody(tgt0.sourceBodyId), f, c, dir);
                 }
-                m_pushPullNormal = glm::normalize(glm::vec3(dir.X(), dir.Y(), dir.Z()));
-                m_pushPullOrigin = glm::vec3(c.X(), c.Y(), c.Z());
-                m_pushPullHasArrow = true;
+                m_pp.normal = glm::normalize(glm::vec3(dir.X(), dir.Y(), dir.Z()));
+                m_pp.origin = glm::vec3(c.X(), c.Y(), c.Z());
+                m_pp.hasArrow = true;
             }
         }
     } catch (...) {}
 
-    m_pushPullActive = true;
-    m_pushPullDistance = 0.0f; // start at no change; drag the arrow or type a value
-    std::snprintf(m_pushPullInputBuf, sizeof(m_pushPullInputBuf), "%.1f", m_pushPullDistance);
-    m_pushPullInputFocus = true;
+    m_pp.active = true;
+    m_pp.distance = 0.0f; // start at no change; drag the arrow or type a value
+    std::snprintf(m_pp.inputBuf, sizeof(m_pp.inputBuf), "%.1f", m_pp.distance);
+    m_pp.inputFocus = true;
 
     // Dense bodies (a threaded rod has hundreds of helical faces) cannot
     // afford a real boolean per drag frame — and since push/pull now
@@ -1393,15 +1393,15 @@ void Application::beginPushPull() {
     // the whole rod (Steve: drag "a no go, non-responsive ~10s"). Those
     // bodies get a GHOST preview (tinted tool volume) and run the real
     // boolean once, on commit.
-    m_pushPullHeavyPreview = false;
-    for (const auto& t : m_pushPullTargets) {
+    m_pp.heavyPreview = false;
+    for (const auto& t : m_pp.targets) {
         if (t.sourceBodyId < 0) continue;
         try {
             int nf = 0;
             for (TopExp_Explorer fx(m_document->getBody(t.sourceBodyId),
                                     TopAbs_FACE);
                  fx.More() && nf <= 250; fx.Next()) ++nf;
-            if (nf > 250) { m_pushPullHeavyPreview = true; break; }
+            if (nf > 250) { m_pp.heavyPreview = true; break; }
         } catch (...) {}
     }
     // Cut-intersecting push/pulls (a free-space sketch, or any drag that
@@ -1411,11 +1411,11 @@ void Application::beginPushPull() {
     // over the thread's helicoid faces per preview frame ("stacked discs"
     // + not-responding, 2026-07-21). Ghost preview + one real boolean at
     // commit, where the thread reflow handles it once.
-    if (!m_pushPullHeavyPreview) {
+    if (!m_pp.heavyPreview) {
         for (int id : m_document->getAllBodyIds()) {
             if (!m_document->isBodyVisible(id)) continue;
             if (m_history->isBodyThreaded(id)) {
-                m_pushPullHeavyPreview = true;
+                m_pp.heavyPreview = true;
                 break;
             }
         }
@@ -1425,11 +1425,11 @@ void Application::beginPushPull() {
 }
 
 void Application::updatePushPull(bool applySnap) {
-    if (!m_pushPullActive) return;
-    if (!std::isfinite(m_pushPullDistance)) { m_pushPullDistance = 0.0f; return; }
+    if (!m_pp.active) return;
+    if (!std::isfinite(m_pp.distance)) { m_pp.distance = 0.0f; return; }
 
     // Snap the live distance to the corner-widget grid step before applying.
-    // Mutating m_pushPullDistance itself (rather than just the value passed
+    // Mutating m_pp.distance itself (rather than just the value passed
     // to setDistance) means the dim-arrow readout, the InputText field, and
     // the slider all reflect the snapped value — there's no "type 5.3, see
     // 5.3 in the field, body extrudes to 5.0" discrepancy. Toggling snap off
@@ -1437,24 +1437,24 @@ void Application::updatePushPull(bool applySnap) {
     // updatePushPull frame.
     if (applySnap && m_snapToGrid && m_sketchGridStep > 0.0f) {
         const float step = m_sketchGridStep;
-        m_pushPullDistance = std::round(m_pushPullDistance / step) * step;
-        std::snprintf(m_pushPullInputBuf, sizeof(m_pushPullInputBuf),
-                      "%.1f", m_pushPullDistance);
+        m_pp.distance = std::round(m_pp.distance / step) * step;
+        std::snprintf(m_pp.inputBuf, sizeof(m_pp.inputBuf),
+                      "%.1f", m_pp.distance);
     }
 
     // GHOST PREVIEW for dense bodies: render the tool volume tinted instead
     // of running the boolean (and the thread reflow behind it) per frame.
-    if (m_pushPullHeavyPreview) {
+    if (m_pp.heavyPreview) {
         constexpr int kGhostId = -7777; // renderer-only slot, no Document body
         bool any = false;
         TopoDS_Compound comp;
         BRep_Builder bb;
         bb.MakeCompound(comp);
-        if (std::abs(m_pushPullDistance) > 1e-6) {
-            gp_Vec pv(m_pushPullNormal.x, m_pushPullNormal.y,
-                      m_pushPullNormal.z);
-            pv *= static_cast<double>(m_pushPullDistance);
-            for (const auto& t : m_pushPullTargets) {
+        if (std::abs(m_pp.distance) > 1e-6) {
+            gp_Vec pv(m_pp.normal.x, m_pp.normal.y,
+                      m_pp.normal.z);
+            pv *= static_cast<double>(m_pp.distance);
+            for (const auto& t : m_pp.targets) {
                 if (t.profile.IsNull()) continue;
                 try {
                     BRepPrimAPI_MakePrism mk(t.profile, pv);
@@ -1467,7 +1467,7 @@ void Application::updatePushPull(bool applySnap) {
             int slot = m_shapeRenderer->setBodyMesh(kGhostId, comp);
             if (slot >= 0) {
                 m_shapeRenderer->setSubtractPreview(slot,
-                                                    m_pushPullDistance < 0.0f);
+                                                    m_pp.distance < 0.0f);
                 m_shapeRenderer->setColor(slot, glm::vec3(0.55f, 0.75f, 1.0f));
             }
         } else {
@@ -1484,23 +1484,23 @@ void Application::updatePushPull(bool applySnap) {
     // per-frame history undo/push churn that produced an entire class of
     // bugs: body ids changing every frame, empty-document click windows,
     // and outside history touches corrupting the preview bookkeeping.
-    if (!m_pushPullLiveOp) m_pushPullLiveOp = makePushPullOpFromState();
-    if (m_pushPullPreviewApplied) {
-        m_pushPullLiveOp->undo(*m_document);
-        m_pushPullPreviewApplied = false;
+    if (!m_pp.liveOp) m_pp.liveOp = makePushPullOpFromState();
+    if (m_pp.previewApplied) {
+        m_pp.liveOp->undo(*m_document);
+        m_pp.previewApplied = false;
     }
-    if (std::abs(m_pushPullDistance) > 1e-6) {
-        m_pushPullLiveOp->setDistance(
-            static_cast<double>(m_pushPullDistance));
-        m_pushPullLiveOp->setSymmetric(m_pushPullSymmetric);
-        if (m_pushPullLiveOp->execute(*m_document))
-            m_pushPullPreviewApplied = true;
+    if (std::abs(m_pp.distance) > 1e-6) {
+        m_pp.liveOp->setDistance(
+            static_cast<double>(m_pp.distance));
+        m_pp.liveOp->setSymmetric(m_pp.symmetric);
+        if (m_pp.liveOp->execute(*m_document))
+            m_pp.previewApplied = true;
     }
     // Mark only the bodies the push/pull actually touched as dirty. On a
     // 100+ body project this turns each preview frame from "re-tessellate
     // every visible body" into "re-tessellate 1-2 bodies", which is the
     // difference between unusable and smooth.
-    for (const auto& t : m_pushPullTargets) {
+    for (const auto& t : m_pp.targets) {
         if (t.sourceBodyId >= 0) markBodyDirty(t.sourceBodyId);
     }
     // Free-floating push/pull creates new bodies — mark them too so they
@@ -1519,29 +1519,29 @@ void Application::updatePushPull(bool applySnap) {
 std::unique_ptr<PushPullOp> Application::makePushPullOpFromState() const {
     auto op = std::make_unique<PushPullOp>();
     std::vector<PushPullOp::Target> targets;
-    for (const auto& t : m_pushPullTargets) {
+    for (const auto& t : m_pp.targets) {
         PushPullOp::Target ot;
         ot.profile = t.profile;
         ot.sourceBodyId = t.sourceBodyId;
         targets.push_back(ot);
     }
     op->setTargets(std::move(targets));
-    op->setDistance(static_cast<double>(m_pushPullDistance));
-    op->setSymmetric(m_pushPullSymmetric);
+    op->setDistance(static_cast<double>(m_pp.distance));
+    op->setSymmetric(m_pp.symmetric);
     // Cut-intersecting: a free-space sketch (cut-or-new-body) OR any cut-
     // direction push/pull (also cut the other visible bodies in the path). An
     // extrude (positive) on a source/face body keeps it OFF → fuses its source
     // only, exactly as before.
-    bool allFreeSketch = !m_pushPullTargets.empty();
-    for (const auto& t : m_pushPullTargets)
+    bool allFreeSketch = !m_pp.targets.empty();
+    for (const auto& t : m_pp.targets)
         if (!(t.sourceBodyId < 0 && t.sketchId >= 0)) { allFreeSketch = false; break; }
-    op->setCutIntersecting(allFreeSketch || m_pushPullDistance < 0.0f);
+    op->setCutIntersecting(allFreeSketch || m_pp.distance < 0.0f);
     // Cascade plumbing: stamp the originating sketch+region on every target.
     // setTargets() above pre-sizes the source arrays to all -1, so this
     // upgrades them where we actually have a sketch source. Free-face
     // pushpulls (sourceBodyId-driven, no sketch) keep -1.
-    for (size_t i = 0; i < m_pushPullTargets.size(); ++i) {
-        const auto& t = m_pushPullTargets[i];
+    for (size_t i = 0; i < m_pp.targets.size(); ++i) {
+        const auto& t = m_pp.targets[i];
         if (t.sketchId >= 0) {
             op->setSketchSource(static_cast<int>(i), t.sketchId, t.regionIndex);
         }
@@ -1557,79 +1557,79 @@ void Application::commitPushPull() {
     // preview always showed the new-body extrusion, so undo it and run one fresh
     // cut-enabled execute. The op itself falls back to a new body if it hits
     // nothing — so "no intersection" is still today's behaviour.
-    bool allFreeSketch = !m_pushPullTargets.empty();
-    for (const auto& t : m_pushPullTargets)
+    bool allFreeSketch = !m_pp.targets.empty();
+    for (const auto& t : m_pp.targets)
         if (!(t.sourceBodyId < 0 && t.sketchId >= 0)) { allFreeSketch = false; break; }
     // Reroute when the result cuts through multiple bodies: a free-space sketch
     // (cut-or-new-body), or ANY cut-direction push/pull (cuts the source body
     // AND every other visible body in its path). Extrude (add) and non-sketch
     // cases fall through to the unchanged paths below.
-    bool smartCut = std::abs(m_pushPullDistance) > 1e-6 &&
-                    !m_pushPullTargets.empty() &&
-                    (allFreeSketch || m_pushPullDistance < 0.0f);
+    bool smartCut = std::abs(m_pp.distance) > 1e-6 &&
+                    !m_pp.targets.empty() &&
+                    (allFreeSketch || m_pp.distance < 0.0f);
     if (smartCut) {
         m_shapeRenderer->removeBody(-7777);
-        if (m_pushPullLiveOp && m_pushPullPreviewApplied) {
-            m_pushPullLiveOp->undo(*m_document);   // remove the preview new body
-            m_pushPullPreviewApplied = false;
+        if (m_pp.liveOp && m_pp.previewApplied) {
+            m_pp.liveOp->undo(*m_document);   // remove the preview new body
+            m_pp.previewApplied = false;
         }
         if (!m_history->pushOperation(makePushPullOpFromState(), *m_document))
             std::fprintf(stderr, "Push/Pull (cut) failed to apply\n");
-        m_pushPullLiveOp.reset();
-        m_pushPullHeavyPreview = false;
-        m_pushPullPreviewApplied = false;
-        m_pushPullActive = false;
-        m_pushPullSticky = false;
-        m_pushPullTargets.clear();
+        m_pp.liveOp.reset();
+        m_pp.heavyPreview = false;
+        m_pp.previewApplied = false;
+        m_pp.active = false;
+        m_pp.sticky = false;
+        m_pp.targets.clear();
         m_meshesDirty = true;
         m_selection->clear();
         std::fprintf(stdout, "Push/Pull (smart cut) committed at %.2f mm\n",
-                     m_pushPullDistance);
+                     m_pp.distance);
         return;
     }
 
-    if (m_pushPullHeavyPreview) {
+    if (m_pp.heavyPreview) {
         // Ghost path: drop the preview mesh and run the real boolean ONCE.
         // This is where the thread reflow runs for dense bodies — a single
         // synchronous recompute instead of one per drag frame.
         m_shapeRenderer->removeBody(-7777);
-        if (std::abs(m_pushPullDistance) > 1e-6) {
+        if (std::abs(m_pp.distance) > 1e-6) {
             if (!m_history->pushOperation(makePushPullOpFromState(),
                                           *m_document)) {
                 std::fprintf(stderr, "Push/Pull failed to apply\n");
             }
         }
-        m_pushPullHeavyPreview = false;
+        m_pp.heavyPreview = false;
     }
     // Light path: the preview already applied the final state directly —
     // append the live op to history WITHOUT re-executing it.
-    if (m_pushPullLiveOp && m_pushPullPreviewApplied) {
-        m_history->pushExecuted(std::move(m_pushPullLiveOp));
+    if (m_pp.liveOp && m_pp.previewApplied) {
+        m_history->pushExecuted(std::move(m_pp.liveOp));
     }
-    m_pushPullLiveOp.reset();
-    m_pushPullPreviewApplied = false;
-    m_pushPullActive = false;
-    m_pushPullSticky = false;
-    m_pushPullTargets.clear();
+    m_pp.liveOp.reset();
+    m_pp.previewApplied = false;
+    m_pp.active = false;
+    m_pp.sticky = false;
+    m_pp.targets.clear();
     m_meshesDirty = true;
     m_selection->clear();
-    std::fprintf(stdout, "Push/Pull committed at %.2f mm\n", m_pushPullDistance);
+    std::fprintf(stdout, "Push/Pull committed at %.2f mm\n", m_pp.distance);
 }
 
 void Application::cancelPushPull() {
-    if (!m_pushPullActive) return;
-    if (m_pushPullHeavyPreview) {
+    if (!m_pp.active) return;
+    if (m_pp.heavyPreview) {
         m_shapeRenderer->removeBody(-7777); // ghost only — nothing was pushed
-        m_pushPullHeavyPreview = false;
+        m_pp.heavyPreview = false;
     }
-    if (m_pushPullLiveOp && m_pushPullPreviewApplied) {
-        m_pushPullLiveOp->undo(*m_document);
+    if (m_pp.liveOp && m_pp.previewApplied) {
+        m_pp.liveOp->undo(*m_document);
     }
-    m_pushPullLiveOp.reset();
-    m_pushPullPreviewApplied = false;
-    m_pushPullActive = false;
-    m_pushPullSticky = false;
-    m_pushPullTargets.clear();
+    m_pp.liveOp.reset();
+    m_pp.previewApplied = false;
+    m_pp.active = false;
+    m_pp.sticky = false;
+    m_pp.targets.clear();
     m_meshesDirty = true;
 }
 

@@ -522,7 +522,7 @@ void Application::renderViewport() {
             // The minor tier comes back during sketch / gizmo drag because
             // that's when fine snapping actually matters.
             bool interactive = m_inSketchMode || m_gizmoDragging ||
-                               m_extrudeCtl.active() || m_pushPullActive ||
+                               m_extrudeCtl.active() || m_pp.active ||
                                m_edgeOpActive;
             float minorAlpha = 1.0f;
             if (!interactive) {
@@ -771,7 +771,7 @@ void Application::renderViewport() {
         // popups' previews, looking like an extra widget the user can grab.
         const bool anyInteractiveOpActive =
             m_inSketchMode || m_extrudeCtl.active() || m_edgeOpActive ||
-            m_pushPullActive || anyIopActive() ||
+            m_pp.active || anyIopActive() ||
             m_patternActive || m_loftActive || m_planeOpActive ||
             m_sketchPatternActive || m_revolveActive;
         bool gizmoShown = false;
@@ -906,7 +906,7 @@ void Application::renderViewport() {
         // suppress the gizmo as before.
         const bool blockedByOtherOp =
             m_inSketchMode || m_extrudeCtl.active() || m_edgeOpActive ||
-            m_pushPullActive || anyIopActive() ||
+            m_pp.active || anyIopActive() ||
             m_patternActive || m_loftActive || m_sketchPatternActive;
         // Construction-axis gizmo — Move only. Same arming pattern as
         // planes: implicit during the Construction Axis popup
@@ -1514,7 +1514,7 @@ void Application::renderViewport() {
             // latched point each frame keeps it tracking camera pan/zoom.
             {
                 const bool actionLive =
-                    m_extrudeCtl.active() || (m_pushPullActive && m_pushPullHasArrow) ||
+                    m_extrudeCtl.active() || (m_pp.active && m_pp.hasArrow) ||
                     m_edgeOpActive;
                 if (!actionLive) m_actionAnchorLatched = false;
                 m_actionAnchorValid = false;
@@ -1524,9 +1524,9 @@ void Application::renderViewport() {
                             m_extrudeCtl.active()
                                 ? m_extrudeCtl.origin() +
                                       m_extrudeCtl.normal() * m_extrudeCtl.distance()
-                            : m_pushPullActive
-                                ? m_pushPullOrigin +
-                                      m_pushPullNormal * m_pushPullDistance
+                            : m_pp.active
+                                ? m_pp.origin +
+                                      m_pp.normal * m_pp.distance
                                 : m_edgeOpMid;   // fillet/chamfer: edge midpoint
                         m_actionAnchorLatched = true;
                     }
@@ -1543,7 +1543,7 @@ void Application::renderViewport() {
                 drawDim(m_extrudeCtl.origin(),
                         m_extrudeCtl.origin() + m_extrudeCtl.normal() * m_extrudeCtl.distance(), dbuf,
                         DimStyle::Bold);
-            } else if (m_pushPullActive && m_pushPullHasArrow) {
+            } else if (m_pp.active && m_pp.hasArrow) {
                 // Arrow out of the face + signed-distance measurement.
                 // Push/pull STARTS at 0 mm (no change), and drawDim draws
                 // nothing for a near-zero span — which left the face with no
@@ -1551,15 +1551,15 @@ void Application::renderViewport() {
                 // always shows one). Until the distance moves, draw a
                 // STARTER handle instead: a double-headed arrow through the
                 // face centre along ±normal, in the Bold palette.
-                if (std::abs(m_pushPullDistance) > 0.05f) {
-                    std::snprintf(dbuf, sizeof(dbuf), "%.1f mm", m_pushPullDistance);
-                    drawDim(m_pushPullOrigin,
-                            m_pushPullOrigin + m_pushPullNormal * m_pushPullDistance, dbuf,
+                if (std::abs(m_pp.distance) > 0.05f) {
+                    std::snprintf(dbuf, sizeof(dbuf), "%.1f mm", m_pp.distance);
+                    drawDim(m_pp.origin,
+                            m_pp.origin + m_pp.normal * m_pp.distance, dbuf,
                             DimStyle::Bold);
                 } else {
                     ImVec2 so, sn;
-                    if (toImg(m_pushPullOrigin, so) &&
-                        toImg(m_pushPullOrigin + m_pushPullNormal, sn)) {
+                    if (toImg(m_pp.origin, so) &&
+                        toImg(m_pp.origin + m_pp.normal, sn)) {
                         ImVec2 d(sn.x - so.x, sn.y - so.y);
                         const float L = std::sqrt(d.x * d.x + d.y * d.y);
                         if (L > 1e-3f) { d.x /= L; d.y /= L; }
@@ -3407,7 +3407,7 @@ void Application::renderViewport() {
             if (m_inSketchMode && m_sketchTool &&
                 m_sketchTool->getMode() != SketchToolMode::Select)
                 allowLongPress = false;
-            if (m_pushPullActive || m_extrudeCtl.active() || m_edgeOpActive ||
+            if (m_pp.active || m_extrudeCtl.active() || m_edgeOpActive ||
                 anyIopActive())
                 allowLongPress = false;
             if (m_window) m_window->setTouchOverViewport(allowLongPress);
@@ -3502,7 +3502,7 @@ void Application::renderViewport() {
             bool gizmoOwnsDrag = m_gizmoDragging ||
                                  anyIopDraggingHandle() ||
                                  m_edgeOpDragging ||
-                                 m_pushPullSticky;
+                                 m_pp.sticky;
             if (materializr::touchMode()) {
                 // A one-finger press-and-hold drives box-select, not orbit/pan — so
                 // suppress the camera drag (and the two-finger consume below) while
@@ -3521,7 +3521,7 @@ void Application::renderViewport() {
             // gated on `!camDragging`. If that drag also orbits/pans the camera,
             // the gate never fires and the op "doesn't work".
             const bool toolWantsDrag =
-                m_inSketchMode || m_pushPullActive || m_extrudeCtl.active() ||
+                m_inSketchMode || m_pp.active || m_extrudeCtl.active() ||
                 m_edgeOpActive || anyIopActive();
             if (materializr::touchMode()) {
                 // Touch has no hover and the one finger is the only pointer, so the
@@ -3550,7 +3550,7 @@ void Application::renderViewport() {
                 // is already pan. Don't let it orbit; the box-select code below
                 // claims the drag. Only in the bare 3D view (no sketch/op running).
                 if (leftIsCamera && io.KeyAlt && !m_inSketchMode && !m_extrudeCtl.active() &&
-                    !m_pushPullActive && !m_edgeOpActive && !m_gizmoDragging)
+                    !m_pp.active && !m_edgeOpActive && !m_gizmoDragging)
                     suppressCamDrag = true;
             }
             // Pan depth anchor: Camera::pan is exact 1:1 screen tracking, but in
@@ -3870,14 +3870,14 @@ void Application::renderViewport() {
             // suppressed above while push/pull is active) or a mouse left-drag.
             // Gated by the enclosing viewport-hovered block, so dragging the
             // distance slider (a separate overlay) doesn't reach here.
-            if (m_pushPullActive && m_pushPullHasArrow && !camDragging &&
+            if (m_pp.active && m_pp.hasArrow && !camDragging &&
                 ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
                 glm::vec2 md(io.MouseDelta.x, io.MouseDelta.y);
-                m_pushPullDistanceRaw += projectDragOntoNormal(
-                    m_pushPullOrigin, m_pushPullNormal, md, proj * view,
+                m_pp.distanceRaw += projectDragOntoNormal(
+                    m_pp.origin, m_pp.normal, md, proj * view,
                     vpPx, viewDirW);
-                m_pushPullDistance = m_pushPullDistanceRaw; // snapped in updatePushPull
-                std::snprintf(m_pushPullInputBuf, sizeof(m_pushPullInputBuf), "%.1f", m_pushPullDistance);
+                m_pp.distance = m_pp.distanceRaw; // snapped in updatePushPull
+                std::snprintf(m_pp.inputBuf, sizeof(m_pp.inputBuf), "%.1f", m_pp.distance);
                 updatePushPull();
             }
 
@@ -3894,21 +3894,21 @@ void Application::renderViewport() {
             const bool trackpadInput = (m_orbitButton == ImGuiMouseButton_Left &&
                                          m_panButton  == ImGuiMouseButton_Left) &&
                                         !materializr::touchMode();
-            if (m_pushPullActive && m_pushPullHasArrow && trackpadInput &&
+            if (m_pp.active && m_pp.hasArrow && trackpadInput &&
                 ImGui::IsMouseClicked(ImGuiMouseButton_Left) &&
                 !io.WantCaptureMouse) {
-                m_pushPullSticky = !m_pushPullSticky;
+                m_pp.sticky = !m_pp.sticky;
             }
-            if (m_pushPullActive && m_pushPullHasArrow && m_pushPullSticky) {
+            if (m_pp.active && m_pp.hasArrow && m_pp.sticky) {
                 glm::vec2 md(io.MouseDelta.x, io.MouseDelta.y);
                 if (md.x != 0.0f || md.y != 0.0f) {
-                    m_pushPullDistanceRaw += projectDragOntoNormal(
-                        m_pushPullOrigin, m_pushPullNormal, md, proj * view,
+                    m_pp.distanceRaw += projectDragOntoNormal(
+                        m_pp.origin, m_pp.normal, md, proj * view,
                         vpPx, viewDirW);
-                    m_pushPullDistance = m_pushPullDistanceRaw;
-                    std::snprintf(m_pushPullInputBuf,
-                                  sizeof(m_pushPullInputBuf),
-                                  "%.1f", m_pushPullDistance);
+                    m_pp.distance = m_pp.distanceRaw;
+                    std::snprintf(m_pp.inputBuf,
+                                  sizeof(m_pp.inputBuf),
+                                  "%.1f", m_pp.distance);
                     updatePushPull();
                 }
             }
@@ -4047,7 +4047,7 @@ void Application::renderViewport() {
             // Gizmo input + Face hover highlighting + picking (suppressed while an
             // interactive op owns the left-drag: extrude, push/pull, fillet/chamfer,
             // or the pattern axis-origin picker).
-            if (!m_inSketchMode && !m_extrudeCtl.active() && !m_pushPullActive && !m_edgeOpActive &&
+            if (!m_inSketchMode && !m_extrudeCtl.active() && !m_pp.active && !m_edgeOpActive &&
                 !anyIopWantsViewportInput() &&
                 !(m_patternActive && m_patternPickingOrigin)) {
                 ImVec2 mousePos = ImGui::GetMousePos();
@@ -4963,7 +4963,7 @@ void Application::renderViewport() {
                     // the document, and Projection's live region scoping
                     // NEEDS clicks while its panel is open.
                     const bool clickSelectionAllowed =
-                        !m_pushPullActive && !m_extrudeCtl.active() &&
+                        !m_pp.active && !m_extrudeCtl.active() &&
                         !m_patternActive && !anyIopActive() &&
                         !m_threadActive &&
                         !m_moveModeToggle;   // Move (nav lock): taps don't select
@@ -5356,7 +5356,7 @@ void Application::renderViewport() {
                             // "Clear" button is the deliberate reset.
                             const bool projecting = m_projectSketchCtl.active();
                             bool boxEligible = !m_inSketchMode && !m_extrudeCtl.active() &&
-                                !m_pushPullActive && !m_edgeOpActive && !m_gizmoDragging &&
+                                !m_pp.active && !m_edgeOpActive && !m_gizmoDragging &&
                                 !projecting &&
                                 // Normally box-select needs Left free of the camera;
                                 // in trackpad / left-camera mode, Alt+Left frees it.
@@ -5382,7 +5382,7 @@ void Application::renderViewport() {
                         // empty-space path never fires under touch).
                         if (m_window && m_window->isTouchHoldSelect() && m_boxSelect &&
                             !m_boxSelect->isActive() && !m_inSketchMode && !m_extrudeCtl.active() &&
-                            !m_pushPullActive && !m_edgeOpActive && !m_gizmoDragging) {
+                            !m_pp.active && !m_edgeOpActive && !m_gizmoDragging) {
                             ImVec2 mp = ImGui::GetMousePos();
                             ImVec2 wp = ImGui::GetItemRectMin();
                             m_boxSelect->begin(glm::vec2(mp.x - wp.x, mp.y - wp.y));
@@ -6706,7 +6706,7 @@ void Application::renderViewport() {
         // the im-touch layout parks its sketch Finish/Discard FABs in that
         // corner, which buried it.)
         const bool navLockRelevant = m_inSketchMode ||
-            m_pushPullActive || m_extrudeCtl.active() || m_edgeOpActive ||
+            m_pp.active || m_extrudeCtl.active() || m_edgeOpActive ||
             anyIopActive();
         if (!navLockRelevant) m_moveModeToggle = false;
         if ((selectionContext && (multiInLegacy || deleteHere)) ||
@@ -7189,7 +7189,7 @@ void Application::renderViewport() {
     m_extrudeCtl.renderExtrudePanel(iopContext());
 
     // Interactive Push/Pull UI
-    if (m_pushPullActive) {
+    if (m_pp.active) {
         materializr::viewportBanner(
             ImVec4(0.3f, 0.85f, 1.0f, 1.0f),
             materializr::touchMode()
@@ -7227,15 +7227,15 @@ void Application::renderViewport() {
         opDialogDragGrip(uiScale());
 
         if (!imTouchLayout()) {   // im-touch: just the value well below
-            ImGui::Text(m_pushPullSymmetric ? "Distance per side (mm)"
+            ImGui::Text(m_pp.symmetric ? "Distance per side (mm)"
                                             : "Distance (mm) - signed");
             ImGui::Separator();
         }
 
-        if (m_pushPullInputFocus) {
+        if (m_pp.inputFocus) {
             if (!materializr::touchMode())
                 ImGui::SetKeyboardFocusHere();  // touch: drag to set distance, or tap the field to type
-            m_pushPullInputFocus = false;
+            m_pp.inputFocus = false;
         }
 
         if (imTouchLayout()) {
@@ -7243,12 +7243,12 @@ void Application::renderViewport() {
             // below when it applies) — no header, hint or steppers.
             if (touchui::amountField(
                     "ppAmt",
-                    m_pushPullSymmetric ? "Per side" : "Distance",
-                    &m_pushPullDistance, "mm", 1,
-                    /*allowSign=*/!m_pushPullSymmetric)) {
-                m_pushPullDistanceRaw = m_pushPullDistance;
-                std::snprintf(m_pushPullInputBuf, sizeof(m_pushPullInputBuf),
-                              "%.1f", m_pushPullDistance);
+                    m_pp.symmetric ? "Per side" : "Distance",
+                    &m_pp.distance, "mm", 1,
+                    /*allowSign=*/!m_pp.symmetric)) {
+                m_pp.distanceRaw = m_pp.distance;
+                std::snprintf(m_pp.inputBuf, sizeof(m_pp.inputBuf),
+                              "%.1f", m_pp.distance);
                 updatePushPull(/*applySnap=*/false);
             }
             // touch: raise the keyboard on TAP, not on open (see the Extrude
@@ -7256,18 +7256,18 @@ void Application::renderViewport() {
             if (materializr::touchMode() && ImGui::IsItemClicked())
                 ImGui::SetKeyboardFocusHere(-1);
         } else {
-        if (ImGui::InputText("##ppdist", m_pushPullInputBuf, sizeof(m_pushPullInputBuf),
+        if (ImGui::InputText("##ppdist", m_pp.inputBuf, sizeof(m_pp.inputBuf),
                              ImGuiInputTextFlags_EnterReturnsTrue)) {
-            (void)materializr::parseFinite(m_pushPullInputBuf, m_pushPullDistance);
-            m_pushPullDistanceRaw = m_pushPullDistance;
+            (void)materializr::parseFinite(m_pp.inputBuf, m_pp.distance);
+            m_pp.distanceRaw = m_pp.distance;
             updatePushPull();
             commitPushPull();
         } else {
-            float parsed = m_pushPullDistance;
-            if (materializr::parseFinite(m_pushPullInputBuf, parsed) &&
-                std::abs(parsed - m_pushPullDistance) > 0.01f) {
-                m_pushPullDistance = parsed;
-                m_pushPullDistanceRaw = parsed;
+            float parsed = m_pp.distance;
+            if (materializr::parseFinite(m_pp.inputBuf, parsed) &&
+                std::abs(parsed - m_pp.distance) > 0.01f) {
+                m_pp.distance = parsed;
+                m_pp.distanceRaw = parsed;
                 updatePushPull();
             }
         }
@@ -7281,11 +7281,11 @@ void Application::renderViewport() {
         // buttons and clamp positive while ticked. 0 clears the change.
         // Desktop only — im-touch stays a single well.
         if (!imTouchLayout() &&
-            materializr::stepperRow("ppStep", &m_pushPullDistance,
-                                    /*allowNegative=*/!m_pushPullSymmetric,
-                                    m_pushPullSymmetric ? 0.1f : -50.0f, 50.0f)) {
-            m_pushPullDistanceRaw = m_pushPullDistance;
-            std::snprintf(m_pushPullInputBuf, sizeof(m_pushPullInputBuf), "%.1f", m_pushPullDistance);
+            materializr::stepperRow("ppStep", &m_pp.distance,
+                                    /*allowNegative=*/!m_pp.symmetric,
+                                    m_pp.symmetric ? 0.1f : -50.0f, 50.0f)) {
+            m_pp.distanceRaw = m_pp.distance;
+            std::snprintf(m_pp.inputBuf, sizeof(m_pp.inputBuf), "%.1f", m_pp.distance);
             updatePushPull(/*applySnap=*/false);   // steppers override the grid
         }
 
@@ -7294,24 +7294,24 @@ void Application::renderViewport() {
         // push into and out of the body at once). Single body, no
         // mid-plane seam.
         {
-            bool allFree = !m_pushPullTargets.empty();
-            for (const auto& t : m_pushPullTargets)
+            bool allFree = !m_pp.targets.empty();
+            for (const auto& t : m_pp.targets)
                 if (t.sourceBodyId >= 0) { allFree = false; break; }
             if (allFree &&
                 ImGui::Checkbox("Symmetric (both sides)",
-                                &m_pushPullSymmetric)) {
-                if (m_pushPullSymmetric && m_pushPullDistance < 0.1f) {
-                    m_pushPullDistance = std::abs(m_pushPullDistance);
-                    if (m_pushPullDistance < 0.1f) m_pushPullDistance = 0.1f;
-                    std::snprintf(m_pushPullInputBuf,
-                                  sizeof(m_pushPullInputBuf), "%.1f",
-                                  m_pushPullDistance);
+                                &m_pp.symmetric)) {
+                if (m_pp.symmetric && m_pp.distance < 0.1f) {
+                    m_pp.distance = std::abs(m_pp.distance);
+                    if (m_pp.distance < 0.1f) m_pp.distance = 0.1f;
+                    std::snprintf(m_pp.inputBuf,
+                                  sizeof(m_pp.inputBuf), "%.1f",
+                                  m_pp.distance);
                 }
                 updatePushPull();
             }
-            if (allFree && m_pushPullSymmetric) {
+            if (allFree && m_pp.symmetric) {
                 ImGui::Text("Total width: %.1f mm",
-                            m_pushPullDistance * 2.0f);
+                            m_pp.distance * 2.0f);
             }
         }
 

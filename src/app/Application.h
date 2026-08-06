@@ -26,6 +26,7 @@
 #include "app/InteractiveOpController.h"
 #include "app/FaceOpControllers.h"
 #include "app/ExtrudeController.h"
+#include "app/PushPullState.h"
 #include "app/CylindricalPick.h"
 #include <array>
 #include "modeling/ExtrudeOp.h" // for ExtrudeMode
@@ -825,44 +826,12 @@ private:
     // point the user was sketching on.
     glm::vec3 m_sketchSnappedAnchor{0.0f};
 
-    // Push/Pull interactive operation state
-    bool m_pushPullActive = false;
-    // Live preview op (snapshot/restore engine): undone + re-executed
-    // directly against the document each preview frame, appended to history
-    // exactly once via pushExecuted() at commit. History is untouched
-    // during the preview — see updatePushPull.
-    std::unique_ptr<PushPullOp> m_pushPullLiveOp;
-    bool m_pushPullPreviewApplied = false;
-    bool m_pushPullSymmetric = false; // panel checkbox (plane-sketch targets)
-    float m_pushPullDistance = 5.0f;
-    // Unsnapped drag accumulator. The grid snap in updatePushPull mutates
-    // m_pushPullDistance itself (so the readouts show the snapped value),
-    // which would erase sub-step drag motion every frame — a slow drag
-    // accumulated nothing, then a fast flick jumped a whole step. The drag
-    // adds into THIS instead, and m_pushPullDistance is derived + snapped
-    // from it. Typing/sliding a value re-bases the accumulator.
-    float m_pushPullDistanceRaw = 0.0f;
-    char m_pushPullInputBuf[32] = "5.0";
-    bool m_pushPullInputFocus = true;
-    // Face arrow: drag along this normal to drive the distance (set from the first
-    // face target). m_pushPullHasArrow is false for sketch-region-only push/pull.
-    glm::vec3 m_pushPullOrigin{0.0f};
-    glm::vec3 m_pushPullNormal{0.0f, 0.0f, 1.0f};
-    bool m_pushPullHasArrow = false;
-    // Trackpad-mode sticky drag (orbitButton == panButton == LMB): a single
-    // click in the viewport while the arrow is up enters this state, mouse
-    // moves then drive the distance frame-by-frame without a button held,
-    // and a second click exits. Same shape as the Sketch Circle tool's
-    // click-move-click pattern — gives users a way to "drag" the arrow
-    // when their primary click is already bound to orbit. While true,
-    // gizmoOwnsDrag suppresses orbit so the cursor isn't fighting the
-    // camera. (Steve: "let click then click act like click and hold".)
-    bool m_pushPullSticky = false;
-    // Dense-body drag protection: when any target body has >250 faces (a
-    // threaded rod), the per-frame preview shows a tinted GHOST of the tool
-    // volume instead of running the real boolean (which would also trigger
-    // the thread reflow) every frame. The real op runs once, on commit.
-    bool m_pushPullHeavyPreview = false;
+    // Push/Pull interactive operation state — grouped into PushPullState
+    // (src/app/PushPullState.h) ahead of the lifecycle moving onto the
+    // InteractiveOpController base. The reference keeps the existing
+    // `m_pp.` call sites reading naturally while that migration happens.
+    materializr::PushPullState m_pushPullState;
+    materializr::PushPullState& m_pp = m_pushPullState;
     std::unique_ptr<PushPullOp> makePushPullOpFromState() const;
 
     // Snap-to-grid for gizmo translate (shares the grid step with the sketch grid).
@@ -1073,17 +1042,6 @@ private:
     void applyRenderingSettings();
     // Map m_meshQuality to OCCT tessellation parameters.
     void meshQualityParams(float& deflection, float& angularDeflection) const;
-    // Each entry: a separate region operation to perform on commit
-    struct PushPullTarget {
-        int sketchId;
-        int regionIndex;
-        int sourceBodyId; // -1 for floating (NewBody)
-        TopoDS_Face profile;
-    };
-    std::vector<PushPullTarget> m_pushPullTargets;
-    std::vector<int> m_pushPullPreviewBodyIds;
-    // For undoing previews
-    std::vector<std::pair<int, TopoDS_Shape>> m_pushPullPreviousBodies;
 
     bool m_renderersReady = false;
     // Full-rebuild signal: clear all meshes and re-tessellate every visible

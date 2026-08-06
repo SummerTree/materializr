@@ -1098,7 +1098,7 @@ void Application::cancelActiveIops() {
 }
 
 bool Application::anyInteractivePreviewActive() const {
-    return anyIopActive() || m_extrudeCtl.active() || m_pushPullActive ||
+    return anyIopActive() || m_extrudeCtl.active() || m_pp.active ||
            m_patternActive || m_threadActive;
 }
 
@@ -1107,7 +1107,7 @@ void Application::cancelAllInteractivePreviews() {
     // Legacy history-replay previews write the document every frame; a
     // controller preview running beside one corrupts both restore paths.
     if (m_extrudeCtl.active()) cancelInteractiveExtrude();
-    if (m_pushPullActive) cancelPushPull();
+    if (m_pp.active) cancelPushPull();
     if (m_patternActive) cancelPattern();
     if (m_threadActive) cancelThread();
     // Fillet / chamfer preview — was missing from this list, so switching
@@ -1128,7 +1128,7 @@ bool Application::imTouchActionCorner() const {
 
 void Application::confirmActiveAction() {
     if (m_extrudeCtl.active())       { commitInteractiveExtrude(); return; }
-    if (m_pushPullActive)  { commitPushPull(); return; }
+    if (m_pp.active)  { commitPushPull(); return; }
     if (m_patternActive)   { commitPattern(); return; }
     if (m_threadActive) {
         // Same guard as the thread panel's Apply: refuse absurd turn counts
@@ -1145,7 +1145,7 @@ void Application::confirmActiveAction() {
 
 void Application::cancelActiveAction() {
     if (m_extrudeCtl.active())       { cancelInteractiveExtrude(); return; }
-    if (m_pushPullActive)  { cancelPushPull(); return; }
+    if (m_pp.active)  { cancelPushPull(); return; }
     if (m_patternActive)   { cancelPattern(); return; }
     if (m_threadActive)    { cancelThread(); return; }
     if (m_edgeOpActive)    { cancelInteractiveEdgeOp(); return; }
@@ -2559,7 +2559,7 @@ void Application::handleShortcuts() {
     // ImGui has text input focus. Always false on Android (no modifier keys).
     bool ctrlHeld = Window::isCtrlDown();
     if (ctrlHeld && ImGui::IsKeyPressed(ImGuiKey_Z, false)) {
-        if (!m_edgeOpActive && !m_extrudeCtl.active() && !m_pushPullActive) {
+        if (!m_edgeOpActive && !m_extrudeCtl.active() && !m_pp.active) {
             // Mid-placement Ctrl+Z cancels the IN-PROGRESS shape first (the
             // editor convention — and Steve's muscle memory); the next
             // Ctrl+Z then undoes committed elements as usual.
@@ -2615,7 +2615,7 @@ void Application::handleShortcuts() {
         }
     }
     if (ctrlHeld && ImGui::IsKeyPressed(ImGuiKey_Y, false)) {
-        if (!m_edgeOpActive && !m_extrudeCtl.active() && !m_pushPullActive) {
+        if (!m_edgeOpActive && !m_extrudeCtl.active() && !m_pp.active) {
             if (m_history->canRedo()) {
                 m_history->redo(*m_document);
                 const Operation* redone =
@@ -2897,7 +2897,7 @@ void Application::handleShortcuts() {
             m_sketchGizmoDragSketches.clear();
             m_planeGizmoDrag.clear();
             m_axisGizmoDrag.clear();
-        } else if (m_pushPullActive) {
+        } else if (m_pp.active) {
             cancelPushPull();
         } else if (anyIopActive()) {
             for (auto* c : m_iops)
@@ -2960,8 +2960,8 @@ void Application::handleShortcuts() {
     if (ImGui::IsKeyPressed(ImGuiKey_Enter) && m_extrudeCtl.active()) {
         m_extrudeCtl.confirmFromKey(iopContext());
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_Enter) && m_pushPullActive) {
-        (void)materializr::parseFinite(m_pushPullInputBuf, m_pushPullDistance);
+    if (ImGui::IsKeyPressed(ImGuiKey_Enter) && m_pp.active) {
+        (void)materializr::parseFinite(m_pp.inputBuf, m_pp.distance);
         updatePushPull();
         commitPushPull();
     }
@@ -6695,7 +6695,7 @@ void Application::run() {
             // the whole time it was open (e.g. a push/pull left mid-edit) —
             // wasteful on the iGPU, a battery/thermal sink on mobile.
             bool interactive =
-                m_inSketchMode || m_pushPullActive || m_gizmoDragging ||
+                m_inSketchMode || m_pp.active || m_gizmoDragging ||
                 m_edgeOpActive || m_moveFaceCtl.active() ||
                 m_revolveActive;
             if (!interactive)
@@ -6711,7 +6711,7 @@ void Application::run() {
             if (nowMs - perfLastMs >= 1000) {
                 std::string st;
                 if (m_inSketchMode)            st += "sketch ";
-                if (m_pushPullActive)          st += "pushpull ";
+                if (m_pp.active)          st += "pushpull ";
                 if (m_gizmoDragging)           st += "gizmo ";
                 if (m_edgeOpActive)            st += "edgeop ";
                 if (m_moveFaceCtl.active())       st += "moveface ";
