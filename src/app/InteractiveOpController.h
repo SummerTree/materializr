@@ -2,7 +2,9 @@
 #include "IopViewport.h"
 #include <functional>
 #include <memory>
+#include <TopoDS_Face.hxx>
 #include <TopoDS_Shape.hxx>
+#include <gp_Pln.hxx>
 
 class Document;
 class History;
@@ -57,6 +59,42 @@ struct IopContext {
     // Panel placement for controllers that render their own viewport-anchored
     // panel (Extrude, Move Face) rather than the scaffold's.
     IopPanelPlace panel;
+
+    // ── Selection scanning ───────────────────────────────────────────────────
+    // Needed by a controller that reads the SELECTION itself. Extrude is handed
+    // its profile, so Push/Pull is the first to want these.
+    //
+    // Re-bind a reloaded sketch's source face: it isn't serialised, so without
+    // this buildRegions() misses the holes the user sketched around.
+    std::function<void(int sketchId)> ensureSketchSourceFace;
+    // The visible body a sketch region lies flat ON, or -1. A plane sketch over
+    // a face fuses/cuts that body in place instead of spawning an overlapping,
+    // z-fighting solid.
+    std::function<int(const TopoDS_Face& region, const gp_Pln& plane)>
+        findBodyUnderRegion;
+
+    // ── Mesh invalidation, per body ──────────────────────────────────────────
+    // markMeshesDirty() re-tessellates every visible body — on a 100-body
+    // project that is the difference between a smooth preview frame and an
+    // unusable one. These two let a preview touch only what it changed.
+    std::function<void(int bodyId)> markBodyDirty;
+    // Does the renderer already hold a slot for this body? A preview that
+    // CREATES bodies uses it to spot the ones that just appeared. (Restrict to
+    // VISIBLE bodies at the call site — invisible ones never get a slot, so
+    // they would otherwise be marked dirty every frame forever.)
+    std::function<bool(int bodyId)> bodyHasRenderSlot;
+
+    // ── Ghost preview ────────────────────────────────────────────────────────
+    // Show `tool` as a tinted, renderer-only volume — no Document body, no
+    // History — in place of running the real boolean. Push/Pull uses it for
+    // dense bodies, where a per-frame boolean over a thread's helicoid faces
+    // (and the thread reflow behind it) makes the drag unusable; the real op
+    // then runs once, at commit. `cut` tints it as a subtraction.
+    //
+    // The controller builds the shape (that is modelling, and TopoDS_Shape
+    // already crosses this line); the renderer slot and colour stay the app's.
+    std::function<void(const TopoDS_Shape& tool, bool cut)> showGhost;
+    std::function<void()> clearGhost;
 };
 
 // Base for "popup with live preview" modeling operations (Shell, Taper,
@@ -186,6 +224,15 @@ protected:
     virtual void panelBody(const IopContext& ctx, bool& changed) = 0;
     virtual void onCleanup() {}
     virtual float panelWidth() const { return 260.0f; }
+    // How a finished preview frame invalidates meshes. Default: mark
+    // EVERYTHING, which triggers a full clear + re-tessellate of every visible
+    // body. That is correct for an op that edits one known body, and wrong two
+    // ways for Push/Pull — it re-tessellates 100+ untouched bodies per drag
+    // frame, and the clear() wipes renderer-only slots (the ghost tool volume
+    // has no Document body behind it, so nothing puts it back).
+    virtual void markPreviewDirty(const IopContext& ctx) const {
+        ctx.markMeshesDirty();
+    }
     // Override to suppress the per-change live preview when recomputing it would
     // freeze the UI (e.g. projecting a sketch with hundreds of regions). Commit
     // still builds + runs the op once. Default: always preview.

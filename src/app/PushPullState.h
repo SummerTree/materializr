@@ -1,22 +1,18 @@
 #pragma once
 #include <TopoDS_Face.hxx>
-#include <TopoDS_Shape.hxx>
 #include <glm/glm.hpp>
-#include <memory>
-#include <utility>
 #include <vector>
-
-class PushPullOp;
 
 namespace materializr {
 
-// Everything the interactive Push/Pull gesture holds while it is running.
+// The interactive Push/Pull gesture's parameters, owned by PushPullController.
 //
-// Was 16 loose members on Application. Grouped here first (the same first step
-// Move Face took) so the state has one owner before the lifecycle moves onto
-// the InteractiveOpController base — where the live-preview engine below is
-// already modelled as PreviewModel::LiveOp, since Push/Pull is the op that
-// engine was originally hand-written for.
+// Was 16 loose members on Application; slice 1 grouped them here, slice 2 moved
+// the lifecycle onto InteractiveOpController's LiveOp preview model — which is
+// the engine this op was hand-written with in the first place. Five of the
+// original members went with that move rather than coming along: `active`,
+// `liveOp` and `previewApplied` are the base's now, and `previewBodyIds` /
+// `previousBodies` turned out to be dead (cleared at begin, never read).
 struct PushPullState {
     // One entry per region/face the gesture will operate on.
     struct Target {
@@ -25,15 +21,6 @@ struct PushPullState {
         int sourceBodyId;   // -1 for floating (NewBody)
         TopoDS_Face profile;
     };
-
-    bool active = false;
-
-    // Live preview op (snapshot/restore engine): undone + re-executed
-    // directly against the document each preview frame, appended to history
-    // exactly once via pushExecuted() at commit. History is untouched
-    // during the preview — see updatePushPull.
-    std::unique_ptr<PushPullOp> liveOp;
-    bool previewApplied = false;
 
     bool symmetric = false;   // panel checkbox (plane-sketch targets)
     float distance = 5.0f;
@@ -70,9 +57,6 @@ struct PushPullState {
     bool heavyPreview = false;
 
     std::vector<Target> targets;
-    std::vector<int> previewBodyIds;
-    // For undoing previews
-    std::vector<std::pair<int, TopoDS_Shape>> previousBodies;
 };
 
 } // namespace materializr

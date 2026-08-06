@@ -38,6 +38,16 @@ struct IopViewport {
     bool released = false;  // left button came up this frame
     bool down = false;      // left button currently held
 
+    // Orbit AND pan are both bound to the left button ("trackpad mode"), so a
+    // click-move-click sticky drag is the only way to work a handle without
+    // fighting the camera. Push/Pull offers one; it must not appear for mouse
+    // users, who get the ordinary press-drag. Already false under touch (a tap
+    // would toggle sticky AND feed the direct drag — double distance).
+    bool trackpadInput = false;
+    // ImGui has the pointer this frame (the click landed on a widget, not the
+    // scene). A sticky toggle must ignore those.
+    bool uiCaptured = false;
+
     // The cursor's world-space pick ray — for gizmos that intersect it with
     // their own planes/rings rather than projecting a screen delta.
     glm::vec3 rayOrigin{0.0f};

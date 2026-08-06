@@ -90,7 +90,7 @@ void InteractiveOpController::updateLive(const IopContext& ctx) {
             }
         } catch (...) { m_liveApplied = false; }
     }
-    ctx.markMeshesDirty();
+    markPreviewDirty(ctx);
 }
 
 void InteractiveOpController::commit(const IopContext& ctx) {

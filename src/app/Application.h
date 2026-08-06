@@ -26,7 +26,7 @@
 #include "app/InteractiveOpController.h"
 #include "app/FaceOpControllers.h"
 #include "app/ExtrudeController.h"
-#include "app/PushPullState.h"
+#include "app/PushPullController.h"
 #include "app/CylindricalPick.h"
 #include <array>
 #include "modeling/ExtrudeOp.h" // for ExtrudeMode
@@ -548,13 +548,22 @@ private:
     SketchRegionHit pickSketchRegion(float screenX, float screenY,
                                      float vpW, float vpH,
                                      bool buildIfCold = true) const;
-    void beginPushPull();
+    // Thin delegates — the tool lives in PushPullController now (slice 2).
+    // NB: no blanket m_meshesDirty here. Push/Pull's preview marks only the
+    // bodies it touched (markPreviewDirty) — a full rebuild per frame is both
+    // the dense-project perf hazard and what erases the ghost tool volume.
+    void beginPushPull() {
+        cancelActiveIops();
+        m_ppCtl.beginPushPull(iopContext());
+    }
     // applySnap=false bypasses the grid snap for that update — the stepper
     // buttons are an explicit fine override (a 0.1 nudge under a 1 mm grid must
     // actually move), so they call updatePushPull(false).
-    void updatePushPull(bool applySnap = true);
-    void commitPushPull();
-    void cancelPushPull();
+    void updatePushPull(bool applySnap = true) {
+        m_ppCtl.updatePushPull(iopContext(), applySnap);
+    }
+    void commitPushPull() { m_ppCtl.commit(iopContext()); m_meshesDirty = true; }
+    void cancelPushPull() { m_ppCtl.cancel(iopContext()); m_meshesDirty = true; }
     // ── Move Face (face transform → body follows via loft; see MoveFaceOp) ──
     // The face transform this gesture applies (Move / Rotate / Scale share the
     // same loft engine + deferred silhouette; only the gizmo + drag math differ).
@@ -825,14 +834,6 @@ private:
     // through orbit-exit so the new perspective view pivots around the same
     // point the user was sketching on.
     glm::vec3 m_sketchSnappedAnchor{0.0f};
-
-    // Push/Pull interactive operation state — grouped into PushPullState
-    // (src/app/PushPullState.h) ahead of the lifecycle moving onto the
-    // InteractiveOpController base. The reference keeps the existing
-    // `m_pp.` call sites reading naturally while that migration happens.
-    materializr::PushPullState m_pushPullState;
-    materializr::PushPullState& m_pp = m_pushPullState;
-    std::unique_ptr<PushPullOp> makePushPullOpFromState() const;
 
     // Snap-to-grid for gizmo translate (shares the grid step with the sketch grid).
     bool m_snapToGrid = true;
@@ -1423,13 +1424,15 @@ private:
     DefeatureController m_defeatureCtl;
     ResizeCylindricalController m_resizeCylCtl;
     ExtrudeController m_extrudeCtl;
+    PushPullController m_ppCtl;
     // m_moveFaceCtl is declared up with its delegates; it joined this array
     // once its lifecycle overrides landed, so every generic loop — Esc/Enter
     // chains, single-flight, suppression, input/overlay/gizmo dispatch —
     // covers Move Face without a special case.
-    std::array<InteractiveOpController*, 8> m_iops{
+    std::array<InteractiveOpController*, 9> m_iops{
         &m_shellCtl, &m_taperCtl, &m_scaleFaceCtl, &m_projectSketchCtl,
-        &m_defeatureCtl, &m_resizeCylCtl, &m_moveFaceCtl, &m_extrudeCtl};
+        &m_defeatureCtl, &m_resizeCylCtl, &m_moveFaceCtl, &m_extrudeCtl,
+        &m_ppCtl};
     IopContext iopContext();
     bool anyIopActive() const {
         for (auto* c : m_iops) if (c->active()) return true;
