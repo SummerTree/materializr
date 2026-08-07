@@ -4179,8 +4179,22 @@ void Application::loadProject() {
             if (path.empty()) return;
             // Picking a file that is already open in another tab focuses it
             // instead of making a second one. Checked here, after the picker,
-            // because that is the first moment the path is known.
-            if (focusExistingProject(path)) return;
+            // because that is the first moment the file is known.
+            //
+            // Compare on the same IDENTITY a tab stores. On mobile that is the
+            // SAF content:// URI, not `path` — the picker hands back a cache
+            // temp it copied the document into, and a fresh temp per open would
+            // never match anything. The URI is already readable here: the
+            // poll that produced `path` only fires once the Java side has
+            // opened the document and recorded it.
+            std::string ident = path;
+#if defined(MZ_MOBILE)
+            {
+                const std::string uri = materializr::mobileLastDocUri();
+                if (!uri.empty()) ident = uri;
+            }
+#endif
+            if (focusExistingProject(ident)) return;
             // Guard unsaved changes (the picked path is captured for after the
             // save prompt resolves), then load + record in Open Recent.
             guardedOpen([this, path]() {
