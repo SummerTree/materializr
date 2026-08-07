@@ -504,6 +504,35 @@ bool Application::activeSessionIsScratch() const {
     return !m_history || m_history->stepCount() == 0;
 }
 
+size_t Application::sessionForProjectRef(const std::string& ref) const {
+    if (ref.empty()) return m_sessions.size();
+    for (size_t i = 0; i < m_sessions.size(); ++i) {
+        const std::string& p = (i == m_activeSession) ? m_currentProjectPath
+                                                      : m_sessions[i]->projectPath;
+        if (!p.empty() && p == ref) return i;
+    }
+    return m_sessions.size();
+}
+
+bool Application::focusExistingProject(const std::string& ref) {
+    const size_t idx = sessionForProjectRef(ref);
+    if (idx >= m_sessions.size()) return false;
+    if (idx == m_activeSession) {          // already looking at it
+        if (m_landingPage) m_landingPage->setVisible(false);
+        return true;
+    }
+    // The caller may have made a blank tab to load into before it knew the
+    // project was already open; take it back out rather than leaving a stray
+    // "Untitled". Checked BEFORE the switch, while it is still active.
+    const bool dropScratch = activeSessionIsScratch();
+    const size_t scratchIdx = m_activeSession;
+    if (!switchToSession(idx)) return false;   // refused (mid-sketch) — it toasted
+    if (dropScratch && m_sessions.size() > 1) closeSession(scratchIdx);
+    if (m_landingPage) m_landingPage->setVisible(false);
+    showToast("That project is already open \xE2\x80\x94 switched to its tab.");
+    return true;
+}
+
 size_t Application::createSession() {
     auto s = std::make_unique<ProjectSession>();
     s->recoveryIndex = nextFreeRecoveryIndex();
@@ -1624,8 +1653,17 @@ void Application::loadAppSettings() {
     if (!m_safeMode) {
         std::vector<std::string> restore;
         if (m_autoOpenLastProject) {
-            for (const auto& p : s.sessionPaths)
-                if (!p.empty()) restore.push_back(p);
+            for (const auto& p : s.sessionPaths) {
+                if (p.empty()) continue;
+                // Skip a project already queued: one project, one tab. Settings
+                // written before focusExistingProject existed can hold the same
+                // path twice (re-opening an open project used to make a second
+                // tab), and restoring both faithfully reproduced the duplicate
+                // on every launch thereafter.
+                if (std::find(restore.begin(), restore.end(), p) != restore.end())
+                    continue;
+                restore.push_back(p);
+            }
             // Settings written by a build that predates tabs have no
             // sessionPaths — fall back to the single last project.
             if (restore.empty() && !s.lastProjectPath.empty())
@@ -4078,6 +4116,10 @@ void Application::openRecentProject(const AppSettings::RecentProject& r) {
     // which may be the vector backing the reference `r`.
     const std::string ref  = r.ref;
     const std::string name = r.name;
+    // One project, one tab. Every recent-open route lands here — the home
+    // screen's tiles, the "+" dropdown, the File menu — so the guard sits here
+    // rather than at each of them.
+    if (focusExistingProject(ref)) return;
     guardedOpen([this, ref, name]() {
 #if defined(MZ_MOBILE)
         // ref is a persisted SAF content:// URI — resolve to a temp file, no picker.
@@ -4135,6 +4177,10 @@ void Application::loadProject() {
         {{"Materializr Project", "*.mzr *.materializr"}, {"All Files", "*"}},
         [this](const std::string& path) {
             if (path.empty()) return;
+            // Picking a file that is already open in another tab focuses it
+            // instead of making a second one. Checked here, after the picker,
+            // because that is the first moment the path is known.
+            if (focusExistingProject(path)) return;
             // Guard unsaved changes (the picked path is captured for after the
             // save prompt resolves), then load + record in Open Recent.
             guardedOpen([this, path]() {

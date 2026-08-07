@@ -334,6 +334,19 @@ private:
     // no geometry, no history) — i.e. safe to load into without displacing
     // anything the user still wants.
     bool activeSessionIsScratch() const;
+    // The open tab already holding this project, or m_sessions.size() for
+    // none. Compares the ACTIVE tab against m_currentProjectPath — an inactive
+    // session's own `projectPath` is only refreshed when it's stashed on the
+    // way out — the same rule saveAppSettings uses to write the tab list.
+    size_t sessionForProjectRef(const std::string& ref) const;
+    // One project, one tab. If `ref` is already open, focus that tab and
+    // return true; the caller must then NOT load it again. Nothing checked
+    // this before, so re-opening a project you already had open (a home-screen
+    // tile, an Open Recent entry) silently made a SECOND tab of the same file
+    // — and the duplicate went on to be written into the session list and
+    // faithfully restored on the next launch, which looked like a restore bug.
+    // Discards the empty tab a caller may have just created for the load.
+    bool focusExistingProject(const std::string& ref);
     // Reopen a previous session's projects, one per tab, and focus the tab
     // that was in front. Runs from the deferred startup slot when "open last
     // project on launch" is on. Missing projects are skipped, not fatal.
