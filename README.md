@@ -208,6 +208,7 @@ Join the community on **[Discord](https://discord.gg/BRjzbMGZvE)** for questions
 
 - **R4stl1n** — original project.
 - **stevebushwa** — design, testing, direction.
+- **TechHQUSA** — macOS port, dimension tool, security hardening.
 - **Claude (Anthropic)** — pair-coding collaborator.
 
 ## Acknowledgments
