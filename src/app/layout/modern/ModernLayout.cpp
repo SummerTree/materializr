@@ -82,70 +82,11 @@ void Application::renderModernLayout() {
         const float bh  = 44.0f * s;
         const float cy  = (topH - bh) * 0.5f; // vertical center for controls
 
-        // ⋯ menu (top-left, nav-drawer style), then logo chip + name + /project.
-        {
-            const float bh0 = 44.0f * s;
-            const float menuW = bh0 + 12.0f * s;    // ⋯ button + gap
-            ImGui::SetCursorPos(ImVec2(pad, (topH - bh0) * 0.5f));
-            if (touchui::iconButton("overflow", MZ_ICON_MORE, bh0))
-                ImGui::OpenPopup("##TouchOverflow");
-            tip("Menu: file, edit, view, help and settings");
-            renderTouchOverflowPopup();
-
-            ImDrawList* dl = ImGui::GetWindowDrawList();
-            const ImVec2 win = ImGui::GetWindowPos();
-            const float chip = 30.0f * s;
-            const float lx = pad + menuW;
-            const ImVec2 c0(win.x + lx, win.y + (topH - chip) * 0.5f);
-            dl->AddImageRounded(layoutui::logoTexture(), c0,
-                                ImVec2(c0.x + chip, c0.y + chip),
-                                ImVec2(0, 0), ImVec2(1, 1),
-                                IM_COL32_WHITE, 7.0f * s);
-            ImGui::SetCursorPos(ImVec2(lx + chip + 10.0f * s,
-                                       (topH - ImGui::GetTextLineHeight()) * 0.5f));
-            ImGui::TextColored(touchui::textPrimary(), "Materializr");
-            // The old "/ projectname" breadcrumb is now the tab row: one pill
-            // per open project (dirty dot included), right-click/long-press
-            // for Save / Save As / Close, and a trailing "+".
-            const float pillH = 30.0f * s;
-            ImGui::SameLine(0.0f, 12.0f * s);
-            ImGui::SetCursorPosY((topH - pillH) * 0.5f);
-            for (size_t i = 0; i < m_sessions.size(); ++i) {
-                ImGui::PushID(static_cast<int>(i));
-                std::string label = sessionDisplayLabel(i);
-                if (sessionDirty(i)) label += " \xe2\x80\xa2";
-                const bool active = (i == m_activeSession);
-                ImGui::PushStyleColor(ImGuiCol_Button,
-                    ImGui::GetColorU32(active ? touchui::rowBg()
-                                              : touchui::panelBg()));
-                ImGui::PushStyleColor(ImGuiCol_Text,
-                    ImGui::GetColorU32(active ? touchui::textPrimary()
-                                              : touchui::textDim()));
-                if (ImGui::Button(label.c_str(), ImVec2(0, pillH)) && !active)
-                    switchToSession(i);
-                ImGui::PopStyleColor(2);
-                // Hover on the pill itself feeds the long-press gate, so a
-                // press-and-hold reaches this menu on touch (m_tabBarHovered).
-                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup))
-                    m_tabBarHovered = true;
-                if (ImGui::BeginPopupContextItem("tabctx")) {
-                    renderTabMenuItems(i);
-                    ImGui::EndPopup();
-                }
-                ImGui::SameLine(0.0f, 6.0f * s);
-                ImGui::SetCursorPosY((topH - pillH) * 0.5f);
-                ImGui::PopID();
-            }
-            if (touchui::iconButton("newtab", MZ_ICON_ADD, pillH))
-                ImGui::OpenPopup("##newTabMenu");
-            tip("New tab: empty, open a file, or a recent project");
-            if (ImGui::BeginPopup("##newTabMenu")) {
-                renderNewTabMenuBody();
-                ImGui::EndPopup();
-            }
-        }
-
         // Right-aligned controls: [Finish, Discard,] Undo, Redo,
+        // Focus, ⋯. Measured HERE, before the tab strip is drawn, because the
+        // strip has to know where this cluster starts: with enough tabs open
+        // the pills used to run straight under Finish Sketch / Exit Sketch
+        // (Steve, 2026-08-07). `total` below is that boundary.
         // Focus, ⋯. Finish/Discard appear in sketch mode — the two actions
         // that must never be hunted for.
         const float sp = 8.0f * s;
@@ -197,6 +138,137 @@ void Application::renderModernLayout() {
                      touchui::pillButtonWidth(MZ_ICON_DISCARD, exitLbl) + sp * 2;
         if (showMulti)
             total += touchui::pillButtonWidth(MZ_ICON_SELECT, "Multi") + sp;
+        // ⋯ menu (top-left, nav-drawer style), then logo chip + name + /project.
+        {
+            const float bh0 = 44.0f * s;
+            const float menuW = bh0 + 12.0f * s;    // ⋯ button + gap
+            ImGui::SetCursorPos(ImVec2(pad, (topH - bh0) * 0.5f));
+            if (touchui::iconButton("overflow", MZ_ICON_MORE, bh0))
+                ImGui::OpenPopup("##TouchOverflow");
+            tip("Menu: file, edit, view, help and settings");
+            renderTouchOverflowPopup();
+
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            const ImVec2 win = ImGui::GetWindowPos();
+            const float chip = 30.0f * s;
+            const float lx = pad + menuW;
+            const ImVec2 c0(win.x + lx, win.y + (topH - chip) * 0.5f);
+            dl->AddImageRounded(layoutui::logoTexture(), c0,
+                                ImVec2(c0.x + chip, c0.y + chip),
+                                ImVec2(0, 0), ImVec2(1, 1),
+                                IM_COL32_WHITE, 7.0f * s);
+            ImGui::SetCursorPos(ImVec2(lx + chip + 10.0f * s,
+                                       (topH - ImGui::GetTextLineHeight()) * 0.5f));
+            ImGui::TextColored(touchui::textPrimary(), "Materializr");
+            // The old "/ projectname" breadcrumb is now the tab row: one pill
+            // per open project (dirty dot included), right-click/long-press
+            // for Save / Save As / Close, and a trailing "+".
+            const float pillH = 30.0f * s;
+            ImGui::SameLine(0.0f, 12.0f * s);
+            ImGui::SetCursorPosY((topH - pillH) * 0.5f);
+
+            // The strip is BOUNDED. `total` (measured above) is where the
+            // right-hand cluster begins; the "+" and a divider sit just inside
+            // that, and the pills scroll within whatever is left. Without this
+            // the row simply kept growing and ran under Finish Sketch / Exit
+            // Sketch once enough projects were open.
+            const float plusW  = pillH;                 // square icon button
+            const float sepGap = 10.0f * s;
+            const float tabsX0 = ImGui::GetCursorPosX();
+            const float tabsX1 = ws.x - pad - total - sepGap * 2.0f - plusW;
+            const float tabsW  = (tabsX1 > tabsX0) ? (tabsX1 - tabsX0) : 0.0f;
+            // Long project names are truncated so a couple of tabs can't eat
+            // the whole strip; the dirty dot is appended after, never cut.
+            auto elide = [](std::string t, float maxW) {
+                if (ImGui::CalcTextSize(t.c_str()).x <= maxW) return t;
+                const char* ell = "\xE2\x80\xA6";
+                while (!t.empty() &&
+                       ImGui::CalcTextSize((t + ell).c_str()).x > maxW) {
+                    // Drop whole UTF-8 code points, not bytes.
+                    do { t.pop_back(); }
+                    while (!t.empty() &&
+                           (static_cast<unsigned char>(t.back()) & 0xC0) == 0x80);
+                }
+                return t + ell;
+            };
+            const float maxLabelW = 130.0f * s;
+
+            // Natural width of the pills, so the strip only takes what it
+            // needs: with a few tabs open the "+" stays next to them instead
+            // of being flung against the divider.
+            float wantW = 0.0f;
+            for (size_t i = 0; i < m_sessions.size(); ++i) {
+                std::string l = elide(sessionDisplayLabel(i), maxLabelW);
+                if (sessionDirty(i)) l += " \xe2\x80\xa2";
+                wantW += ImGui::CalcTextSize(l.c_str()).x +
+                         ImGui::GetStyle().FramePadding.x * 2.0f + 6.0f * s;
+            }
+            const float stripW = (wantW < tabsW) ? wantW : tabsW;
+
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+            ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarSize, 8.0f * s);
+            ImGui::BeginChild("##tabstrip", ImVec2(stripW, pillH + 10.0f * s),
+                              false,
+                              ImGuiWindowFlags_HorizontalScrollbar |
+                              ImGuiWindowFlags_NoBackground |
+                              ImGuiWindowFlags_NoSavedSettings);
+            for (size_t i = 0; i < m_sessions.size(); ++i) {
+                ImGui::PushID(static_cast<int>(i));
+                std::string label = elide(sessionDisplayLabel(i), maxLabelW);
+                if (sessionDirty(i)) label += " \xe2\x80\xa2";
+                const bool active = (i == m_activeSession);
+                ImGui::PushStyleColor(ImGuiCol_Button,
+                    ImGui::GetColorU32(active ? touchui::rowBg()
+                                              : touchui::panelBg()));
+                ImGui::PushStyleColor(ImGuiCol_Text,
+                    ImGui::GetColorU32(active ? touchui::textPrimary()
+                                              : touchui::textDim()));
+                if (ImGui::Button(label.c_str(), ImVec2(0, pillH)) && !active)
+                    switchToSession(i);
+                ImGui::PopStyleColor(2);
+                // Hover on the pill itself feeds the long-press gate, so a
+                // press-and-hold reaches this menu on touch (m_tabBarHovered).
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup))
+                    m_tabBarHovered = true;
+                if (ImGui::BeginPopupContextItem("tabctx")) {
+                    renderTabMenuItems(i);
+                    ImGui::EndPopup();
+                }
+                ImGui::SameLine(0.0f, 6.0f * s);
+                ImGui::PopID();
+            }
+            // Keep the ACTIVE tab in view when the strip is scrolled — after a
+            // switch from the tab menu it may be off to one side.
+            ImGui::EndChild();
+            ImGui::PopStyleVar(2);
+
+            // "+" stays OUTSIDE the scrolling region: a new tab must never be
+            // something you have to scroll to reach.
+            ImGui::SameLine(0.0f, sepGap);
+            ImGui::SetCursorPosY((topH - pillH) * 0.5f);
+            if (touchui::iconButton("newtab", MZ_ICON_ADD, pillH))
+                ImGui::OpenPopup("##newTabMenu");
+            tip("New tab: empty, open a file, or a recent project");
+            if (ImGui::BeginPopup("##newTabMenu")) {
+                renderNewTabMenuBody();
+                ImGui::EndPopup();
+            }
+            // Divider between the tab strip and the right-hand cluster, so the
+            // boundary the strip stops at is visible rather than implied.
+            {
+                ImGui::SameLine(0.0f, sepGap);
+                const ImVec2 wp0 = ImGui::GetWindowPos();
+                const float dx = wp0.x + ImGui::GetCursorPosX();
+                const float y0 = wp0.y + (topH - pillH) * 0.5f;
+                ImGui::GetWindowDrawList()->AddLine(
+                    ImVec2(dx, y0), ImVec2(dx, y0 + pillH),
+                    ImGui::GetColorU32(ImVec4(touchui::textDim().x,
+                                              touchui::textDim().y,
+                                              touchui::textDim().z, 0.35f)),
+                    1.0f * s);
+            }
+        }
+
         float x = ws.x - pad - total;
         ImGui::SetCursorPos(ImVec2(x, cy));
 
