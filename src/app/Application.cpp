@@ -4881,6 +4881,20 @@ void Application::markSaved() {
 void Application::requestClose() {
     if (m_confirmedClose) return;
     if (!isDirty()) { m_confirmedClose = true; return; }
+    // Same quiet-autosave shortcut as closeProject() - duplicated here rather
+    // than shared because this is the OS/window-quit path, not a project
+    // close, so there's no PostSaveAction to route through. Without this,
+    // "Autosave on close" only ever fired when closing a project explicitly
+    // and every quit still hit the modal regardless of the setting (Steve's
+    // report: "it doesn't autosave but rather prompts you"). Same tip-only
+    // guard: below the history tip, a quiet save would silently drop the
+    // redo tail, so fall through to the prompt there too.
+    if (m_autosaveEnabled && !m_currentProjectPath.empty() &&
+        !(m_history && m_history->canRedo())) {
+        saveProjectQuick();
+        m_confirmedClose = true;
+        return;
+    }
     m_showSavePrompt = true;
     m_closeAfterSave = false;
     m_window->requestClose(false);
