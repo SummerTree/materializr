@@ -4942,7 +4942,23 @@ void Application::queueHeavyImport(std::string message, std::function<bool()> im
         // what this import actually added.
         const auto before = m_document->getAllBodyIds();
         const std::set<int> beforeIds(before.begin(), before.end());
-        if (!importFn()) {
+        const bool importOk = importFn();
+        // A callback, not a precomputed vector, called fresh each time: both
+        // StepIO::import and IgesIO::import add bodies in a loop and only
+        // report failure when a LATER shape/entity fails (IGES's own
+        // kMaxEntities cap trips mid-loop; a STEP file can throw mid-parse
+        // too), so importFn() returning false does not mean the Document is
+        // unchanged. This used to be checked only on the success path,
+        // silently orphaning whatever was added before the failure point:
+        // invisible (never meshed), untracked by autosave, until some
+        // unrelated later action happened to flag a rebuild.
+        auto newIdsNow = [this, &beforeIds] {
+            std::vector<int> ids;
+            for (int id : m_document->getAllBodyIds())
+                if (!beforeIds.count(id)) ids.push_back(id);
+            return ids;
+        };
+        if (!importOk && newIdsNow().empty()) {
             showToast("Import failed.", 6.0);
             return;
         }
@@ -4958,18 +4974,33 @@ void Application::queueHeavyImport(std::string message, std::function<bool()> im
             ~PumpGuard() { flag = previous; }
         } guard{m_pumpMeshProgress, m_pumpMeshProgress};
         m_pumpMeshProgress = true;
-        prewarmMeshPool([this, beforeIds]{
+        const bool cancelled = prewarmMeshPool([this, beforeIds]{
                             std::vector<int> newIds;
                             for (int id : m_document->getAllBodyIds())
                                 if (!beforeIds.count(id)) newIds.push_back(id); // see comment above
                             return newIds;
                         }, message.c_str(), "heavy-parmesh");
+        if (cancelled) {
+            // Honour Cancel for real: the pool's own job loop can't be
+            // interrupted mid-flight (see prewarmMeshPool), so tessellation
+            // already dispatched still runs to completion, but discard its
+            // RESULT rather than silently keeping bodies the user asked to
+            // cancel - previously Cancel here did nothing observable.
+            for (int id : newIdsNow()) m_document->removeBody(id);
+            m_meshesDirty = false;
+            showToast("Import cancelled.", 4.0);
+            return;
+        }
+        if (!importOk) {
+            showToast("Import failed partway through - kept the bodies "
+                      "added before the error.", 6.0);
+        }
         rebuildMeshes();
         m_meshesDirty = false;
     });
 }
 
-void Application::prewarmMeshPool(std::function<std::vector<int>()> getCandidateIds,
+bool Application::prewarmMeshPool(std::function<std::vector<int>()> getCandidateIds,
                                    const char* progressLabel, const char* diagTag) {
 #if defined(MZR_PARALLEL_MESH_SUPPORTED)
     float deflection, angularDeflection;
@@ -4987,13 +5018,21 @@ void Application::prewarmMeshPool(std::function<std::vector<int>()> getCandidate
             jobs.push_back({id, shape});
     }
     DrawThrottle throttle;
+    // parallelMesh() below has no mid-flight abort - once dispatched, a
+    // job's tessellation runs to completion on its worker thread regardless
+    // of this flag. What Cancel actually controls is what the CALLER does
+    // with the result: queueHeavyImport discards the imported bodies rather
+    // than keeping them once this returns true, which is the part that was
+    // previously not honoured at all (the renderProgressFrame return value
+    // was simply discarded, so Cancel here did nothing user-visible).
+    bool cancelled = false;
     options.onTick = [&](size_t done, size_t total) {
-        if (!m_pumpMeshProgress) return;
+        if (cancelled || !m_pumpMeshProgress) return;
         const float frac = parallelMeshFraction(done, total);
         pumpStep(throttle, progressFrameWouldDraw(frac),
                  [] { return DrawThrottle::clock::now(); },
                  [&] {
-                     renderProgressFrame(frac, progressLabel);
+                     if (renderProgressFrame(frac, progressLabel)) cancelled = true;
                      return DrawThrottle::clock::now();
                  },
                  [&] { if (m_window) m_window->pollEvents(); });
@@ -5031,8 +5070,10 @@ void Application::prewarmMeshPool(std::function<std::vector<int>()> getCandidate
                  batch.reason, batch.poolMs, batch.scanMs,
                  std::chrono::duration<double, std::milli>(
                      std::chrono::steady_clock::now() - bookStart).count());
+    return cancelled;
 #else
     (void)getCandidateIds; (void)progressLabel; (void)diagTag;
+    return false;
 #endif
 }
 

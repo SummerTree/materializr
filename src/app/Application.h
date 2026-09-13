@@ -281,7 +281,11 @@ private:
     // because it must run AFTER the MZR_PARALLEL_MESH_TESTING setup hook -
     // that hook can mutate the document (add a body), and the test fixture
     // built around loadProjectAt relies on the enumeration seeing it.
-    void prewarmMeshPool(std::function<std::vector<int>()> getCandidateIds,
+    // Returns true if the user clicked Cancel during the pool's progress
+    // pump. Dispatched jobs still run to completion either way (the pool
+    // has no mid-flight abort) - the return value is for the caller to
+    // decide whether to keep or discard the result.
+    bool prewarmMeshPool(std::function<std::vector<int>()> getCandidateIds,
                           const char* progressLabel, const char* diagTag);
     // Per-body STL export: opens a save dialog with the body's current name
     // (from the Items panel) as the default filename and writes JUST that
