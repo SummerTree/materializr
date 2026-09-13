@@ -264,39 +264,39 @@ classifier is heuristic; rows it cannot decide are pinned in the script's OVERRI
 
 | class | file:line | code |
 |---|---|---|
-| comment | src/app/Application.cpp:908 | `// ios_platform.mm).` |
-| comment | src/app/Application.cpp:1166 | `// Create a demo box so there's something to see (a 20 mm cube) - but only` |
-| comment | src/app/Application.cpp:1951 | `// Absolute linear deflection (mm) and angular deflection (radians). Lower` |
-| comment | src/app/Application.cpp:2024 | `// or, from before the presets converted, wrote 1 and reloaded as a 1 mm` |
-| comment | src/app/Application.cpp:4369 | `// Sketch origin should lie on the face's plane within 0.05 mm.` |
-| comment | src/app/Application.cpp:4395 | `// origin on the face plane within 0.05 mm). Used to re-adopt a sketch whose` |
-| comment | src/app/Application.cpp:4840 | `// step is the snap lattice and the visible grid, so leaving it at 1 mm` |
-| comment | src/app/Application.cpp:4848 | `// 152 mm - see 0733a59, which reverted exactly that.` |
-| comment | src/app/Application.cpp:5436 | `// the surface's parametric origin ~0.3 mm off-axis - the fitted anchor` |
-| comment | src/app/Application.cpp:5498 | `// 0.64 mm off-axis). Fit a circle to the OUTER wire instead, then` |
-| comment | src/app/Application.cpp:5563 | `// then keeps the wrong band, landing 0.6 mm off with a` |
-| comment | src/app/Application.cpp:5612 | `// 0.64 mm off-axis at the surface origin) that WON` |
-| comment | src/app/Application.cpp:5706 | `// sides at a generous offset (1 mm) so tessellation slack near the` |
-| comment | src/app/Application.cpp:5721 | `const double eps = 1.0; // mm` |
-| comment | src/app/Application.cpp:6349 | `// lines wrote raw millimetres: placing a dimension under any non-mm unit` |
-| comment | src/app/Application.cpp:6384 | `// Hash point positions and circle/arc radii too (quantised to 1e-4 mm)` |
-| comment | src/app/Application.cpp:6723 | `// millimetres. 40 mm is a reasonable first view in millimetres and an` |
-| comment | src/app/Application.cpp:6783 | `// Measured offsets were 10–50% of a cell. At a 1 mm grid that reads as` |
-| comment | src/app/Application.cpp:6784 | `// slightly-fat lines; at 0.1 mm it is most of a cell, i.e. "I can't draw a` |
-| comment | src/app/Application.h:657 | `// buttons are an explicit fine override (a 0.1 nudge under a 1 mm grid must` |
-| comment | src/app/Application.h:936 | `// Ceiling on the opening view of an EMPTY sketch, in mm of half-span.` |
-| comment | src/app/Application.h:938 | `// 300 mm because it reads as a round number in the units that needed` |
-| comment | src/app/Application.h:940 | `// the unit-aware 40-unit span is 12192 mm - a twelve-metre view, which put` |
-| comment | src/app/Application.h:943 | `// 40 mm and this never engages, so the common case does not move.` |
-| comment | src/app/Application.h:945 | `// Metres are the unit this serves least well: a 300 mm view makes every` |
-| comment | src/app/Application.h:951 | `// Sketch grid step in mm. This is the BASE the user chose (a display` |
-| comment | src/app/Application.h:1149 | `// sketch mm, so the tag keeps its grab point instead of snapping its centre` |
-| comment | src/app/Application.h:1352 | `// Scale popup unit mode. Percent is the multi-body-safe default; mm only` |
-| comment | src/app/Application.h:1358 | `// mm-mode text buffer + focus state per user axis (X, Y, Z in Z-up` |
-| comment | src/app/Application.h:1438 | `float  m_threadClearance = 0.0f; // radial fit gap for printed threads (mm)` |
-| comment | src/app/Application.h:1440 | `float  m_threadGrooveWidth = 0.0f; // explicit cut width (mm); 0 = from pitch` |
-| comment | src/app/Application.h:1656 | `float m_patternDistance = 5.0f; // linear: spacing in mm along chosen axis` |
-| comment | src/app/Application.h:2111 | `// (0.1 / 1 / 10 mm) and gets a solid-blue border when snap is on. Click` |
+| comment | src/app/Application.cpp:913 | `// ios_platform.mm).` |
+| comment | src/app/Application.cpp:1171 | `// Create a demo box so there's something to see (a 20 mm cube) - but only` |
+| comment | src/app/Application.cpp:1956 | `// Absolute linear deflection (mm) and angular deflection (radians). Lower` |
+| comment | src/app/Application.cpp:2029 | `// or, from before the presets converted, wrote 1 and reloaded as a 1 mm` |
+| comment | src/app/Application.cpp:4374 | `// Sketch origin should lie on the face's plane within 0.05 mm.` |
+| comment | src/app/Application.cpp:4400 | `// origin on the face plane within 0.05 mm). Used to re-adopt a sketch whose` |
+| comment | src/app/Application.cpp:4845 | `// step is the snap lattice and the visible grid, so leaving it at 1 mm` |
+| comment | src/app/Application.cpp:4853 | `// 152 mm - see 0733a59, which reverted exactly that.` |
+| comment | src/app/Application.cpp:5512 | `// the surface's parametric origin ~0.3 mm off-axis - the fitted anchor` |
+| comment | src/app/Application.cpp:5574 | `// 0.64 mm off-axis). Fit a circle to the OUTER wire instead, then` |
+| comment | src/app/Application.cpp:5639 | `// then keeps the wrong band, landing 0.6 mm off with a` |
+| comment | src/app/Application.cpp:5688 | `// 0.64 mm off-axis at the surface origin) that WON` |
+| comment | src/app/Application.cpp:5782 | `// sides at a generous offset (1 mm) so tessellation slack near the` |
+| comment | src/app/Application.cpp:5797 | `const double eps = 1.0; // mm` |
+| comment | src/app/Application.cpp:6425 | `// lines wrote raw millimetres: placing a dimension under any non-mm unit` |
+| comment | src/app/Application.cpp:6460 | `// Hash point positions and circle/arc radii too (quantised to 1e-4 mm)` |
+| comment | src/app/Application.cpp:6799 | `// millimetres. 40 mm is a reasonable first view in millimetres and an` |
+| comment | src/app/Application.cpp:6859 | `// Measured offsets were 10–50% of a cell. At a 1 mm grid that reads as` |
+| comment | src/app/Application.cpp:6860 | `// slightly-fat lines; at 0.1 mm it is most of a cell, i.e. "I can't draw a` |
+| comment | src/app/Application.h:659 | `// buttons are an explicit fine override (a 0.1 nudge under a 1 mm grid must` |
+| comment | src/app/Application.h:938 | `// Ceiling on the opening view of an EMPTY sketch, in mm of half-span.` |
+| comment | src/app/Application.h:940 | `// 300 mm because it reads as a round number in the units that needed` |
+| comment | src/app/Application.h:942 | `// the unit-aware 40-unit span is 12192 mm - a twelve-metre view, which put` |
+| comment | src/app/Application.h:945 | `// 40 mm and this never engages, so the common case does not move.` |
+| comment | src/app/Application.h:947 | `// Metres are the unit this serves least well: a 300 mm view makes every` |
+| comment | src/app/Application.h:953 | `// Sketch grid step in mm. This is the BASE the user chose (a display` |
+| comment | src/app/Application.h:1151 | `// sketch mm, so the tag keeps its grab point instead of snapping its centre` |
+| comment | src/app/Application.h:1354 | `// Scale popup unit mode. Percent is the multi-body-safe default; mm only` |
+| comment | src/app/Application.h:1360 | `// mm-mode text buffer + focus state per user axis (X, Y, Z in Z-up` |
+| comment | src/app/Application.h:1440 | `float  m_threadClearance = 0.0f; // radial fit gap for printed threads (mm)` |
+| comment | src/app/Application.h:1442 | `float  m_threadGrooveWidth = 0.0f; // explicit cut width (mm); 0 = from pitch` |
+| comment | src/app/Application.h:1658 | `float m_patternDistance = 5.0f; // linear: spacing in mm along chosen axis` |
+| comment | src/app/Application.h:2113 | `// (0.1 / 1 / 10 mm) and gets a solid-blue border when snap is on. Click` |
 | comment | src/app/Application_Dialogs.cpp:920 | `// mm mode only makes sense for a single body - multi-body scale needs a` |
 | comment | src/app/Application_Dialogs.cpp:926 | `// Resolve the (single-body) bbox now so mm-mode fields can pre-fill from` |
 | identifier/other | src/app/Application_Dialogs.cpp:965 | `const bool mm = (m_scaleUnitMode == ScaleUnitMode::Millimeter);` |
