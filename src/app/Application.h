@@ -272,6 +272,17 @@ private:
     void exportStepFile();
     // Shared deferred+pumped+pooled import path; see PluginContext::queueHeavyImport.
     void queueHeavyImport(std::string message, std::function<bool()> importFn);
+    // Mesh getCandidateIds()'s bodies through the parallel-mesh pool (falls
+    // back to a no-op when MZR_PARALLEL_MESH_SUPPORTED isn't defined for this
+    // build), pumping progressLabel between jobs and logging as "[diagTag]
+    // ...". Shared by loadProjectAt and queueHeavyImport so both get the same
+    // test seams and diagnostics instead of hand-copied logic drifting
+    // between the two. getCandidateIds is a callback, not a precomputed list,
+    // because it must run AFTER the MZR_PARALLEL_MESH_TESTING setup hook -
+    // that hook can mutate the document (add a body), and the test fixture
+    // built around loadProjectAt relies on the enumeration seeing it.
+    void prewarmMeshPool(std::function<std::vector<int>()> getCandidateIds,
+                          const char* progressLabel, const char* diagTag);
     // Per-body STL export: opens a save dialog with the body's current name
     // (from the Items panel) as the default filename and writes JUST that
     // body's mesh. Triggered from the viewport right-click menu and the

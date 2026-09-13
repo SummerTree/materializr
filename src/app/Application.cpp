@@ -481,6 +481,11 @@ void Application::wireDocumentConsumers() {
                                m_eventBus.get(), &m_viewport->getCamera(),
                                &m_meshesDirty, &m_inSketchMode,
                                [this]{ markDirty(); });
+    }
+    // No viewport/camera dependency (unlike _bind above), so it doesn't need
+    // to wait on m_viewport - keeping it separate avoids a silent no-op if
+    // that invariant ever changes.
+    if (m_pluginContext) {
         m_pluginContext->_bindHeavyImport(
             [this](std::string message, std::function<bool()> importFn) {
                 queueHeavyImport(std::move(message), std::move(importFn));
@@ -4488,67 +4493,8 @@ bool Application::loadProjectAt(const std::string& path) {
         std::fprintf(stderr, "Load failed: %s\n", result.errorMessage.c_str());
         return false;
     }
-#if defined(MZR_PARALLEL_MESH_SUPPORTED)
-    float deflection, angularDeflection;
-    meshQualityParams(deflection, angularDeflection);
-    ParallelMeshOptions options;
-#ifdef MZR_PARALLEL_MESH_TESTING
-    if (m_parallelMeshTestSetup) m_parallelMeshTestSetup(options);
-#endif
-    std::vector<ParallelMeshJob> jobs;
-    for (int id : m_document->getAllBodyIds()) {
-        if (id < 0 || !m_document->isBodyVisible(id)) continue;
-        TopoDS_Shape shape;
-        try { shape = m_document->getBody(id); } catch (...) { continue; }
-        if (!m_shapeRenderer->isPreMeshed(shape, deflection, angularDeflection))
-            jobs.push_back({id, shape});
-    }
-    DrawThrottle throttle;
-    options.onTick = [&](size_t done, size_t total) {
-        if (!m_pumpMeshProgress) return;
-        const float frac = parallelMeshFraction(done, total);
-        pumpStep(throttle, progressFrameWouldDraw(frac),
-                 [] { return DrawThrottle::clock::now(); },
-                 [&] {
-                     renderProgressFrame(frac, "Preparing view\xE2\x80\xA6");
-                     return DrawThrottle::clock::now();
-                 },
-                 [&] { if (m_window) m_window->pollEvents(); });
-    };
-    const auto batch = parallelMesh(jobs, deflection, angularDeflection, options);
-#ifdef MZR_PARALLEL_MESH_TESTING
-    if (m_parallelMeshTestBeforeBookkeeping) m_parallelMeshTestBeforeBookkeeping(batch);
-#endif
-    const auto bookStart = std::chrono::steady_clock::now();
-    size_t pooled = 0;
-    for (size_t i = 0; i < jobs.size(); ++i) {
-        if (batch.results[i].ok) {
-            m_shapeRenderer->notePreMeshed(jobs[i].shape, deflection, angularDeflection);
-            // Provisional: OFF under pool contention can over-predict the
-            // in-frame cost. An adopted async result replaces this estimate.
-            m_meshDispatch.meshedInFrame(jobs[i].bodyId, batch.results[i].millis);
-            ++pooled;
-        } else {
-            m_shapeRenderer->forgetPreMeshed(jobs[i].shape);
-            // Mirrors forgetPreMeshed: a failed job leaves nothing behind in
-            // either cache that could bias a later decision for this body.
-            m_meshDispatch.forget(jobs[i].bodyId);
-        }
-    }
-#ifdef MZR_PARALLEL_MESH_TESTING
-    if (m_parallelMeshTestAfterBookkeeping) m_parallelMeshTestAfterBookkeeping(batch);
-#endif
-    // fallback is 0 only when every job was pooled and succeeded; an empty
-    // job list (nothing to mesh) is not a fallback and reports 0 too.
-    const bool fellBack = !jobs.empty() &&
-                         (batch.path == ParallelMeshPath::Sequential || pooled != jobs.size());
-    std::fprintf(stderr, "[load-parmesh] jobs=%zu pooled=%zu fallback=%d reason=%s "
-                         "poolMs=%.1f scanMs=%.1f bookMs=%.1f\n",
-                 jobs.size(), pooled, fellBack ? 1 : 0,
-                 batch.reason, batch.poolMs, batch.scanMs,
-                 std::chrono::duration<double, std::milli>(
-                     std::chrono::steady_clock::now() - bookStart).count());
-#endif
+    prewarmMeshPool([this]{ return m_document->getAllBodyIds(); },
+                    "Preparing view\xE2\x80\xA6", "load-parmesh");
     rebuildHistoryFromProject(hist, result.savedByVersion);
     // A reopened project should sit at the history tip with no redo stack - a
     // phantom redo tail would, e.g., block autosave (which won't save below-tip).
@@ -4941,8 +4887,11 @@ void Application::renderSavePrompt() {
 
 void Application::importStepFile() {
     // Ctrl+I's own path (see handleShortcuts) - StepIOPlugin's menu entry is
-    // the other caller of StepIO::import. Both go through queueHeavyImport so
-    // neither one freezes the window on a large assembly.
+    // the other caller of StepIO::import. Both go through queueHeavyImport,
+    // which pumps the window during the (usually dominant) tessellation
+    // phase. StepIO::import's own parse still runs uninterrupted on the main
+    // thread first - a known, unaddressed gap on a STEP file whose parse
+    // itself is slow, not just its body count.
     FileDialogs::openFile("Import STEP",
         {{"STEP Files", "*.step *.stp *.STEP *.STP"}},
         [this](const std::string& path) {
@@ -4965,11 +4914,20 @@ void Application::queueHeavyImport(std::string message, std::function<bool()> im
     // loadProjectAt uses, instead of a plain m_meshesDirty=true that leaves
     // the next full rebuild to tessellate everything serially on the main
     // thread - see the STEP-import freeze this was written for.
-    m_deferredHeavy.queue([this, message, importFn]() {
-        m_progressCancelled = false;
+    m_deferredHeavy.queue([this, message = std::move(message), importFn = std::move(importFn)]() {
         // Honour Cancel on the initial indeterminate frame, same as
         // commitStlImport: importing anyway would make the button look broken.
         if (renderProgressFrame(-1.0f, message.c_str())) return;
+        // loadProjectAt's identical pool-prewarm block is safe scanning EVERY
+        // body because a fresh load is guaranteed bare (ProjectIO never
+        // persists a triangulation). This caller runs against a live,
+        // possibly-populated document, so a pre-existing body whose mesh
+        // cache happens to miss isPreMeshed would otherwise be handed to the
+        // pool's uncleaned BRepMesh_IncrementalMesh path - safe only for
+        // never-before-meshed shapes. Snapshot before/after and mesh only
+        // what this import actually added.
+        const auto before = m_document->getAllBodyIds();
+        const std::set<int> beforeIds(before.begin(), before.end());
         if (!importFn()) {
             showToast("Import failed.", 6.0);
             return;
@@ -4986,44 +4944,82 @@ void Application::queueHeavyImport(std::string message, std::function<bool()> im
             ~PumpGuard() { flag = previous; }
         } guard{m_pumpMeshProgress, m_pumpMeshProgress};
         m_pumpMeshProgress = true;
-#if defined(MZR_PARALLEL_MESH_SUPPORTED)
-        float deflection, angularDeflection;
-        meshQualityParams(deflection, angularDeflection);
-        ParallelMeshOptions options;
-        std::vector<ParallelMeshJob> jobs;
-        for (int id : m_document->getAllBodyIds()) {
-            if (id < 0 || !m_document->isBodyVisible(id)) continue;
-            TopoDS_Shape shape;
-            try { shape = m_document->getBody(id); } catch (...) { continue; }
-            if (!m_shapeRenderer->isPreMeshed(shape, deflection, angularDeflection))
-                jobs.push_back({id, shape});
-        }
-        DrawThrottle throttle;
-        options.onTick = [&](size_t done, size_t total) {
-            if (!m_pumpMeshProgress) return; // mirrors loadProjectAt's guard
-            const float frac = parallelMeshFraction(done, total);
-            pumpStep(throttle, progressFrameWouldDraw(frac),
-                     [] { return DrawThrottle::clock::now(); },
-                     [&] {
-                         renderProgressFrame(frac, message.c_str());
-                         return DrawThrottle::clock::now();
-                     },
-                     [&] { if (m_window) m_window->pollEvents(); });
-        };
-        const auto batch = parallelMesh(jobs, deflection, angularDeflection, options);
-        for (size_t i = 0; i < jobs.size(); ++i) {
-            if (batch.results[i].ok) {
-                m_shapeRenderer->notePreMeshed(jobs[i].shape, deflection, angularDeflection);
-                m_meshDispatch.meshedInFrame(jobs[i].bodyId, batch.results[i].millis);
-            } else {
-                m_shapeRenderer->forgetPreMeshed(jobs[i].shape);
-                m_meshDispatch.forget(jobs[i].bodyId);
-            }
-        }
-#endif
+        prewarmMeshPool([this, beforeIds]{
+                            std::vector<int> newIds;
+                            for (int id : m_document->getAllBodyIds())
+                                if (!beforeIds.count(id)) newIds.push_back(id); // see comment above
+                            return newIds;
+                        }, message.c_str(), "heavy-parmesh");
         rebuildMeshes();
         m_meshesDirty = false;
     });
+}
+
+void Application::prewarmMeshPool(std::function<std::vector<int>()> getCandidateIds,
+                                   const char* progressLabel, const char* diagTag) {
+#if defined(MZR_PARALLEL_MESH_SUPPORTED)
+    float deflection, angularDeflection;
+    meshQualityParams(deflection, angularDeflection);
+    ParallelMeshOptions options;
+#ifdef MZR_PARALLEL_MESH_TESTING
+    if (m_parallelMeshTestSetup) m_parallelMeshTestSetup(options);
+#endif
+    std::vector<ParallelMeshJob> jobs;
+    for (int id : getCandidateIds()) {
+        if (id < 0 || !m_document->isBodyVisible(id)) continue;
+        TopoDS_Shape shape;
+        try { shape = m_document->getBody(id); } catch (...) { continue; }
+        if (!m_shapeRenderer->isPreMeshed(shape, deflection, angularDeflection))
+            jobs.push_back({id, shape});
+    }
+    DrawThrottle throttle;
+    options.onTick = [&](size_t done, size_t total) {
+        if (!m_pumpMeshProgress) return;
+        const float frac = parallelMeshFraction(done, total);
+        pumpStep(throttle, progressFrameWouldDraw(frac),
+                 [] { return DrawThrottle::clock::now(); },
+                 [&] {
+                     renderProgressFrame(frac, progressLabel);
+                     return DrawThrottle::clock::now();
+                 },
+                 [&] { if (m_window) m_window->pollEvents(); });
+    };
+    const auto batch = parallelMesh(jobs, deflection, angularDeflection, options);
+#ifdef MZR_PARALLEL_MESH_TESTING
+    if (m_parallelMeshTestBeforeBookkeeping) m_parallelMeshTestBeforeBookkeeping(batch);
+#endif
+    const auto bookStart = std::chrono::steady_clock::now();
+    size_t pooled = 0;
+    for (size_t i = 0; i < jobs.size(); ++i) {
+        if (batch.results[i].ok) {
+            m_shapeRenderer->notePreMeshed(jobs[i].shape, deflection, angularDeflection);
+            // Provisional: OFF under pool contention can over-predict the
+            // in-frame cost. An adopted async result replaces this estimate.
+            m_meshDispatch.meshedInFrame(jobs[i].bodyId, batch.results[i].millis);
+            ++pooled;
+        } else {
+            m_shapeRenderer->forgetPreMeshed(jobs[i].shape);
+            // Mirrors forgetPreMeshed: a failed job leaves nothing behind in
+            // either cache that could bias a later decision for this body.
+            m_meshDispatch.forget(jobs[i].bodyId);
+        }
+    }
+#ifdef MZR_PARALLEL_MESH_TESTING
+    if (m_parallelMeshTestAfterBookkeeping) m_parallelMeshTestAfterBookkeeping(batch);
+#endif
+    // fallback is 0 only when every job was pooled and succeeded; an empty
+    // job list (nothing to mesh) is not a fallback and reports 0 too.
+    const bool fellBack = !jobs.empty() &&
+                         (batch.path == ParallelMeshPath::Sequential || pooled != jobs.size());
+    std::fprintf(stderr, "[%s] jobs=%zu pooled=%zu fallback=%d reason=%s "
+                         "poolMs=%.1f scanMs=%.1f bookMs=%.1f\n",
+                 diagTag, jobs.size(), pooled, fellBack ? 1 : 0,
+                 batch.reason, batch.poolMs, batch.scanMs,
+                 std::chrono::duration<double, std::milli>(
+                     std::chrono::steady_clock::now() - bookStart).count());
+#else
+    (void)getCandidateIds; (void)progressLabel; (void)diagTag;
+#endif
 }
 
 void Application::exportStepFile() {
