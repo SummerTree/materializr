@@ -1324,6 +1324,17 @@ glm::vec2 SketchTool::snap(glm::vec2 pos) const {
         // for every drift was visual noise. Such cands still participate
         // in pair-intersection (as one half of a useful composite).
         bool standaloneAllowed;
+        // False only for an on-SPLINE contact: `dir` there is just the local
+        // secant of one sampled polyline segment, not the true tangent, so
+        // gridAlongLine's walk-along-dir-to-hit-the-lattice drifts off the
+        // real curve (the spline bends away from that straight secant) -
+        // exactly the "close but not quite on it" miss this field exists to
+        // avoid. Defaults true (an aggregate with a default member
+        // initializer fills in unspecified trailing fields), so every OTHER
+        // candidate site - real lines, face-ref edges, perpendicular/
+        // parallel/tangent/axis guides - is unaffected and keeps the exact
+        // walk it already relied on.
+        bool exactDirection = true;
     };
     std::vector<LineCand> cands;
 
@@ -1430,7 +1441,8 @@ glm::vec2 SketchTool::snap(glm::vec2 pos) const {
             }
             if (found) {
                 cands.push_back({bestProj, bestDir, InferenceGuide::OnLine, -1,
-                                 bestProj, true, onLineThresh * 4.0f, bestProj, bestD, true});
+                                 bestProj, true, onLineThresh * 4.0f, bestProj, bestD, true,
+                                 /*exactDirection=*/false});
             }
         }
     }
@@ -2087,8 +2099,14 @@ glm::vec2 SketchTool::snap(glm::vec2 pos) const {
                 bestIsect = onLattice(bestIsect);
         } else if (ci != cj) {
             const auto& con = ci ? cands[bestI] : cands[bestJ];
-            bestIsect = gridAlongLine(con.anchor, con.dir, con.isSegment,
-                                      con.segLen, bestIsect);
+            // See LineCand::exactDirection: a spline contact's `dir` is only
+            // a local secant, so walking the intersection along it to hit
+            // the grid would drift off the true curve the same way the
+            // single-candidate case below would. Leave the intersection as
+            // computed rather than nudge it off the curve.
+            if (con.exactDirection)
+                bestIsect = gridAlongLine(con.anchor, con.dir, con.isSegment,
+                                          con.segLen, bestIsect);
         }
         emitWithSnap(cands[bestI], bestIsect);
         emitWithSnap(cands[bestJ], bestIsect);
@@ -2108,7 +2126,14 @@ glm::vec2 SketchTool::snap(glm::vec2 pos) const {
     }
     if (bestK >= 0) {
         const auto& c = cands[bestK];
-        glm::vec2 snapped = gridAlongLine(c.anchor, c.dir, c.isSegment, c.segLen, c.proj);
+        // See LineCand::exactDirection: an on-spline contact's `proj` is
+        // already the exact point on the true curve - walking it along the
+        // local secant to hit the grid (gridAlongLine) would drift it back
+        // off that curve, the same miss a straight-line contact would never
+        // have (there, dir IS the true line, so the walk stays exact).
+        glm::vec2 snapped = c.exactDirection
+            ? gridAlongLine(c.anchor, c.dir, c.isSegment, c.segLen, c.proj)
+            : c.proj;
         if (!isContact(c.kind) && axisAligned(c.dir)) snapped = onLattice(snapped);
         emitWithSnap(c, snapped);
         // Preserve a borrowed direction (parallel/perp/tangent/on-line) exactly;
