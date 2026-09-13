@@ -1976,7 +1976,6 @@ AppSettings Application::currentSettings() const {
     s.levelOrbit = m_viewport->getCamera().isLevelOrbit();
     s.mouseSensitivity = m_viewport->getCamera().getMouseSensitivity();
     s.autosaveEnabled = m_autosaveEnabled;
-    s.autosaveIntervalSec = static_cast<int>(m_autosaveIntervalSec);
     s.invertCubeDrag = m_invertCubeDrag;
     s.doubleClickTimeSec = m_doubleClickTime;
     s.filletProbeSeconds = m_filletProbeSeconds;
@@ -2082,7 +2081,6 @@ void Application::applyAppSettings(const AppSettings& s) {
     m_viewport->getCamera().setLevelOrbit(s.levelOrbit);
     m_viewport->getCamera().setMouseSensitivity(s.mouseSensitivity);
     m_autosaveEnabled = s.autosaveEnabled;
-    m_autosaveIntervalSec = static_cast<float>(s.autosaveIntervalSec);
     m_invertCubeDrag = s.invertCubeDrag;
     m_doubleClickTime = s.doubleClickTimeSec;
     if (ImGui::GetCurrentContext())
@@ -7295,17 +7293,25 @@ void Application::restoreProjectRecoveryNow() {
     if (paths.empty()) return;
 
     int restored = 0, failed = 0;
+    bool firstLandedInNewTab = false;
     size_t firstTab = m_activeSession;   // where the newest snapshot lands
     for (size_t i = 0; i < paths.size(); ++i) {
         const std::string& recPath = paths[i];
         materializr::ProjectRecoveryMeta meta;
         materializr::readProjectRecoveryMetaAt(recPath, meta);
-        // Each snapshot after the first gets its own tab. A refused switch
-        // can't happen here (nothing is mid-sketch at startup), but honour it
-        // anyway rather than restoring into the wrong tab.
-        if (restored > 0) {
+        // Each snapshot after the first gets its own tab. The first one does
+        // too, UNLESS the active tab is an empty scratch workspace: this
+        // restore can run at any point in a live session, not just at a
+        // fresh launch, and the active tab may hold real, unrelated,
+        // unsaved work - an orphan from a completely different dead
+        // instance must never silently overwrite it (Steve's report: an
+        // orphan snapshot replaced an open, in-progress project). A refused
+        // switch can't happen at true startup, but honour it anyway rather
+        // than restoring into the wrong tab.
+        if (restored > 0 || !activeSessionIsScratch()) {
             const size_t idx = createSession();
             if (!switchToSession(idx)) { closeSession(idx); ++failed; continue; }
+            if (restored == 0) { firstTab = idx; firstLandedInNewTab = true; }
         }
         // Load through the normal project loader (rebuilds bodies + editable
         // history). loadProjectAt sets m_currentProjectPath to the sidecar and
@@ -7333,12 +7339,17 @@ void Application::restoreProjectRecoveryNow() {
                      meta.bodyCount, meta.stepCount, m_activeSession);
     }
     // Land on the tab the PROMPT described (the newest snapshot), not
-    // whichever one happened to load last.
-    if (restored > 1 && firstTab < m_sessions.size()) switchToSession(firstTab);
+    // whichever one happened to load last - including when that snapshot
+    // got redirected to a fresh tab above because the active one wasn't
+    // scratch.
+    if ((restored > 1 || firstLandedInNewTab) && firstTab < m_sessions.size())
+        switchToSession(firstTab);
     materializr::clearProjectRecoveryCandidate();  // whatever is left of it
     saveAppSettings();                             // fix lastProjectPath off the sidecar
     if (restored > 1)
         showToast("Recovered " + std::to_string(restored) + " projects.");
+    else if (restored == 1 && firstLandedInNewTab)
+        showToast("Recovered unsaved work into a new tab.");
     if (failed > 0)
         showToast(std::to_string(failed) + " recovered project(s) "
                   "couldn't be reopened.");
@@ -7694,47 +7705,21 @@ void Application::run() {
             if (m_confirmedClose) break;
         }
 
-        // Autosave - MUST run before the idle short-circuit below. A change
-        // wakes only a brief render burst, then the loop idles and `continue`s
-        // past everything down-stream; if autosave lived after the skip it
-        // would essentially never fire for a model you edit and then leave
-        // alone. The timer uses SDL_GetTicks (wall clock) rather than
-        // ImGui::GetTime(), which is frozen while we're not rendering and so
-        // would never let the interval elapse during idle.
-        // Only for projects already on disk, only when there are pending
-        // changes; the interval is measured from the last save.
-        if (m_autosaveEnabled && !m_currentProjectPath.empty()) {
-            double now = SDL_GetTicks() / 1000.0;
-            if (isDirty()) {
-                // Never autosave while the user is below the history tip
-                // (mid undo-exploration): the file only persists APPLIED
-                // steps, so saving now would silently truncate the redo
-                // tail from the project. Resume once they redo back to the
-                // tip or push a new op (which discards the tail anyway).
-                if (m_history && m_history->canRedo()) {
-                    // hold off - keep checking each interval
-                } else if (anyInteractivePreviewActive() || m_inSketchMode ||
-                           m_edgeCtl.active()) {
-                    // hold off - an autosave must never cancel (or serialize) a
-                    // live tool preview / an in-progress sketch out from under
-                    // the user (a half-baked uncommitted-sketch state has
-                    // crashed before). Resume once the tool / sketch closes.
-                } else if (now - m_lastAutosaveTime >= m_autosaveIntervalSec) {
-                    // Defensive: a serialization failure (OCCT throw, bad
-                    // state) must never take the whole app down on a background
-                    // autosave - log and skip, try again next interval.
-                    try { saveProjectQuick(); }
-                    catch (...) {
-                        std::fprintf(stderr, "[Autosave] failed - skipped\n");
-                    }
-                    m_lastAutosaveTime = now;
-                }
-            } else {
-                m_lastAutosaveTime = now;
-            }
-        } else {
-            m_lastAutosaveTime = SDL_GetTicks() / 1000.0;
-        }
+        // Autosave no longer runs on a timer here (removed 2026-09-12): a
+        // periodic saveProjectQuick() re-serializes the WHOLE project
+        // (full undo history, real-save fidelity, Balanced compression) on
+        // the main thread - on a project with a lot of accumulated history
+        // and an imported STL, that blocked the UI for several seconds,
+        // recurring every interval for as long as the project stayed dirty
+        // (Steve's report: "stuttering then recovering" on a project with
+        // 159 history steps). Crash protection doesn't need this: the
+        // separate crash-recovery sidecar (writeProjectRecoveryIfDue,
+        // above) already snapshots on the same cadence-ish schedule to a
+        // throwaway file and - since it dropped full history from its own
+        // write - stays fast regardless of project size. What "autosave"
+        // actually still does is save-on-close (Application::closeProject,
+        // gated on the same m_autosaveEnabled flag): a real, full-fidelity
+        // save, but only once, at a moment the user is already leaving.
 
         // Only a BACKGROUNDED window skips rendering now - foreground idle
         // renders at the floor rate above (see kIdleFloorMs; the old idle
