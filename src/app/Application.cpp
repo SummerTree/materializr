@@ -5020,19 +5020,28 @@ bool Application::prewarmMeshPool(std::function<std::vector<int>()> getCandidate
     DrawThrottle throttle;
     // parallelMesh() below has no mid-flight abort - once dispatched, a
     // job's tessellation runs to completion on its worker thread regardless
-    // of this flag. What Cancel actually controls is what the CALLER does
-    // with the result: queueHeavyImport discards the imported bodies rather
-    // than keeping them once this returns true, which is the part that was
-    // previously not honoured at all (the renderProgressFrame return value
-    // was simply discarded, so Cancel here did nothing user-visible).
-    bool cancelled = false;
+    // of Cancel. What Cancel actually controls is what the CALLER does with
+    // the result: queueHeavyImport discards the imported bodies rather than
+    // keeping them once this returns true - previously the
+    // renderProgressFrame return value was simply discarded here, so Cancel
+    // did nothing user-visible during this phase.
+    //
+    // Reusing m_progressCancelled (set by renderProgressFrame itself) rather
+    // than a local flag, and NOT early-returning from onTick once it's set:
+    // pumpStep's contract is poll-first-unconditionally, draw-only-if-
+    // allowed (progressFrameWouldDraw already checks m_progressCancelled),
+    // so the window keeps answering the compositor for the remainder of the
+    // pool's work even after Cancel is clicked. An early return here on our
+    // own tracked flag skipped that poll too - freezing event processing for
+    // however long the (uninterruptible) meshing had left, worse than the
+    // original bug.
     options.onTick = [&](size_t done, size_t total) {
-        if (cancelled || !m_pumpMeshProgress) return;
+        if (!m_pumpMeshProgress) return;
         const float frac = parallelMeshFraction(done, total);
         pumpStep(throttle, progressFrameWouldDraw(frac),
                  [] { return DrawThrottle::clock::now(); },
                  [&] {
-                     if (renderProgressFrame(frac, progressLabel)) cancelled = true;
+                     renderProgressFrame(frac, progressLabel);
                      return DrawThrottle::clock::now();
                  },
                  [&] { if (m_window) m_window->pollEvents(); });
@@ -5070,7 +5079,7 @@ bool Application::prewarmMeshPool(std::function<std::vector<int>()> getCandidate
                  batch.reason, batch.poolMs, batch.scanMs,
                  std::chrono::duration<double, std::milli>(
                      std::chrono::steady_clock::now() - bookStart).count());
-    return cancelled;
+    return m_progressCancelled;
 #else
     (void)getCandidateIds; (void)progressLabel; (void)diagTag;
     return false;
