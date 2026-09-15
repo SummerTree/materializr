@@ -400,9 +400,9 @@ classifier is heuristic; rows it cannot decide are pinned in the script's OVERRI
 | comment | src/io/Settings.h:179 | `// to mm on load, after the display unit is applied.` |
 | comment | src/io/Settings.h:204 | `// (0 mm, 1 cm, 2 m, 3 in, 4 ft). An int for the same reason language is -` |
 | comment | src/io/Settings.h:205 | `// this header stays free of core/Units.h. The model is always mm; this only` |
-| comment | src/io/StlExport.cpp:216 | `// OrcaSlicer silently dropped the bottom 5 mm of the print.` |
-| comment | src/io/StlExport.cpp:218 | `// Welding vertices at 1e-3 mm alone took those 6,904 open edges to ONE` |
-| comment | src/io/StlExport.cpp:248 | `{   // weld at 1e-3 mm` |
+| comment | src/io/StlExport.cpp:252 | `// OrcaSlicer silently dropped the bottom 5 mm of the print.` |
+| comment | src/io/StlExport.cpp:254 | `// Welding vertices at 1e-3 mm alone took those 6,904 open edges to ONE` |
+| comment | src/io/StlExport.cpp:294 | `{   // weld at 1e-3 mm` |
 | comment | src/io/StlExport.h:13 | `double linearDeflection = 0.01;  // mm - chord deviation (smaller = smoother)` |
 | comment | src/io/SvgExport.cpp:150 | `// 1 SVG user unit = 1 mm; Y flipped (CAD Y-up -> SVG Y-down).` |
 | comment | src/ios_platform.h:4 | `// iOS runtime services (implemented in ios_platform.mm). Safe to include` |
@@ -449,7 +449,7 @@ classifier is heuristic; rows it cannot decide are pinned in the script's OVERRI
 | allowed-by-hand | src/modeling/ResizeCylindricalOp.cpp:517 | `"[Resize] cap-following fill built (final vol=%.3f mm³)\n",` |
 | allowed-by-hand | src/modeling/ResizeCylindricalOp.cpp:542 | `"[Resize] fuse: bodyVol %.3f → %.3f mm³ (delta=%+.3f)\n",` |
 | comment | src/modeling/ScaleFaceOp.cpp:368 | `// they were converted display->mm on commit, so typing 100 under inches` |
-| allowed-by-hand | src/modeling/SewOp.cpp:199 | `ImGui::TextDisabled(materializr::tr("Joined at %.4f mm."), m_tolUsed);` |
+| allowed-by-hand | src/modeling/SewOp.cpp:214 | `ImGui::TextDisabled(materializr::tr("Joined at %.4f mm."), m_tolUsed);` |
 | allowed-by-hand | src/modeling/ShellOp.cpp:221 | `"body (thickness %.3f mm).\n", m_thickness);` |
 | allowed-by-hand | src/modeling/ShellOp.cpp:337 | `"[Shell] failed at thickness %.3f mm - the wall is too thick, "` |
 | comment | src/modeling/Sketch.cpp:556 | `// these a later dimension (e.g. a 2 mm gap to another edge) lets the naive` |
@@ -614,11 +614,11 @@ classifier is heuristic; rows it cannot decide are pinned in the script's OVERRI
 | no-length | src/modeling/RevolveOp.cpp:267 | `RevolveOp` |
 | CONVERTED | src/modeling/ScaleFaceOp.cpp:357 | `ScaleFaceOp` |
 | no-length | src/modeling/SeparateBodyOp.cpp:85 | `SeparateBodyOp` |
-| no-length | src/modeling/SewOp.cpp:181 | `SewOp` |
+| no-length | src/modeling/SewOp.cpp:196 | `SewOp` |
 | CONVERTED | src/modeling/ShellOp.cpp:366 | `ShellOp` |
 | CONVERTED | src/modeling/SketchEditOp.cpp:59 | `SketchEditOp` |
 | stored-string | src/modeling/SketchTransformOp.h:31 | `SketchTransformOp` |
-| no-length | src/modeling/SplitBodyOp.cpp:112 | `SplitBodyOp` |
+| no-length | src/modeling/SplitBodyOp.cpp:116 | `SplitBodyOp` |
 | no-length | src/modeling/SweepOp.cpp:64 | `SweepOp` |
 | no-length | src/modeling/TaperOp.cpp:149 | `TaperOp` |
 | CONVERTED | src/modeling/ThreadOp.cpp:2100 | `ThreadOp` |
