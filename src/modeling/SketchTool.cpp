@@ -144,6 +144,9 @@ void SketchTool::onMouseDown(glm::vec2 pos, bool addToSel) {
             // an unrelated nearby point and grab the wrong chain.
             handleOffsetTool(pos);
             break;
+        case SketchToolMode::Point:
+            handlePointTool(snapped);
+            break;
         default:
             break;
     }
@@ -2269,6 +2272,14 @@ int SketchTool::findCoincidentPoint(glm::vec2 pos, int excludeId) const {
     return best;
 }
 
+void SketchTool::handlePointTool(glm::vec2 pos) {
+    if (!m_sketch) return;
+    // Landing on an existing point/vertex (already what `pos` snapped to)
+    // adds nothing - there's already a point there.
+    if (findCoincidentPoint(pos, -1) >= 0) return;
+    m_sketch->addPoint(pos);
+}
+
 void SketchTool::selectAll() {
     if (!m_sketch) return;
     m_selectedPoints.clear();
@@ -3144,8 +3155,11 @@ static int pickSketchElement(const Sketch& sketch, glm::vec2 pos, float threshol
 }
 
 // Collect intersection points + parameters along a given line element.
+// `threshold` is the same model-space pick radius the trim click itself used
+// (see handleTrimTool) - it's how a standalone SketchPoint sitting on the
+// line, below, decides whether it's actually ON the line or just nearby.
 static void collectLineIntersections(const Sketch& sketch, const SketchLine& target,
-                                     std::vector<Hit>& out) {
+                                     float threshold, std::vector<Hit>& out) {
     const SketchPoint* a = sketch.getPoint(target.startPointId);
     const SketchPoint* b = sketch.getPoint(target.endPointId);
     if (!a || !b) return;
@@ -3172,11 +3186,29 @@ static void collectLineIntersections(const Sketch& sketch, const SketchLine& tar
         float endA = std::atan2(e->pos.y - c->pos.y, e->pos.x - c->pos.x);
         intersectLineArc(p1, p2, c->pos, static_cast<float>(ar.radius), startA, endA, out);
     }
+    // A point isn't a curve, so it can never register a geometric
+    // intersection the way another line/circle/arc does above - but a point
+    // sitting on this line (e.g. placed there with the Point tool) is exactly
+    // what a user means by "trim boundary here". Only its own two endpoints
+    // are excluded; every other sketch point within pick range of the
+    // segment's INTERIOR (not clamped onto an endpoint) counts.
+    const float thresholdSq = threshold * threshold;
+    for (const auto& pt : sketch.getPoints()) {
+        if (pt.id == target.startPointId || pt.id == target.endPointId) continue;
+        if (pt.fromText) continue;
+        float t;
+        float dsq = distSqPointSegment(pt.pos, p1, p2, &t);
+        if (dsq < thresholdSq && t > 1e-3f && t < 1.0f - 1e-3f)
+            out.push_back({pt.pos, t});
+    }
 }
 
 // Collect intersection angles around a circle element (parameters are angles in [0,2π)).
+// `threshold` is the same model-space pick radius the trim click used (see
+// collectLineIntersections above for why: a standalone point on the rim is a
+// trim boundary too, even though it's not a curve and so intersects nothing).
 static void collectCircleIntersections(const Sketch& sketch, glm::vec2 center, float radius,
-                                       int skipId, std::vector<Hit>& out) {
+                                       int skipId, float threshold, std::vector<Hit>& out) {
     for (const auto& ln : sketch.getLines()) {
         if (ln.id == skipId) continue;
         const SketchPoint* a = sketch.getPoint(ln.startPointId);
@@ -3213,6 +3245,20 @@ static void collectCircleIntersections(const Sketch& sketch, glm::vec2 center, f
             if (!angleInArc(thetaOnOther, startA, endA)) continue;
             float theta = std::atan2(h.pos.y - center.y, h.pos.x - center.x);
             out.push_back({h.pos, wrap2Pi(theta)});
+        }
+    }
+    // Standalone points sitting on this rim - see comment above. A target
+    // arc's own start/end points land here too (they ARE on its rim by
+    // construction), but that's harmless: the caller's bounds math already
+    // discards hits within `threshold` of its own 0/total sweep angle.
+    const float thresholdSq = threshold * threshold;
+    for (const auto& pt : sketch.getPoints()) {
+        if (pt.fromText) continue;
+        float d = glm::length(pt.pos - center);
+        float rimDist = d - radius;
+        if (rimDist * rimDist < thresholdSq) {
+            float theta = std::atan2(pt.pos.y - center.y, pt.pos.x - center.x);
+            out.push_back({pt.pos, wrap2Pi(theta)});
         }
     }
 }
@@ -3275,7 +3321,7 @@ TrimAction planTrim(const Sketch& sketch, glm::vec2 pos, float threshold) {
         action.lineP2 = b->pos;
 
         std::vector<Hit> hits;
-        collectLineIntersections(sketch, *line, hits);
+        collectLineIntersections(sketch, *line, threshold, hits);
         if (hits.empty()) { action.kind = TrimAction::Kind::FullDelete; return action; }
 
         std::sort(hits.begin(), hits.end(),
@@ -3320,7 +3366,7 @@ TrimAction planTrim(const Sketch& sketch, glm::vec2 pos, float threshold) {
         action.circCenterPointId = circ->centerPointId;
 
         std::vector<Hit> hits;
-        collectCircleIntersections(sketch, action.circCenter, action.circRadius, id, hits);
+        collectCircleIntersections(sketch, action.circCenter, action.circRadius, id, threshold, hits);
         if (hits.empty()) { action.kind = TrimAction::Kind::FullDelete; return action; }
 
         std::sort(hits.begin(), hits.end(),
@@ -3363,7 +3409,7 @@ TrimAction planTrim(const Sketch& sketch, glm::vec2 pos, float threshold) {
         float totalCCW = wrap2Pi(endA - action.arcStartA);
 
         std::vector<Hit> hits;
-        collectCircleIntersections(sketch, action.arcCenter, action.arcRadius, id, hits);
+        collectCircleIntersections(sketch, action.arcCenter, action.arcRadius, id, threshold, hits);
         std::vector<float> inRangeD; // CCW distances of in-range intersections
         for (const auto& h : hits) {
             float d = wrap2Pi(h.param - action.arcStartA);

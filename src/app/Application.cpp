@@ -2398,6 +2398,9 @@ void Application::handleToolAction(int action) {
         case ToolAction::SelectSketch:
             if (m_inSketchMode) m_sketchTool->setMode(SketchToolMode::Select);
             break;
+        case ToolAction::SketchPoint:
+            if (m_inSketchMode) toggleSketchMode(m_sketchTool.get(), SketchToolMode::Point);
+            break;
         case ToolAction::Line:
             if (m_inSketchMode) toggleSketchMode(m_sketchTool.get(), SketchToolMode::Line);
             break;

@@ -17,7 +17,7 @@ namespace materializr {
 // (Application::setActiveSketchMode) and the sketch toolbar hardcodes those
 // indices, so inserting a mode in the middle silently highlights the wrong
 // button -- Dimension would become 13 while the button still tests 12.
-enum class SketchToolMode { None, Select, Line, Circle, Rectangle, Arc, Spline, Polygon, Trim, Text, Svg, Mirror, Dimension, Airfoil, Offset };
+enum class SketchToolMode { None, Select, Line, Circle, Rectangle, Arc, Spline, Polygon, Trim, Text, Svg, Mirror, Dimension, Airfoil, Offset, Point };
 
 enum class DimEntityKind { None, Point, Line, Circle, Arc };
 struct DimPick { DimEntityKind kind = DimEntityKind::None; int id = -1; };
@@ -587,6 +587,10 @@ private:
     int findExactCoincidentPoint(glm::vec2 pos, int excludeId = -1) const;
 
     void handleLineTool(glm::vec2 pos);
+    // Single-click placement: weld onto an existing point within range, else
+    // add a brand-new one. No chain/placing state - unlike Line, there's
+    // nothing to preview between click and commit.
+    void handlePointTool(glm::vec2 pos);
     // exact = the position came from a typed value; skip the grid rounding.
     void handleCircleTool(glm::vec2 pos, bool exact = false);
     void handleRectangleTool(glm::vec2 pos);
