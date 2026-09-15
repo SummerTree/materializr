@@ -685,7 +685,7 @@ ToolAction Toolbar::renderSketchTools() {
             ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 2.0f);
             ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.5f, 0.5f, 0.5f, 1.0f));
         }
-        bool clicked = ImGui::Button(label, ImVec2(-1, bh(30)));
+        bool clicked = ImGui::Button(materializr::tr(label), ImVec2(-1, bh(30)));
         if (active) {
             ImGui::PopStyleColor();
             ImGui::PopStyleVar();
