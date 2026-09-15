@@ -2196,7 +2196,9 @@ private:
     // earlier preview copies wouldn't survive the restore).
     std::set<int> m_sketchPatternPts;
     std::set<int> m_sketchPatternLines;
-    bool          m_sketchPatternSelectAll = false; // include all circles + arcs
+    std::set<int> m_sketchPatternCircles;
+    std::set<int> m_sketchPatternArcs;
+    bool          m_sketchPatternSelectAll = false; // whole-sketch fallback when nothing was selected
 
     void beginSketchPattern(PatternKind kind);
     void updateSketchPattern();   // re-apply preview from m_sketchPatternBefore
