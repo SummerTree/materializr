@@ -135,9 +135,9 @@ src/io/Settings.h:171:
 src/io/Settings.h:179:
 src/io/Settings.h:204:
 src/io/Settings.h:205:
-src/io/StlExport.cpp:216:
-src/io/StlExport.cpp:218:
-src/io/StlExport.cpp:248:
+src/io/StlExport.cpp:252:
+src/io/StlExport.cpp:254:
+src/io/StlExport.cpp:294:
 src/io/StlExport.h:13:
 src/io/SvgExport.cpp:150:
 src/modeling/BooleanOp.cpp:203:
@@ -181,7 +181,7 @@ src/modeling/PushPullOp.cpp:592:
 src/modeling/ResizeCylindricalOp.cpp:517:
 src/modeling/ResizeCylindricalOp.cpp:542:
 src/modeling/ScaleFaceOp.cpp:368:
-src/modeling/SewOp.cpp:199:
+src/modeling/SewOp.cpp:214:
 src/modeling/ShellOp.cpp:221:
 src/modeling/ShellOp.cpp:337:
 src/modeling/Sketch.cpp:556:
