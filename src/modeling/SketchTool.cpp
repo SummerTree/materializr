@@ -497,19 +497,10 @@ bool SketchTool::applyDimension(float value) {
             glm::vec2 second = (m_circleMode == CircleMode::TwoPoint)
                                    ? m_firstClick + dir * value
                                    : m_firstClick + dir * radius;
-            size_t cBefore = m_sketch->getCircles().size();
+            // handleCircleTool always adds the Radius constraint now (exact=true
+            // skips grid snapping, so the constraint's value matches this typed
+            // radius exactly).
             handleCircleTool(second, /*exact=*/true);
-            // Typed diameter → Radius constraint on the new circle.
-            if (m_sketch->getCircles().size() > cBefore) {
-                const auto& circ = m_sketch->getCircles().back();
-                Constraint c;
-                c.id = 0;
-                c.type = ConstraintType::Radius;
-                c.entityA = circ.id;
-                c.value = static_cast<double>(radius);
-                c.isSatisfied = true;
-                m_sketch->addConstraint(c);
-            }
             return true;
         }
         case SketchToolMode::Polygon: {
@@ -2541,7 +2532,19 @@ void SketchTool::handleCircleTool(glm::vec2 pos, bool exact) {
                              ? findExactCoincidentPoint(center, -1)
                              : findCoincidentPoint(center, -1);
             int centerId = (existing >= 0) ? existing : m_sketch->addPoint(center);
-            m_sketch->addCircle(centerId, static_cast<double>(radius));
+            int circleId = m_sketch->addCircle(centerId, static_cast<double>(radius));
+            // Every circle carries a Radius constraint from the moment it's
+            // placed - not just typed ones - so a click-drawn circle is just
+            // as editable from the History panel as a typed one (previously
+            // only a typed radius got this; a click-placed circle relied on
+            // SketchEditOp's constraint-less fallback instead).
+            Constraint rc;
+            rc.id = 0;
+            rc.type = ConstraintType::Radius;
+            rc.entityA = circleId;
+            rc.value = static_cast<double>(radius);
+            rc.isSatisfied = true;
+            m_sketch->addConstraint(rc);
         }
 
         m_isPlacing = false;

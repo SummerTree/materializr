@@ -565,6 +565,20 @@ int Sketch::addRectangle(glm::vec2 corner1, glm::vec2 corner2) {
     addC(ConstraintType::Vertical, l2);
     addC(ConstraintType::Vertical, l4);
 
+    // Width/height as Distance constraints between the corner points, added
+    // unconditionally - not only when a size was typed - so a click-and-drag
+    // rectangle is just as editable from the History panel as a typed one
+    // (the Radius equivalent for circles is handleCircleTool; rectangles had
+    // no such counterpart before, only the read-only H/V rows above).
+    auto addDistance = [&](int a, int b) {
+        Constraint c; c.id = 0; c.type = ConstraintType::Distance;
+        c.entityA = a; c.entityB = b;
+        c.value = glm::length(getPoint(b)->pos - getPoint(a)->pos);
+        c.isSatisfied = true; addConstraint(c);
+    };
+    addDistance(p1, p2); // width
+    addDistance(p2, p3); // height
+
     return firstLineId;
 }
 
