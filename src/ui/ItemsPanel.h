@@ -94,6 +94,18 @@ public:
     // catch non-planar geometry, which SVG can't represent.
     void setExportSketchSvgCallback(std::function<void(int)> cb) { m_exportSketchSvg = std::move(cb); }
     void setExportSketchDxfCallback(std::function<void(int)> cb) { m_exportSketchDxf = std::move(cb); }
+    // "Export to New Project" / "Send to Open Project" on a sketch's context
+    // menu - same flows as the body versions above (setExportToProjectCallback
+    // / setSendToTabCallback), routed separately because Application copies a
+    // Sketch, not a body shape. Shares m_openTabsProvider with the body menu.
+    void setExportSketchToProjectCallback(
+        std::function<void(const std::vector<int>&)> cb) {
+        m_exportSketchToProject = std::move(cb);
+    }
+    void setSendSketchToTabCallback(
+        std::function<void(const std::vector<int>&, size_t)> cb) {
+        m_sendSketchToTab = std::move(cb);
+    }
     // Called when the user picks "Duplicate Sketch" - makes an independent copy.
     // Routes to Application::duplicateSketch.
     void setDuplicateSketchCallback(std::function<void(int)> cb) { m_duplicateSketch = std::move(cb); }
@@ -131,6 +143,8 @@ private:
     std::function<void(int)> m_editSketch;
     std::function<void(int)> m_exportSketchSvg;
     std::function<void(int)> m_exportSketchDxf;
+    std::function<void(const std::vector<int>&)> m_exportSketchToProject;
+    std::function<void(const std::vector<int>&, size_t)> m_sendSketchToTab;
     std::function<void(int)> m_duplicateSketch;
     std::function<void(const std::vector<int>&)> m_combineSketches;
     std::function<void(int)> m_meshTrace;

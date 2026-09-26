@@ -447,6 +447,51 @@ bool ItemsPanel::renderContent() {
                     if (ImGui::MenuItem(materializr::tr("Duplicate Sketch"))) {
                         if (m_duplicateSketch) m_duplicateSketch(id);
                     }
+                    // Baked copy of this sketch into a fresh project file -
+                    // same "use it elsewhere" flow as a body's "Export to New
+                    // Project". Acts on the whole SKETCH SELECTION when the
+                    // clicked sketch is part of one.
+                    if (m_exportSketchToProject &&
+                        ImGui::MenuItem(materializr::tr("Export to New Project"))) {
+                        std::vector<int> targets;
+                        if (m_selection) {
+                            for (const auto& e : m_selection->getSelection())
+                                if (e.type == SelectionType::Sketch && e.sketchId >= 0)
+                                    targets.push_back(e.sketchId);
+                        }
+                        if (std::find(targets.begin(), targets.end(), id) == targets.end() ||
+                            targets.size() <= 1) {
+                            targets.clear();
+                            targets.push_back(id);
+                        }
+                        m_exportSketchToProject(targets);
+                    }
+                    // Copy this sketch (or the whole selection) into an
+                    // already-open tab - same flow as a body's "Send to Open
+                    // Project". Hidden when there's no other tab to send to.
+                    if (m_sendSketchToTab) {
+                        const auto tabs = m_openTabsProvider
+                                              ? m_openTabsProvider()
+                                              : std::vector<std::pair<size_t, std::string>>{};
+                        if (!tabs.empty() &&
+                            ImGui::BeginMenu(materializr::tr("Send to Open Project"))) {
+                            std::vector<int> targets;
+                            if (m_selection) {
+                                for (const auto& e : m_selection->getSelection())
+                                    if (e.type == SelectionType::Sketch && e.sketchId >= 0)
+                                        targets.push_back(e.sketchId);
+                            }
+                            if (std::find(targets.begin(), targets.end(), id) == targets.end() ||
+                                targets.size() <= 1) {
+                                targets.clear();
+                                targets.push_back(id);
+                            }
+                            for (const auto& [idx, label] : tabs) {
+                                if (ImGui::MenuItem(label.c_str())) m_sendSketchToTab(targets, idx);
+                            }
+                            ImGui::EndMenu();
+                        }
+                    }
                     // Fold every OTHER coplanar sketch into this one (the app
                     // filters to the ones sharing this sketch's plane). Only
                     // offered when there's more than one sketch to fold.

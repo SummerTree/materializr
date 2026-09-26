@@ -504,6 +504,12 @@ private:
     // gizmo comes up immediately - placement is a drag away, not a second
     // menu.
     void sendBodiesToTab(const std::vector<int>& bodyIds, size_t tabIndex);
+    // Items-panel sketch context menu: same two flows as the body versions
+    // above, but for sketches - deep copies, severed from their source
+    // body/face (same rule as Duplicate Sketch, issue #21) since that body
+    // doesn't exist in the destination project/tab at all.
+    void exportSketchesToNewProject(const std::vector<int>& sketchIds);
+    void sendSketchesToTab(const std::vector<int>& sketchIds, size_t tabIndex);
     void loadProject();         // File dialog → loadProjectAt
     // Load a project file directly by path. Used by loadProject() and by the
     // "auto-open last project on launch" path.

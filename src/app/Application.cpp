@@ -391,6 +391,10 @@ Application::Application(bool safeMode, float uiScaleOverride)
     m_itemsPanel->setExportSketchSvgCallback([this](int sketchId) { exportSketchAsSvg(sketchId); });
     m_itemsPanel->setExportSketchDxfCallback([this](int sketchId) { exportSketchAsDxf(sketchId); });
     m_itemsPanel->setDuplicateSketchCallback([this](int sketchId) { duplicateSketch(sketchId); });
+    m_itemsPanel->setExportSketchToProjectCallback(
+        [this](const std::vector<int>& ids) { exportSketchesToNewProject(ids); });
+    m_itemsPanel->setSendSketchToTabCallback(
+        [this](const std::vector<int>& ids, size_t idx) { sendSketchesToTab(ids, idx); });
     m_itemsPanel->setCombineSketchesCallback(
         [this](const std::vector<int>& ids) { combineSketches(ids); });
     m_itemsPanel->setRotatePlaneCallback([this](int planeId) { beginRotatePlaneAboutAxis(planeId); });

@@ -6694,6 +6694,131 @@ void Application::sendBodiesToTab(const std::vector<int>& bodyIds, size_t tabInd
               destLabel + " - drag to place.");
 }
 
+namespace {
+// World-space bbox of a sketch's 2D points, via its plane (same 2D->3D
+// mapping SketchRenderer::toWorld uses). A freshly-arrived sketch has no body
+// to derive a bbox from, so exportSketchesToNewProject / sendSketchesToTab
+// use this to frame it themselves - otherwise it lands wherever its plane
+// happens to sit in the destination's world space, off-screen more often
+// than not.
+void expandWithSketchPoints(const Sketch& sketch, glm::vec3& mn, glm::vec3& mx, bool& any) {
+    const gp_Pln& pln = sketch.getPlane();
+    const gp_Ax3& ax = pln.Position();
+    const gp_Pnt origin = ax.Location();
+    const gp_Dir xd = ax.XDirection();
+    const gp_Dir yd = ax.YDirection();
+    for (const auto& p : sketch.getPoints()) {
+        glm::vec3 w(origin.X() + p.pos.x * xd.X() + p.pos.y * yd.X(),
+                    origin.Y() + p.pos.x * xd.Y() + p.pos.y * yd.Y(),
+                    origin.Z() + p.pos.x * xd.Z() + p.pos.y * yd.Z());
+        if (!any) { mn = mx = w; any = true; }
+        else { mn = glm::min(mn, w); mx = glm::max(mx, w); }
+    }
+}
+}
+
+void Application::exportSketchesToNewProject(const std::vector<int>& sketchIds) {
+    if (!m_document || sketchIds.empty()) return;
+    // Snapshot BEFORE opening the tab: openNewTab repoints m_document at the
+    // new session, so anything read afterwards would come from the empty one.
+    struct Part { std::shared_ptr<Sketch> sketch; std::string name; };
+    std::vector<Part> parts;
+    for (int id : sketchIds) {
+        auto src = m_document->getSketch(id);
+        if (!src) continue;
+        // Independent copy, same rule as Duplicate Sketch (issue #21): sever
+        // the body/face link, since that body doesn't exist in the
+        // destination project at all.
+        auto copy = std::make_shared<Sketch>(*src);
+        copy->setSourceBody(-1);
+        copy->setSourceFace(TopoDS_Face());
+        copy->setDetachedFromBody(false);
+        parts.push_back({copy, m_document->getSketchName(id)});
+    }
+    if (parts.empty()) {
+        showToast("Those sketches have no geometry.");
+        return;
+    }
+    // A NEW TAB rather than a save dialog - same reasoning as
+    // exportBodiesToNewProject: you get a workspace to look at and keep
+    // working on, and saving is a normal Ctrl+S afterwards if you want a file.
+    if (!openNewTab()) return;   // refused (mid-sketch etc.) - already toasted
+
+    for (const auto& p : parts) m_document->addSketch(p.sketch, p.name);
+    m_currentProjectName = parts.size() == 1 && !parts.front().name.empty()
+                               ? parts.front().name
+                               : std::string();
+    m_currentProjectPath.clear();
+    markDirty();
+    // Frame the arrivals - mirrors the handleViewCubeAction() call in
+    // exportBodiesToNewProject, just off sketch points instead of body meshes.
+    glm::vec3 mn(0.0f), mx(0.0f);
+    bool any = false;
+    for (const auto& p : parts) expandWithSketchPoints(*p.sketch, mn, mx, any);
+    if (any) {
+        if (mn == mx) { mn -= glm::vec3(5.0f); mx += glm::vec3(5.0f); }
+        m_viewport->getCamera().zoomToFit(mn, mx);
+    }
+    showToast(parts.size() == 1
+                  ? "Opened in a new tab - unsaved."
+                  : std::to_string(parts.size()) +
+                        " sketches opened in a new tab - unsaved.");
+}
+
+void Application::sendSketchesToTab(const std::vector<int>& sketchIds, size_t tabIndex) {
+    if (!m_document || sketchIds.empty() || tabIndex >= m_sessions.size() ||
+        tabIndex == m_activeSession)
+        return;
+    // Snapshot BEFORE switching: switchToSession repoints m_document at the
+    // target session, so anything read afterwards would come from THAT one.
+    struct Part { std::shared_ptr<Sketch> sketch; std::string name; };
+    std::vector<Part> parts;
+    for (int id : sketchIds) {
+        auto src = m_document->getSketch(id);
+        if (!src) continue;
+        auto copy = std::make_shared<Sketch>(*src);
+        copy->setSourceBody(-1);
+        copy->setSourceFace(TopoDS_Face());
+        copy->setDetachedFromBody(false);
+        parts.push_back({copy, m_document->getSketchName(id)});
+    }
+    if (parts.empty()) {
+        showToast("Those sketches have no geometry.");
+        return;
+    }
+    const std::string destLabel = sessionDisplayLabel(tabIndex);
+    if (!switchToSession(tabIndex)) return;   // refused (mid-sketch etc.) - already toasted
+
+    std::vector<int> newIds;
+    newIds.reserve(parts.size());
+    for (const auto& p : parts)
+        newIds.push_back(m_document->addSketch(p.sketch, p.name));
+    markDirty();
+    if (m_selection) {
+        m_selection->clear();
+        for (int nid : newIds) {
+            SelectionEntry entry;
+            entry.type = SelectionType::Sketch;
+            entry.sketchId = nid;
+            m_selection->addToSelection(entry);
+        }
+    }
+    // Frame the arrivals - same reasoning as exportSketchesToNewProject
+    // above: they land at the SOURCE project's coordinates, which the
+    // destination tab's camera has no reason to already be pointed at.
+    glm::vec3 mn(0.0f), mx(0.0f);
+    bool any = false;
+    for (const auto& p : parts) expandWithSketchPoints(*p.sketch, mn, mx, any);
+    if (any) {
+        if (mn == mx) { mn -= glm::vec3(5.0f); mx += glm::vec3(5.0f); }
+        m_viewport->getCamera().zoomToFit(mn, mx);
+    }
+    showToast((parts.size() == 1
+                   ? std::string("Sent to ")
+                   : std::to_string(parts.size()) + " sketches sent to ") +
+              destLabel + ".");
+}
+
 void Application::renderLandingPage() {
     if (!m_landingPage || !m_landingPage->isVisible()) return;
     // Thumbnails peeked off-thread since the last frame become textures here,
