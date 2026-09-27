@@ -336,6 +336,19 @@ public:
     // The screen term is what makes this usable at any zoom; the grid term is
     // a floor, so a fine grid still gives fine picking and every existing
     // millimetre sketch behaves exactly as it did.
+    //
+    // "Floor" only holds when fromGrid is the smaller one AND still clickable
+    // on screen. Plain max(fromGrid, fromScreen) instead let fromScreen become
+    // a CEILING: fromScreen depends only on zoom, not on the chosen step, so
+    // at ordinary zoom (mmPerPixel small but not tiny) it commonly sat
+    // around 1-2 mm and silently overrode a sub-1 mm grid choice - the
+    // tolerance stayed pinned near a ~1 mm grid's proximity no matter how
+    // fine a step the user picked, unless they *also* zoomed in enough to
+    // shrink mmPerPixel to match (Steve, 2026-09-26). fromScreen's actual
+    // job is only to rescue a tolerance that's gone sub-pixel-unusable
+    // (the "5 mm in a view where one pixel is 8 mm" case above); once
+    // fromGrid already clears a comfortable click radius on screen, honour
+    // the user's finer choice instead of reflating it.
     float tolStep() const {
         // m_toleranceStep, NOT m_gridStep. The snap lattice now follows the
         // ZOOM (it is the user's base scaled by decades), and a tolerance that
@@ -343,9 +356,33 @@ public:
         // 1 mm base coarsening to 10 mm pins this at the cap below, turning a
         // ~1.5 mm pick radius into 10 mm - an 80-pixel grab - for no reason
         // the user expressed. The base is the precision they actually chose.
-        const float fromGrid   = std::min(m_toleranceStep, kToleranceStepCapMm);
+        const float fromGrid = std::min(m_toleranceStep, kToleranceStepCapMm);
+        if (m_mmPerPixel <= 0.0f) return fromGrid; // no scale yet - grid alone
         const float fromScreen = kPointingRadiusPx * m_mmPerPixel;
-        return std::max(fromGrid, fromScreen);
+        // Rescue only when the grid's own tolerance would be too small to
+        // reliably click (under ~kMinClickablePx on screen); otherwise the
+        // user's finer step wins outright.
+        constexpr float kMinClickablePx = 3.0f;
+        float result = (fromGrid / m_mmPerPixel >= kMinClickablePx)
+                            ? fromGrid : std::max(fromGrid, fromScreen);
+        // m_toleranceStep is the BASE preference, and the toolbar presets
+        // never go below 0.1 mm - but the VISIBLE lattice (m_gridStep) is a
+        // separate value the viewport scales down by whole decades as you
+        // zoom in (GridScale::gridStepForZoom), so it legitimately gets
+        // finer than that 0.1 mm floor. Without this, zooming in on a
+        // visibly-0.01 mm grid still inferred/snapped at whatever coarser
+        // base preset was chosen - "I'm zoomed in to a 0.01 mm grid and it's
+        // still sticking to 0.1 mm" (Steve, 2026-09-26). Only follow the
+        // lattice down when it is ITSELF comfortably resolvable on screen -
+        // gridStepForZoom guarantees that for the real viewport (the cell is
+        // always >= kGridMinPx wide), this guard just keeps tolStep() honest
+        // if some other caller (or a test) ever hands it a lattice that
+        // doesn't respect that.
+        if (m_snapToGridEnabled && m_gridStep > 0.0f && m_gridStep < result &&
+            m_gridStep / m_mmPerPixel >= kMinClickablePx) {
+            result = m_gridStep;
+        }
+        return result;
     }
 
     // The lattice points snap to - scaled by zoom, so it changes as you zoom.

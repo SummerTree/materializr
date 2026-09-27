@@ -281,13 +281,28 @@ TEST(GridSnap, PointingToleranceTracksTheScreenNotTheModel) {
     const float cap = SketchTool::kToleranceStepCapMm;
     const float px  = SketchTool::kPointingRadiusPx;
 
-    // Millimetre work, zoomed so a pixel is a fraction of a mm: the grid floor
-    // dominates and every existing sketch behaves exactly as it always has.
+    // Millimetre work, zoomed so a pixel is a fraction of a mm: any grid step
+    // that's still comfortably clickable at this zoom (a few screen pixels or
+    // more) is honoured as-is. Unconditionally taking max(grid, screen) here
+    // meant a 0.1 mm grid choice still picked/snapped like a ~0.3 mm one at
+    // ordinary zoom - the screen comfort radius silently outbid a genuinely
+    // fine, on-screen-resolvable grid step (Steve, 2026-09-26).
     t.setPixelScale(0.027f);            // ~40 mm across a 1500 px viewport
     for (float mm : { 0.1f, 0.5f, 1.0f, 10.0f }) {
         t.setGridStep(mm);
-        EXPECT_FLOAT_EQ(std::max(mm, px * 0.027f), t.tolStep()) << "mm grid: " << mm;
+        EXPECT_FLOAT_EQ(mm, t.tolStep()) << "mm grid: " << mm;
     }
+
+    // A grid step finer than a few screen pixels genuinely can't be clicked
+    // at this zoom - THAT's when the screen term must rescue it, not merely
+    // because the grid is finer than the screen term's own comfort radius.
+    // Sets ONLY the tolerance step, not the grid step: the real viewport's
+    // own decade-scaled lattice (GridScale::gridStepForZoom) never produces
+    // an effective grid finer than kGridMinPx screen pixels, so coupling
+    // both to 0.001 here would just be testing the lattice-follow behaviour
+    // below under an impossible input, not this rescue.
+    t.setToleranceStep(0.001f);
+    EXPECT_FLOAT_EQ(px * 0.027f, t.tolStep());
 
     // Feet: one pixel is ~8 mm, so the SCREEN term takes over and the target
     // stays a constant handful of pixels instead of collapsing under a pixel.
@@ -300,6 +315,48 @@ TEST(GridSnap, PointingToleranceTracksTheScreenNotTheModel) {
 
     // The LATTICE is untouched by any of this - a foot grid is still a foot.
     EXPECT_FLOAT_EQ(304.8f, t.getGridStep());
+}
+
+// The BASE preference (m_toleranceStep) never goes below what the toolbar
+// presets offer (0.1 mm at minimum), but the EFFECTIVE, zoom-scaled lattice
+// (m_gridStep) legitimately goes finer than that once the camera zooms in
+// past the base's own decade (GridScale::gridStepForZoom scales the base by
+// whole decades to keep the cell >= kGridMinPx on screen - zooming further in
+// drives it to a finer decade). tolStep() only ever looked at the base, so
+// zooming in to a visibly-0.01 mm lattice still inferred/snapped at whatever
+// coarser base preset was chosen - "I'm zoomed in to a 0.01 mm grid and it's
+// still sticking to 0.1 mm" (Steve, 2026-09-26).
+TEST(GridSnap, ToleranceFollowsAFinerEffectiveLatticeWhenZoomedIn) {
+    SketchTool t;
+    // Mirrors the real call sequence in Application_Viewport.cpp: the
+    // zoom-scaled EFFECTIVE step goes through setGridStep first, then the
+    // BASE preference is reasserted via setToleranceStep - from here the two
+    // are deliberately independent (see setGridStep / setToleranceStep).
+    t.setGridStep(0.01f);         // effective lattice, zoomed in a decade
+    t.setToleranceStep(0.1f);     // base preset: the toolbar's smallest, 0.1 mm
+    t.setSnapToGridEnabled(true);
+    t.setPixelScale(0.0005f);     // 0.01 mm lattice cell = 20 screen px, clearly visible
+
+    EXPECT_FLOAT_EQ(0.01f, t.tolStep())
+        << "a comfortably-visible, finer effective lattice must tighten "
+           "pointing/inference precision even though the base preset floor "
+           "(0.1 mm) hasn't moved";
+}
+
+// The lattice must NOT drag the tolerance down when it is itself too fine to
+// resolve on screen. Only gridStepForZoom's own invariant (cell width >=
+// kGridMinPx) keeps this from happening in the real viewport; this guards
+// tolStep() itself in case that invariant is ever bypassed.
+TEST(GridSnap, ToleranceIgnoresASubPixelEffectiveLattice) {
+    SketchTool t;
+    t.setGridStep(0.01f);
+    t.setToleranceStep(1.0f);
+    t.setSnapToGridEnabled(true);
+    t.setPixelScale(0.1f);        // the 0.01 mm lattice cell is a tenth of a pixel here
+
+    EXPECT_FLOAT_EQ(1.0f, t.tolStep())
+        << "a sub-pixel effective lattice must not drag the tolerance down "
+           "below the (comfortably clickable) base preference";
 }
 
 // Pointing tolerances must not scale without bound when the grid does.

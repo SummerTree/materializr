@@ -1565,8 +1565,17 @@ glm::vec2 SketchTool::snap(glm::vec2 pos) const {
             float parOffset  = glm::distance(pos, parProj);
             // Within ~5° (sin5° ≈ 0.087) of perp / parallel, OR within
             // axisThresh in absolute world units - whichever is more
-            // generous at this segment length.
-            float tol = std::max(axisThresh, 0.087f * len) * angleScale();
+            // generous at this segment length. Capped at one grid/tolerance
+            // step: uncapped, 0.087*len grows without bound on a long leg,
+            // and past ~17 steps of draw it was only ever checked against
+            // the shared, looser posCap plateau (1.5 steps) in the resolver
+            // below - so a real parallel/perpendicular intent could hold the
+            // cursor captive for over a full grid square before releasing it
+            // (Steve, 2026-09-26: "it shouldn't have that much sway"). The
+            // guide still has real purpose at any length; it just shouldn't
+            // need a wider escape than the grid you're drawing against.
+            float tol = std::min(std::max(axisThresh, 0.087f * len), tolStep())
+                        * angleScale();
             bool perpClose = perpOffset < tol;
             bool parClose  = parOffset  < tol;
             if (perpClose && (!parClose || perpOffset <= parOffset)) {
@@ -2124,13 +2133,31 @@ glm::vec2 SketchTool::snap(glm::vec2 pos) const {
         return bestIsect;
     }
 
+    // Edge/curve contact is a topological claim, not a hint (same reasoning
+    // as isContact's use above): prefer it outright over a directional guide
+    // (perp/parallel-to-prev, tangent, axis) rather than letting the two race
+    // on raw perpDist. PerpToPrev/ParallelToPrev's capture band grows with
+    // distance from the anchor (0.087 * len, see above) while OnLine's stays
+    // a fixed weld-radius, so past ~1mm from the anchor the directional guide
+    // routinely out-raced edge-following entirely - after the chain's first
+    // point (the only one with no directional guide to compete with yet),
+    // tracing an edge silently stopped working (Steve, 2026-09-26).
     int bestK = -1;
     float bestPerp = std::min(posCap, pullBudget);
     for (size_t i = 0; i < cands.size(); ++i) {
-        if (!cands[i].standaloneAllowed) continue;
+        if (!cands[i].standaloneAllowed || !isContact(cands[i].kind)) continue;
         if (cands[i].perpDist < bestPerp) {
             bestPerp = cands[i].perpDist;
             bestK = static_cast<int>(i);
+        }
+    }
+    if (bestK < 0) {
+        for (size_t i = 0; i < cands.size(); ++i) {
+            if (!cands[i].standaloneAllowed) continue;
+            if (cands[i].perpDist < bestPerp) {
+                bestPerp = cands[i].perpDist;
+                bestK = static_cast<int>(i);
+            }
         }
     }
     if (bestK >= 0) {
