@@ -8324,7 +8324,6 @@ void Application::run() {
             }
 #endif
             renderUpdatePopup();
-            renderMultiTransformPanel();
             {
                 auto ctx = iopContext();
                 for (auto* c : m_iops) c->renderPanel(ctx);

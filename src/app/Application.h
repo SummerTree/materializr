@@ -259,8 +259,7 @@ private:
     void        applyAppSettings(const AppSettings& s); // push prefs onto the live members
     void renderMirrorPopup();
     void renderUpdatePopup();
-    void renderMultiTransformPanel();
-    void applyMultiBodyRotation();
+    void renderRotatePanel();
     void renderScalePanel();
     void handleToolAction(int action);
     void handleShortcuts();
@@ -1363,16 +1362,14 @@ private:
     bool m_sketchGizmoArmed = false;
     int  m_sketchGizmoArmedFor = -1; // sketch id armed for; cleared when sel changes
 
-    // Multi-body Rotate type-in panel. When the Rotate gizmo is active and 2+
-    // bodies are selected, this panel offers per-axis sliders + numeric input
-    // so the user can apply an exact rotation in a single commit, bypassing the
-    // per-frame lag of the live gizmo path on large selections.
+    // Rotate type-in panel (renderRotatePanel): shown whenever the Rotate gizmo is
+    // active, for any selection of bodies / sketches / planes. Per-user-axis
+    // degrees; Apply queues one exact rotation per non-zero axis, which the
+    // gizmo's own commit path then runs (so history, link detaching and sketch
+    // handling are identical to a mouse drag - minus the 15 deg / 45 deg snap).
     float m_multiRotate[3] = {0.0f, 0.0f, 0.0f};
-    // The Close button hides the panel; it auto-reopens the next time the
-    // conditions (Rotate gizmo + multi-body) are freshly satisfied, so the
-    // user can dismiss it without losing access to it.
-    bool m_multiTransformPanelOpen = true;
-    bool m_multiTransformConditionsMet = false;
+    std::vector<std::pair<int, float>> m_typedRotateQueue; // (world axis 0..2, degrees)
+    bool m_gizmoAngleExact = false; // committing a typed angle: bypass drag snapping
     // Accumulated delta from drag start (translate only). Used so snap-to-grid
     // can snap the absolute position rather than each per-frame increment.
     glm::vec3 m_gizmoTotalDelta{0.0f};

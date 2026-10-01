@@ -3523,7 +3523,9 @@ void Application::renderViewport() {
             // over the 3D canvas the one-finger drag stays an orbit.
             if (m_window) m_window->setTouchOnCanvas(viewportHovered);
         }
-        if (viewportHovered) {
+        // A queued typed rotation (Rotate panel -> Apply) is serviced by the gizmo
+        // code in this block even though the cursor is on the panel, not the viewport.
+        if (viewportHovered || !m_typedRotateQueue.empty()) {
             ImGuiIO& io = ImGui::GetIO();
             // Multi-select toggle = the touch stand-in for holding Ctrl. Force
             // io.KeyCtrl on for this hovered-viewport scope so every selection
@@ -3534,7 +3536,7 @@ void Application::renderViewport() {
                 CtrlForce(ImGuiIO& i, bool f) : io(i), saved(i.KeyCtrl) { if (f) io.KeyCtrl = true; }
                 ~CtrlForce() { io.KeyCtrl = saved; }
             } ctrlForce_(io, m_multiSelectToggle);
-            if (io.MouseWheel != 0.0f) {
+            if (viewportHovered && io.MouseWheel != 0.0f) {
                 // Zoom toward whatever the cursor is over (Blender/Fusion-360
                 // feel). Ray-cast against the document for a real hit point;
                 // fall back to the ray's intersection with the plane through
@@ -3616,7 +3618,7 @@ void Application::renderViewport() {
             // mode (touch) a one-finger drag drives the sketch rubber-band preview
             // (touch has no hover), so don't orbit. Two-finger pan/zoom still
             // works - it's gated on gizmoOwnsDrag, not this local.
-            bool suppressCamDrag = gizmoOwnsDrag;
+            bool suppressCamDrag = gizmoOwnsDrag || !viewportHovered; // !hovered: only a queued rotate keeps us here
             // Shift+Left is the trackpad-mode pan gesture (orbit and pan are
             // both bound to Left, so Shift is the only thing telling them
             // apart). It has to lock the tools out from the PRESS frame, not
@@ -4047,6 +4049,7 @@ void Application::renderViewport() {
                     //    rest of the app's angle-snap behaviour (line-draw
                     //    angle snap, sketch rotate popup, etc.).
                     auto softSnap45 = [this](float deg) {
+                        if (m_gizmoAngleExact) return deg; // typed in the Rotate panel
                         // Construction-plane drags need finer granularity -
                         // plane orientation is often a precise angle (15°
                         // chamfer-line, 30° draft, etc.). Use 5° hard snap
@@ -4068,7 +4071,11 @@ void Application::renderViewport() {
                     // capture their before-planes instead - the per-frame drag
                     // path below mutates plane(s); on release we push one
                     // SketchTransformOp per dragged sketch.
-                    if (gResult.activeAxis != GizmoAxis::None && !m_gizmoDragging) {
+                    // A queued typed rotation runs through the same start -> commit path
+                    // as a mouse drag (link detaching, undo and replay come for free).
+                    const bool typedRotate = !m_typedRotateQueue.empty() && !m_gizmoDragging &&
+                                             m_gizmo->getMode() == GizmoMode::Rotate;
+                    if ((gResult.activeAxis != GizmoAxis::None || typedRotate) && !m_gizmoDragging) {
                         m_gizmoDragOriginals.clear();
                         m_sketchGizmoDragSketches.clear();
                         m_planeGizmoDrag.clear();
@@ -4224,6 +4231,20 @@ void Application::renderViewport() {
                             if (np > 0) m_gizmoSharedPivot /= static_cast<float>(np);
                             m_gizmoSharedBottomY = (bottomY < FLT_MAX) ? bottomY
                                                                        : m_gizmoSharedPivot.y;
+                        }
+                    }
+
+                    bool typedRotateCommit = false;
+                    if (typedRotate) {
+                        auto [axisIdx, deg] = m_typedRotateQueue.front();
+                        m_typedRotateQueue.erase(m_typedRotateQueue.begin());
+                        if (m_gizmoDragging) {
+                            m_gizmoRotAxis = glm::vec3(axisIdx == 0, axisIdx == 1, axisIdx == 2);
+                            m_gizmoTotalAngle = deg;
+                            m_gizmoAngleExact = true;
+                            typedRotateCommit = true;
+                        } else {
+                            m_typedRotateQueue.clear(); // nothing draggable selected
                         }
                     }
 
@@ -4386,7 +4407,7 @@ void Application::renderViewport() {
                     // the Properties panel). Multi-body -> a single batched
                     // ReplayOp snapshot so the history shows one entry, not one
                     // per body.
-                    if (m_gizmoDragging && gResult.activeAxis == GizmoAxis::None && !mouseDown) {
+                    if (m_gizmoDragging && ((gResult.activeAxis == GizmoAxis::None && !mouseDown) || typedRotateCommit)) {
                         // The live drag was GPU-only (model matrices on the mesh
                         // slots; the document never moved). Reset the matrices
                         // first - the ops below apply the REAL transform to the
@@ -4762,6 +4783,7 @@ void Application::renderViewport() {
                         } catch (...) {}
 
                         m_gizmoDragging = false;
+                        m_gizmoAngleExact = false;
                         m_gizmoDragOriginalShape.Nullify();
                         m_gizmoDragBodyId = -1;
                         // Plane and axis drags don't push a history op
@@ -7228,6 +7250,7 @@ void Application::renderViewport() {
 
     // Scale gizmo side panel (X/Y/Z % + uniform + Apply), shown in Scale mode.
     renderScalePanel();
+    renderRotatePanel();
 
     // Sketch mode indicator
     if (m_inSketchMode) {

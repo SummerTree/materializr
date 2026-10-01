@@ -852,171 +852,66 @@ void Application::renderUpdatePopup() {
     }
 }
 
-// Multi-body Rotate type-in panel. Visible only when the Rotate gizmo is the
-// active mode AND 2+ bodies are selected - the case where the live gizmo path
-// gets pathologically slow on big selections. The user can dial in an exact
-// per-axis rotation and click Apply to commit it in a single frame, instead of
-// dragging through many laggy preview frames.
-void Application::renderMultiTransformPanel() {
-    // Track whether the panel's display conditions are currently met. When the
-    // conditions transition from "not met" to "met", reopen the panel so the
-    // user can dismiss it once and still get it back next time they enter the
-    // state - without having to dig through menus.
-    bool conditionsMet = m_gizmo && m_gizmo->getMode() == GizmoMode::Rotate &&
-                         m_selection && m_selection->selectedBodyCount() >= 2;
-    if (conditionsMet && !m_multiTransformConditionsMet) {
-        m_multiTransformPanelOpen = true;
-    }
-    m_multiTransformConditionsMet = conditionsMet;
-    if (!conditionsMet || !m_multiTransformPanelOpen) return;
+// Rotate type-in panel. Appears as soon as the Rotate gizmo is active (same
+// pattern as renderScalePanel), for one item or many - bodies, sketches and
+// construction planes alike. The gizmo's drag snaps to 15 deg (45 deg soft), so
+// this is the way to type an exact angle. Apply does not rotate anything itself:
+// it queues one rotation per non-zero axis and the viewport's gizmo commit path
+// runs them, so undo / replay / sketch-link handling match a mouse drag.
+void Application::renderRotatePanel() {
+    if (m_inSketchMode || !m_gizmo || m_gizmo->getMode() != GizmoMode::Rotate) return;
+    const bool isPlane = m_selection->primaryType() == SelectionType::Plane;
+    if (!m_selection->hasSelectedBodies() && !m_selection->hasSelectedSketches() &&
+        !m_selection->hasSelectedSketchRegions() && !isPlane) return;
 
-    int n = m_selection->selectedBodyCount();
-    char title[64];
-    std::snprintf(title, sizeof(title), "Rotate %d Bodies###MultiTransform", n);
+    ImGui::SetNextWindowPos(ImVec2(ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - 250,
+                                    ImGui::GetWindowPos().y + 50));
+    ImGui::SetNextWindowSize(uiSz(230, 0));
+    ImGui::Begin("##RotatePanel", nullptr,
+        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
+        ImGuiWindowFlags_AlwaysAutoResize);
 
-    ImGui::SetNextWindowSize(uiSz(360, 0), ImGuiCond_FirstUseEver);
-    // The window-titlebar X also closes the panel - same state as the Close
-    // button below, so either way auto-reopen logic above takes effect.
-    if (!ImGui::Begin(title, &m_multiTransformPanelOpen)) { ImGui::End(); return; }
+    ImGui::TextColored(materializr::accentText(), "%s", materializr::tr("Rotate (degrees)"));
+    ImGui::Separator();
 
-    ImGui::TextWrapped("%s", materializr::tr("Type exact angles instead of dragging the gizmo - useful when the selection is too large for a smooth live drag. Rotation is composed X → Y → Z around the selection centroid."));
-    ImGui::Spacing();
-
-    const char* axisLabels[3] = { "X", "Y", "Z" };
+    // User axes (Z up): user X = world X, user Y = world Z, user Z = world Y -
+    // the same remap the Scale panel and the gizmo's own readout use.
+    const char* axisLabels[3] = {"X", "Y", "Z"};
     const ImVec4 axisColors[3] = {
-        ImVec4(1.00f, 0.35f, 0.35f, 1.0f),  // red    (X)
-        ImVec4(0.35f, 1.00f, 0.35f, 1.0f),  // green  (Y)
-        ImVec4(0.40f, 0.55f, 1.00f, 1.0f),  // blue   (Z)
+        ImVec4(1.00f, 0.35f, 0.35f, 1.0f),
+        ImVec4(0.35f, 1.00f, 0.35f, 1.0f),
+        ImVec4(0.40f, 0.55f, 1.00f, 1.0f),
     };
-
     for (int i = 0; i < 3; ++i) {
         ImGui::PushID(i);
         ImGui::TextColored(axisColors[i], "%s", axisLabels[i]);
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(180);
-        ImGui::SliderFloat("##slider", &m_multiRotate[i], -180.0f, 180.0f, "%.1f°");
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(80);
-        materializr::inputNumber("##input", &m_multiRotate[i], 0.0f, 0.0f, "%.3f");
+        ImGui::SameLine(28);
+        ImGui::SetNextItemWidth(95.0f);
+        materializr::inputNumber("##deg", &m_multiRotate[i], 0.0f, 0.0f, "%.3f");
+        ImGui::SameLine(); ImGui::TextUnformatted("\xC2\xB0");
         ImGui::PopID();
     }
 
-    ImGui::Separator();
     ImGui::Spacing();
-    bool anyNonZero = std::abs(m_multiRotate[0]) > 1e-3f ||
-                      std::abs(m_multiRotate[1]) > 1e-3f ||
-                      std::abs(m_multiRotate[2]) > 1e-3f;
-
-    ImGui::BeginDisabled(!anyNonZero);
-    if (ImGui::Button(materializr::tr("Apply"), materializr::uiSz(100, 0))) {
-        applyMultiBodyRotation();
+    const bool anyNonZero = std::abs(m_multiRotate[0]) > 1e-3f ||
+                            std::abs(m_multiRotate[1]) > 1e-3f ||
+                            std::abs(m_multiRotate[2]) > 1e-3f;
+    const bool busy = m_gizmoDragging || !m_typedRotateQueue.empty();
+    ImGui::BeginDisabled(!anyNonZero || busy);
+    if (ImGui::Button(materializr::tr("Apply"), materializr::uiSz(95, 0))) {
+        const int userToWorld[3] = {0, 2, 1};
+        for (int i = 0; i < 3; ++i)
+            if (std::abs(m_multiRotate[i]) > 1e-3f)
+                m_typedRotateQueue.push_back({userToWorld[i], m_multiRotate[i]});
+        m_multiRotate[0] = m_multiRotate[1] = m_multiRotate[2] = 0.0f;
+        m_wakeFrames = std::max(m_wakeFrames, 5); // render-on-demand: let the commit run
     }
     ImGui::EndDisabled();
     ImGui::SameLine();
-    if (ImGui::Button(materializr::tr("Reset"), materializr::uiSz(100, 0))) {
+    if (ImGui::Button(materializr::tr("Reset"), materializr::uiSz(95, 0)))
         m_multiRotate[0] = m_multiRotate[1] = m_multiRotate[2] = 0.0f;
-    }
-    ImGui::SameLine();
-    if (ImGui::Button(materializr::tr("Close"), materializr::uiSz(100, 0))) {
-        m_multiTransformPanelOpen = false;
-    }
-
     ImGui::End();
-}
-
-void Application::applyMultiBodyRotation() {
-    if (!m_selection || !m_document || !m_history) return;
-    auto trackBodies = trackBodyChanges(); // re-tessellate only what changes
-
-    // Snapshot every selected body's current state. A mate-placed body is
-    // excluded the same way TransformOp::execute refuses one interactively
-    // (materializr::bodyIsMatePlaced) - without this, updateBody below moves
-    // it directly, and the very next mate solve (this op's own pushExecuted
-    // triggers one) recomputes it from its base and silently snaps it back,
-    // discarding the rotation the user just applied while unrelated,
-    // unmated bodies in the same multi-select keep theirs.
-    std::vector<std::pair<int, TopoDS_Shape>> bodies;
-    for (const auto& sel : m_selection->getSelection()) {
-        if (sel.type != SelectionType::Body) continue;
-        if (!m_document->isReplaying() &&
-            materializr::bodyIsMatePlaced(*m_document, sel.bodyId)) continue;
-        try {
-            bodies.push_back({sel.bodyId, m_document->getBody(sel.bodyId)});
-        } catch (...) {}
-    }
-    if (bodies.size() < 2) return;
-
-    // Pivot = selection centroid (matches the gizmo's drag behaviour).
-    glm::vec3 pivot(0.0f);
-    int np = 0;
-    for (auto& [id, orig] : bodies) {
-        try {
-            Bnd_Box bb; BRepBndLib::Add(orig, bb);
-            if (bb.IsVoid()) continue;
-            double x0,y0,z0,x1,y1,z1; bb.Get(x0,y0,z0,x1,y1,z1);
-            pivot += glm::vec3((x0+x1)*0.5f, (y0+y1)*0.5f, (z0+z1)*0.5f);
-            ++np;
-        } catch (...) {}
-    }
-    if (np > 0) pivot /= static_cast<float>(np);
-
-    // Compose X → Y → Z rotation about the pivot. Each rotation is a discrete
-    // gp_Trsf; multiplication composes them in OCCT.
-    const double d2r = M_PI / 180.0;
-    gp_Pnt p(pivot.x, pivot.y, pivot.z);
-    gp_Trsf trsf;
-    if (std::abs(m_multiRotate[0]) > 1e-3f) {
-        gp_Trsf rx; rx.SetRotation(gp_Ax1(p, gp_Dir(1, 0, 0)), m_multiRotate[0] * d2r);
-        trsf = rx * trsf;
-    }
-    if (std::abs(m_multiRotate[1]) > 1e-3f) {
-        gp_Trsf ry; ry.SetRotation(gp_Ax1(p, gp_Dir(0, 1, 0)), m_multiRotate[1] * d2r);
-        trsf = ry * trsf;
-    }
-    if (std::abs(m_multiRotate[2]) > 1e-3f) {
-        gp_Trsf rz; rz.SetRotation(gp_Ax1(p, gp_Dir(0, 0, 1)), m_multiRotate[2] * d2r);
-        trsf = rz * trsf;
-    }
-
-    // Apply and capture before/after snapshots for a single ReplayOp commit.
-    ReplayOp::BodyState beforeState, afterState;
-    for (auto& [id, orig] : bodies) {
-        beforeState.push_back({id, orig});
-        try {
-            BRepBuilderAPI_Transform xf(orig, trsf, /*copy=*/true);
-            if (xf.IsDone()) {
-                m_document->updateBody(id, xf.Shape());
-                afterState.push_back({id, xf.Shape()});
-            } else {
-                // Roll the before-entry off - a body present in `before` but
-                // absent from `after` reads as DELETED to ReplayOp (see
-                // applyRevolve's identical guard just below), so a failed
-                // transform must not leave one dangling.
-                beforeState.pop_back();
-            }
-        } catch (...) {
-            beforeState.pop_back();
-        }
-    }
-
-    if (!afterState.empty()) {
-        char buf[160];
-        std::snprintf(buf, sizeof(buf),
-                      "Rotate %d bodies by X %.2f° Y %.2f° Z %.2f° around centroid",
-                      static_cast<int>(afterState.size()),
-                      m_multiRotate[0], m_multiRotate[1], m_multiRotate[2]);
-        auto op = std::make_unique<ReplayOp>(
-            "multirotate",
-            std::string("Rotate (") + std::to_string(afterState.size()) + " bodies)",
-            std::string(buf),
-            std::move(beforeState), std::move(afterState),
-            /*fromReload=*/false);
-        m_history->pushExecuted(std::move(op), *m_document);
-        m_meshesDirty = true;
-    }
-
-    // Zero the sliders so the next Apply is relative to the new orientation.
-    m_multiRotate[0] = m_multiRotate[1] = m_multiRotate[2] = 0.0f;
 }
 
 void Application::renderScalePanel() {
@@ -4384,7 +4279,7 @@ void Application::applyRevolve() {
         ReplayOp::BodyState after;
         int rotated = 0;
         for (int bid : m_revolveBodyIds) {
-            // Same guard applyMultiBodyRotation carries just above, for the
+            // Same mate-placed guard the typed Rotate path relies on, for the
             // same reason: skip a mate-placed body here rather than let the
             // solve that follows this op's pushExecuted snap it back.
             if (!m_document->isReplaying() &&
