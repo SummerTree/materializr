@@ -1233,16 +1233,25 @@ void Application::showThreadsLastToast() {
     // (History::pushOperation) - this fires when that reflow can't land.
     m_toastText = "Couldn't reorder this change beneath the Thread step. "
                   "Delete the Thread step, make the change, then re-thread.";
-    m_toastExpiry = ImGui::GetTime() + 5.0;
+    m_toastDuration = 5.0;
+    m_toastExpiry = -1.0;   // armed on first draw, see showToast
 }
 
 void Application::showToast(const std::string& text, double seconds) {
     m_toastText = text;
-    m_toastExpiry = ImGui::GetTime() + seconds;
+    // Don't stamp the expiry here. ImGui::GetTime() is the time at the START of
+    // the current frame, and a toast is very often raised right after a long
+    // main-thread block (a failed boolean stalls ~8 s before it reports). The
+    // next frame's clock then jumps past a 5 s expiry that was measured from
+    // the pre-stall time, so the message was drawn for a single frame and
+    // could not be read. renderTransientToast arms it when it first draws.
+    m_toastDuration = seconds;
+    m_toastExpiry = -1.0;
 }
 
 void Application::renderTransientToast() {
     if (m_toastText.empty()) return;
+    if (m_toastExpiry < 0.0) m_toastExpiry = ImGui::GetTime() + m_toastDuration;
     if (ImGui::GetTime() > m_toastExpiry) { m_toastText.clear(); return; }
     ImGuiViewport* vp = ImGui::GetMainViewport();
     // 80px clears classic's menu bar and modern's tab strip. im-touch floats

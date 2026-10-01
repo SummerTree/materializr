@@ -13,13 +13,76 @@
 #include <GProp_GProps.hxx>
 #include <BRepGProp.hxx>
 #include <BRepCheck_Analyzer.hxx>
+#include <BRepBndLib.hxx>
+#include <Bnd_Box.hxx>
 #include <TopExp_Explorer.hxx>
 #include <cstdio>
 #include <cstdlib>
+#include <cmath>
 #include <imgui.h>
 #include "../ui/NumField.h"
 #include "../i18n.h"
 #include "../i18n.h"
+
+namespace {
+
+// OCCT's default volume integration is a fixed-order Gauss rule per face, and
+// on a face with very many knots (a traced or lettered outline extruded into a
+// 4-face solid) it can be wildly wrong. Measured on autumn.mzr: one body read
+// 59230 by default, 165101 adaptively and 21109 from a converged mesh, and the
+// fused result read 36454 / -6394 / 21538. A union guard built on those numbers
+// rejects a correct fuse (the mesh volumes close exactly: 21109 + 469 - 40 =
+// 21538), and the user is told their bodies "may not overlap".
+//
+// The adaptive rule is cheap (~0.04 s there) and does not share the default's
+// failure, so disagreement between the two is a reliable "do not trust this
+// number" signal. (A converged mesh volume is the real answer but took 55 s+
+// on that body, far too slow for a guard on the UI thread.)
+bool volumeEstimateUnreliable(const TopoDS_Shape& s) {
+    try {
+        GProp_GProps a, b;
+        BRepGProp::VolumeProperties(s, a);
+        BRepGProp::VolumeProperties(s, b, 1e-3, false, false);
+        const double va = a.Mass(), vb = b.Mass();
+        return std::abs(va - vb) > 0.01 * std::max({std::abs(va), std::abs(vb), 1.0});
+    } catch (...) { return true; }
+}
+
+// A union's bounding box must enclose both inputs'. An operand OCCT dropped
+// that sat even partly outside the other leaves a box that no longer reaches
+// it. Weaker than the volume test (a dropped operand lying wholly inside the
+// other is invisible - but then nothing was lost either), and it needs no
+// volume at all, so it is what we fall back on when the volumes cannot be
+// trusted.
+bool boxEnclosesInputs(const TopoDS_Shape& result, const TopoDS_Shape& a,
+                       const TopoDS_Shape& b) {
+    try {
+        Bnd_Box rb, ab, bb;
+        BRepBndLib::Add(result, rb);
+        BRepBndLib::Add(a, ab);
+        BRepBndLib::Add(b, bb);
+        if (rb.IsVoid()) return false;
+        double r[6], x[6], y[6];
+        rb.Get(r[0], r[1], r[2], r[3], r[4], r[5]);
+        double diag = 0;
+        auto enclose = [&](Bnd_Box& in, double* o) {
+            if (in.IsVoid()) return true;
+            in.Get(o[0], o[1], o[2], o[3], o[4], o[5]);
+            const double dx = o[3] - o[0], dy = o[4] - o[1], dz = o[5] - o[2];
+            diag = std::max(diag, std::sqrt(dx * dx + dy * dy + dz * dz));
+            return true;
+        };
+        enclose(ab, x); enclose(bb, y);
+        const double tol = std::max(0.01, 1e-3 * diag);
+        for (int i = 0; i < 3; ++i) {
+            if (!ab.IsVoid() && (x[i] < r[i] - tol || x[i + 3] > r[i + 3] + tol)) return false;
+            if (!bb.IsVoid() && (y[i] < r[i] - tol || y[i + 3] > r[i + 3] + tol)) return false;
+        }
+        return true;
+    } catch (...) { return true; }
+}
+
+} // namespace
 
 BooleanOp::BooleanOp() = default;
 
@@ -181,10 +244,28 @@ bool BooleanOp::execute(Document& doc) {
                 BRepGProp::VolumeProperties(m_previousToolShape,  gb);
                 const double biggest = std::max(ga.Mass(), gb.Mass());
                 if (gp.Mass() < biggest - 1e-4 * std::max(1.0, biggest)) {
-                    std::fprintf(stderr, "[Boolean] union came back SMALLER than "
-                                 "an input (%.3f < %.3f) -- an operand was lost; "
-                                 "rejecting.\n", gp.Mass(), biggest);
-                    return TopoDS_Shape();
+                    // The volumes can be the thing that is wrong - see
+                    // volumeEstimateUnreliable. Only then, fall back to the
+                    // bounding-box test instead of refusing a good fuse.
+                    const bool shaky = volumeEstimateUnreliable(m_previousTargetShape) ||
+                                       volumeEstimateUnreliable(m_previousToolShape) ||
+                                       volumeEstimateUnreliable(s);
+                    if (!shaky) {
+                        std::fprintf(stderr, "[Boolean] union came back SMALLER than "
+                                     "an input (%.3f < %.3f) -- an operand was lost; "
+                                     "rejecting.\n", gp.Mass(), biggest);
+                        return TopoDS_Shape();
+                    }
+                    if (!boxEnclosesInputs(s, m_previousTargetShape, m_previousToolShape)) {
+                        std::fprintf(stderr, "[Boolean] union box no longer reaches an "
+                                     "input (volume estimates unreliable) -- an operand "
+                                     "was lost; rejecting.\n");
+                        return TopoDS_Shape();
+                    }
+                    std::fprintf(stderr, "[Boolean] union volume looked smaller than an "
+                                 "input (%.3f < %.3f) but the volume estimate is "
+                                 "unreliable on these shapes; box check passed, "
+                                 "accepting.\n", gp.Mass(), biggest);
                 }
             }
             // Reject topologically INVALID results (self-intersections, bad

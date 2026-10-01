@@ -136,7 +136,8 @@ private:
     void showToast(const std::string& text, double seconds = 4.0);
     void renderTransientToast();
     std::string m_toastText;
-    double m_toastExpiry = 0.0;
+    double m_toastExpiry = 0.0;   // < 0: not yet drawn, armed on first draw
+    double m_toastDuration = 0.0;
     void renderSvgToolPanel();  // SVG placement settings (floating)
     void renderAirfoilToolPanel(); // airfoil chord / points / trailing edge
     std::string m_airfoilSource;   // path the profile came from, for re-reading
