@@ -675,6 +675,21 @@ std::vector<glm::vec2> Sketch::interpolate2D(const std::vector<glm::vec2>& ctrl,
     return out;
 }
 
+// GeomAPI_PointsToBSpline is a least-squares fit whose cost climbs steeply with
+// point count. A long traced spline (hundreds of control points, 24+ samples a
+// span) hands it >10k points and the UI thread sat in it for minutes (Steve's
+// "autumn" trace, 2026-09-30). Keep both ends exactly and thin the interior to
+// a cap that still leaves several samples per control span.
+static void thinSamplesForFit(std::vector<glm::vec2>& samp, size_t cap = 600) {
+    if (samp.size() <= cap || cap < 3) return;
+    const size_t stride = (samp.size() + cap - 1) / cap;
+    std::vector<glm::vec2> out;
+    out.reserve(cap + 2);
+    for (size_t i = 0; i < samp.size(); i += stride) out.push_back(samp[i]);
+    if (glm::length(out.back() - samp.back()) > 1e-9f) out.push_back(samp.back());
+    samp.swap(out);
+}
+
 std::vector<glm::vec2> Sketch::sampleSpline2D(const SketchSpline& sp,
                                               int segsPerSpan) const {
     const auto& ids = sp.controlPointIds;
@@ -1353,6 +1368,7 @@ std::vector<TopoDS_Wire> Sketch::buildWires() const {
                             sp.controlPointIds.front() == sp.controlPointIds.back();
             if (fromPt == es.endPtId && !closedSp)
                 std::reverse(samp.begin(), samp.end());
+            thinSamplesForFit(samp);
             try {
                 TColgp_Array1OfPnt arr(1, static_cast<int>(samp.size()));
                 for (size_t k = 0; k < samp.size(); ++k)
@@ -2046,6 +2062,7 @@ std::vector<Sketch::Region> Sketch::buildRegionsUncached() const {
                 glm::vec2 tang = samp[hiK] - samp[lo];
                 if (!isDivider(samp[mi], glm::vec2(-tang.y, tang.x))) continue;
             }
+            thinSamplesForFit(samp);
             try {
                 TColgp_Array1OfPnt arr(1, static_cast<int>(samp.size()));
                 for (size_t k = 0; k < samp.size(); ++k)

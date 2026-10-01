@@ -3533,12 +3533,17 @@ bool Application::meshAsync(int bodyId, const TopoDS_Shape& shape, float deflect
                             float angularDeflection) {
     if (!m_meshWorker || m_pumpMeshProgress) return false; // load meshes behind its progress frames
     if (m_document->isBodyMesh(bodyId)) return false;      // 100k-face imports: the copy costs more than the mesh
-    // Only when there is an old mesh to keep on screen: a body shown again
-    // after being hidden has none, and would blink absent for a worker pass.
-    if (!m_shapeRenderer->hasMeshFor(bodyId)) return false;
+    // Normally only when there is an old mesh to keep on screen: a body shown
+    // again after being hidden has none, and would blink absent for a worker
+    // pass. A shape that LOOKS heavy is the exception - meshing it in the frame
+    // froze the app for 30-100 s (a traced 450-point spline extrude), so it goes
+    // to the worker and appears when it lands.
+    const bool hasOld = m_shapeRenderer->hasMeshFor(bodyId);
     if (m_shapeRenderer->isPreMeshed(shape, deflection, angularDeflection)) return false;
+    const bool heavy = materializr::meshComplexityHint(shape) >= materializr::kHeavyPoleHint;
+    if (!hasOld && !heavy) return false;
     const MeshRequest req{shape.TShape().get(), deflection, angularDeflection};
-    switch (m_meshDispatch.decide(bodyId, req)) {
+    switch (m_meshDispatch.decide(bodyId, req, heavy)) {
     case MeshPath::InFrame: return false;
     case MeshPath::Pending: return true; // already in flight: keep the old mesh
     case MeshPath::Worker: break;
@@ -7169,10 +7174,15 @@ void Application::exitSketchMode() {
     m_activeSketchId = -1;
 
     // The sketch is resolved (committed to the document or discarded), so the
-    // crash-recovery draft is no longer "unfinished" - drop it. A draft only
-    // survives to the next launch when the app exits WITHOUT reaching here.
-    materializr::clearSketchDraft();
-    m_lastDraftElemCount = -1;
+    // crash-recovery draft is no longer "unfinished" - but the committed sketch
+    // lives only in memory until a project snapshot captures it, and the
+    // debounced snapshot waits ~5 s (and is blocked while re-entering sketch
+    // mode). Force one now and only drop the draft once it has landed, so a
+    // freeze right after Finish can't lose the sketch.
+    if (writeSessionRecoveryNow()) {
+        materializr::clearSketchDraft();
+        m_lastDraftElemCount = -1;
+    }
 
     // Stay where the user is - don't yank them back to the pre-sketch camera.
     // Exiting sketch should feel like leaving ortho-snap mode: the area being
@@ -7317,7 +7327,12 @@ void Application::writeProjectRecoveryIfDue() {
         return;
     const int bodies = m_document ? m_document->bodyCount() : 0;
     const int curStep = m_history ? m_history->currentStep() : -1;
-    if (bodies == 0 && curStep < 0) return;    // empty new document: nothing to lose
+    // A sketch / plane / reference image is work too: a trace-over-an-image
+    // project has none of bodies or history until it is extruded, and skipping
+    // it here lost a committed 30-minute trace (Steve, 2026-09-30).
+    if (bodies == 0 && curStep < 0 && m_document->sketchCount() == 0 &&
+        m_document->planeCount() == 0)
+        return;                                // empty new document: nothing to lose
 
     const double now = SDL_GetTicks() / 1000.0;
 
@@ -7379,17 +7394,18 @@ void Application::writeProjectRecoveryIfDue() {
     }
 }
 
-void Application::writeSessionRecoveryNow() {
+bool Application::writeSessionRecoveryNow() {
     // Forced (undebounced) snapshot of the ACTIVE session - called when a tab
     // is about to deactivate. An inactive session cannot change, so this one
     // write keeps its recovery file exact until it becomes active again;
     // combined with the debounced writer above, EVERY open project survives a
     // crash, not just the front tab.
-    if (!isDirty() || !m_document) return;
-    if (m_history && m_history->canRedo()) return;   // same below-tip guard
-    if (!m_threadRecuts.empty()) return;
+    if (!m_document) return false;
+    if (!isDirty()) return true;                     // saved: nothing to protect
+    if (m_history && m_history->canRedo()) return false;   // same below-tip guard
+    if (!m_threadRecuts.empty()) return false;
     // See writeProjectRecoveryIfDue: no history in the crash-recovery sidecar.
-    materializr::writeProjectRecovery(
+    return materializr::writeProjectRecovery(
         *m_document, /*history=*/nullptr, m_currentProjectPath,
         m_document->bodyCount(), /*stepCount=*/0,
         currentSession().recoveryIndex);

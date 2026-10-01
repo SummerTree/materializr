@@ -22,7 +22,15 @@
 #include <TopoDS.hxx>
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Shape.hxx>
+#include <BRepTools.hxx>
+#include <Geom_BSplineCurve.hxx>
+#include <Geom_Curve.hxx>
+#include <TopoDS_Edge.hxx>
+#include <Message_ProgressIndicator.hxx>
+#include <Message_ProgressScope.hxx>
+#include <Standard_Type.hxx>
 #include <algorithm>
+#include <chrono>
 
 namespace materializr {
 
@@ -37,6 +45,70 @@ inline IMeshTools_Parameters meshParams(double deflection, double angularDeflect
     p.MeshAlgo = IMeshTools_MeshAlgoType_Delabella;
     return p;
 }
+
+
+// Aborts a mesher run once its time budget is spent. OCCT polls UserBreak()
+// all through BRepMesh, so this lands within milliseconds.
+class MeshDeadline : public Message_ProgressIndicator {
+public:
+    DEFINE_STANDARD_RTTI_INLINE(MeshDeadline, Message_ProgressIndicator)
+    explicit MeshDeadline(double seconds)
+        : m_end(std::chrono::steady_clock::now() +
+                std::chrono::milliseconds(static_cast<long long>(seconds * 1000.0))) {}
+    Standard_Boolean UserBreak() override {
+        return std::chrono::steady_clock::now() > m_end;
+    }
+protected:
+    void Show(const Message_ProgressScope&, const Standard_Boolean) override {}
+private:
+    std::chrono::steady_clock::time_point m_end;
+};
+
+// Watson-mesh one bare face, giving up after `seconds`. Watson on a planar face
+// with thousands of boundary nodes (a traced 450-point spline outline) ran for
+// ~100 s on the UI thread; a coarser retry meshes the same face in a fraction of
+// that, so a timed-out attempt is discarded (partial triangulation cleaned) and
+// the caller escalates instead of waiting it out.
+inline bool meshFaceWatsonBounded(const TopoDS_Face& f, double deflection,
+                                  double angularDeflection, double seconds) {
+    TopLoc_Location loc;
+    try {
+        IMeshTools_Parameters wp = meshParams(deflection, angularDeflection, false);
+        wp.MeshAlgo = IMeshTools_MeshAlgoType_Watson;
+        opencascade::handle<MeshDeadline> pi = new MeshDeadline(seconds);
+        BRepMesh_IncrementalMesh retry(f, wp, pi->Start());
+        if (pi->UserBreak()) {                 // budget spent: drop any partial mesh
+            BRepTools::Clean(f);
+            return false;
+        }
+    } catch (...) {
+        return false;
+    }
+    return !BRep_Tool::Triangulation(f, loc).IsNull();
+}
+
+constexpr double kBareFaceBudgetSec = 3.0;
+
+// Cheap guess at how slow a shape will be to mesh, for a body that has no
+// timing history yet (a fresh extrude). Total B-spline poles over its edges:
+// a traced 450-point outline carries thousands, an ordinary part a few dozen.
+// Walks the edges only - no geometry is evaluated.
+inline int meshComplexityHint(const TopoDS_Shape& shape) {
+    int poles = 0;
+    try {
+        for (TopExp_Explorer ex(shape, TopAbs_EDGE); ex.More(); ex.Next()) {
+            double f = 0.0, l = 0.0;
+            Handle(Geom_Curve) c = BRep_Tool::Curve(TopoDS::Edge(ex.Current()), f, l);
+            if (c.IsNull()) continue;
+            if (Handle(Geom_BSplineCurve) b = Handle(Geom_BSplineCurve)::DownCast(c))
+                poles += b->NbPoles();
+        }
+    } catch (...) {}
+    return poles;
+}
+// Above this a body is meshed off-thread even with no old mesh to keep on
+// screen: it shows up when the worker lands rather than freezing the UI.
+constexpr int kHeavyPoleHint = 400;
 
 // A face where even the Watson retry above fails - real and reproducible on
 // an entirely ordinary planar face (10-edge boundary, no degenerate edges),
@@ -53,14 +125,9 @@ inline bool meshBareFaceEscalating(const TopoDS_Face& f, double deflection,
                                    double angularDeflection) {
     TopLoc_Location loc;
     for (double factor : {2.0, 4.0, 8.0, 16.0, 32.0}) {
-        try {
-            IMeshTools_Parameters wp = meshParams(
-                deflection * factor, std::min(angularDeflection * factor, 0.6), false);
-            wp.MeshAlgo = IMeshTools_MeshAlgoType_Watson;
-            BRepMesh_IncrementalMesh(f, wp);
-        } catch (...) {
-            continue;
-        }
+        meshFaceWatsonBounded(f, deflection * factor,
+                              std::min(angularDeflection * factor, 0.6),
+                              kBareFaceBudgetSec);
         if (!BRep_Tool::Triangulation(f, loc).IsNull()) return true;
     }
     return false;

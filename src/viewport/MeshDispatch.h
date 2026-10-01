@@ -32,7 +32,10 @@ public:
     // meshed in the frame, where a worker round trip would only add latency.
     static constexpr double kAsyncMeshMs = 20.0;
 
-    MeshPath decide(int bodyId, const MeshRequest& r) const
+    // `predictedHeavy`: the caller's complexity estimate says this shape will be
+    // slow even though the body has no timing history (or a fast last run) -
+    // e.g. a freshly extruded traced outline.
+    MeshPath decide(int bodyId, const MeshRequest& r, bool predictedHeavy = false) const
     {
         auto p = m_pending.find(bodyId);
         if (p != m_pending.end() && p->second == r) return MeshPath::Pending;
@@ -44,7 +47,8 @@ public:
         auto l = m_landed.find(bodyId);
         if (l != m_landed.end() && l->second == r) return MeshPath::InFrame;
         auto ms = m_millis.find(bodyId);
-        if (ms == m_millis.end() || ms->second < kAsyncMeshMs) return MeshPath::InFrame;
+        if ((ms == m_millis.end() || ms->second < kAsyncMeshMs) && !predictedHeavy)
+            return MeshPath::InFrame;
         return MeshPath::Worker;
     }
 

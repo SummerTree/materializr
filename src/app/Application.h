@@ -369,7 +369,7 @@ private:
     // Forced (undebounced) recovery snapshot of the active session; called
     // right before a tab deactivates so inactive tabs always have an exact
     // crash-recovery file.
-    void writeSessionRecoveryNow();
+    bool writeSessionRecoveryNow();   // true = snapshot durable (or nothing to write)
 
     // ── Tab lifecycle (UI lands in phase 3; menu + Ctrl+Tab already wired) ──
     // Fresh empty session; does NOT switch to it. Recovery indices recycle

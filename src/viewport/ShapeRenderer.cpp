@@ -284,14 +284,8 @@ int ShapeRenderer::tessellate(const TopoDS_Shape& shape, float deflection,
             TopLoc_Location loc;
             if (!BRep_Tool::Triangulation(bareFace, loc).IsNull()) continue;
             ++watsonRetried;
-            try {
-                IMeshTools_Parameters wp =
-                    materializr::meshParams(deflection, angularDeflection, false);
-                wp.MeshAlgo = IMeshTools_MeshAlgoType_Watson;
-                BRepMesh_IncrementalMesh retry(bareFace, wp);
-            } catch (...) {
-                // Fall through to the escalating retry below.
-            }
+            materializr::meshFaceWatsonBounded(bareFace, deflection, angularDeflection,
+                                               materializr::kBareFaceBudgetSec);
             // Watson at the requested quality isn't always enough either - a
             // real planar face has been seen failing BOTH meshers at fine
             // (High/Ultra) deflection while meshing fine at anything coarser.

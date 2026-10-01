@@ -187,12 +187,9 @@ void MeshWorker::run()
             for (const auto& jf : job.faces) {
                 TopLoc_Location loc;
                 if (!BRep_Tool::Triangulation(jf.copy, loc).IsNull()) continue;
-                try {
-                    IMeshTools_Parameters wp = materializr::meshParams(
-                        job.deflection, job.angularDeflection, false);
-                    wp.MeshAlgo = IMeshTools_MeshAlgoType_Watson;
-                    BRepMesh_IncrementalMesh retry(jf.copy, wp);
-                } catch (...) {}
+                materializr::meshFaceWatsonBounded(jf.copy, job.deflection,
+                                                   job.angularDeflection,
+                                                   materializr::kBareFaceBudgetSec);
                 // Watson at the requested quality isn't always enough either
                 // - see meshBareFaceEscalating.
                 if (BRep_Tool::Triangulation(jf.copy, loc).IsNull())
