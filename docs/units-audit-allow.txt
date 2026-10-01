@@ -199,6 +199,7 @@ src/app/layout/imtouch/ImTouchLayout.cpp:259:
 src/core/Document.h:56:
 src/core/Document.h:57:
 src/core/Document.h:119:
+src/core/MeshParams.h:81:
 src/core/SheetSpec.h:61:
 src/io/DxfExport.cpp:14:
 src/io/DxfImport.cpp:35:
