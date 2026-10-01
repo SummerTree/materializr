@@ -199,6 +199,12 @@ public:
     // regions would need the heavy OCCT fuse - a freshly-unhidden complex
     // sketch otherwise turns the first hover into a seconds-long stall.
     bool regionsCached() const;
+    // True when building this sketch's regions is known to be slow: one spline
+    // with a long control polygon (a traced outline) makes OCCT's general fuse
+    // take minutes (179 s measured on a 449-point trace). Implicit UI actions -
+    // a click-pick, a box-select - must not trigger that build on a cold cache;
+    // they fall back to whole-sketch selection instead.
+    bool regionBuildIsHeavy() const;
 
     // 2D point-in-region test (sketch-space coordinates)
     bool isPointInRegion(const Region& region, glm::vec2 p) const;

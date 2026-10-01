@@ -409,7 +409,12 @@ Application::SketchRegionHit Application::pickSketchRegion(float screenX, float 
         rayAt(screenX + 6.0f, screenY, o2, d2);
         if (projectToPlane(o2, d2, t2, p2d2)) tol = glm::length(p2d2 - p2d);
 
-        auto regions = sketch.buildRegions();
+        // A heavy sketch (long traced spline) on a cold cache would run a
+        // multi-minute general fuse here - and a click is also the first frame
+        // of an orbit drag, so that read as "rotating freezes the app". Skip
+        // region matching and fall through to edge picking (whole-sketch hit).
+        const bool skipRegions = sketch.regionBuildIsHeavy() && !sketch.regionsCached();
+        auto regions = skipRegions ? std::vector<Sketch::Region>{} : sketch.buildRegions();
         // Resolve overlapping candidates by two ranked rules instead of
         // first-match (BOP region order is arbitrary):
         //   1. STRICT containment beats near-boundary proximity. A click

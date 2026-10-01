@@ -100,16 +100,16 @@ classifier is heuristic; rows it cannot decide are pinned in the script's OVERRI
 | CONVERTED | src/app/Application_Viewport.cpp:2162 | `if (!materializr::parseLength(m_sketchShapeDimBuf, mm) \|\| mm <= 0.0) return false;` |
 | CONVERTED | src/app/Application_Viewport.cpp:3285 | `(void)materializr::parseFinite(m_dimEditingBuf, dimPadV);` |
 | CONVERTED | src/app/Application_Viewport.cpp:3290 | `if (materializr::inputNumber("##dimval", &dimPadV, 0.0, 0.0, padFmt,` |
-| angle | src/app/Application_Viewport.cpp:6052 | `(void)materializr::parseFinite(m_sketchGizmoRotateBuf,` |
-| angle | src/app/Application_Viewport.cpp:6054 | `bool typedEnter = materializr::inputNumber(` |
-| angle | src/app/Application_Viewport.cpp:6067 | `(void)materializr::parseFinite(m_sketchGizmoRotateBuf, deg);` |
-| angle | src/app/Application_Viewport.cpp:6084 | `(void)materializr::parseFinite(m_sketchGizmoRotateBuf, deg);` |
-| CONVERTED | src/app/Application_Viewport.cpp:7385 | `materializr::lengthField("##dimW", &m_sketchShapeDimW);` |
-| CONVERTED | src/app/Application_Viewport.cpp:7388 | `materializr::lengthField("##dimH", &m_sketchShapeDimH);` |
-| CONVERTED | src/app/Application_Viewport.cpp:7424 | `const bool entered = materializr::inputNumber(` |
-| CONVERTED | src/app/Application_Viewport.cpp:7442 | `return dimIsLen ? materializr::lengthFieldCommit(shown) : shown;` |
-| CONVERTED | src/app/Application_Viewport.cpp:7477 | `const bool ok = isLen ? materializr::parseLength(m_sketchDimBuf, v0)` |
-| angle | src/app/Application_Viewport.cpp:7478 | `: materializr::parseFinite(m_sketchDimBuf, v0);` |
+| angle | src/app/Application_Viewport.cpp:6056 | `(void)materializr::parseFinite(m_sketchGizmoRotateBuf,` |
+| angle | src/app/Application_Viewport.cpp:6058 | `bool typedEnter = materializr::inputNumber(` |
+| angle | src/app/Application_Viewport.cpp:6071 | `(void)materializr::parseFinite(m_sketchGizmoRotateBuf, deg);` |
+| angle | src/app/Application_Viewport.cpp:6088 | `(void)materializr::parseFinite(m_sketchGizmoRotateBuf, deg);` |
+| CONVERTED | src/app/Application_Viewport.cpp:7389 | `materializr::lengthField("##dimW", &m_sketchShapeDimW);` |
+| CONVERTED | src/app/Application_Viewport.cpp:7392 | `materializr::lengthField("##dimH", &m_sketchShapeDimH);` |
+| CONVERTED | src/app/Application_Viewport.cpp:7428 | `const bool entered = materializr::inputNumber(` |
+| CONVERTED | src/app/Application_Viewport.cpp:7446 | `return dimIsLen ? materializr::lengthFieldCommit(shown) : shown;` |
+| CONVERTED | src/app/Application_Viewport.cpp:7481 | `const bool ok = isLen ? materializr::parseLength(m_sketchDimBuf, v0)` |
+| angle | src/app/Application_Viewport.cpp:7482 | `: materializr::parseFinite(m_sketchDimBuf, v0);` |
 | CONVERTED | src/app/EdgeOpController.cpp:823 | `if (materializr::amountLengthField("edgeAmt", isFillet ? "Radius" : "Distance", &m_value, /*allowSign=*/false,` |
 | CONVERTED | src/app/EdgeOpController.cpp:836 | `(void)materializr::parseLength(m_inputBuf, m_value);` |
 | CONVERTED | src/app/EdgeOpController.cpp:844 | `if (materializr::parseLength(m_inputBuf, parsed) &&` |
@@ -437,10 +437,10 @@ classifier is heuristic; rows it cannot decide are pinned in the script's OVERRI
 | comment | src/app/Application_Viewport.cpp:4836 | `// 0.5 mm + 0.5 % of view distance instead; an actually-` |
 | comment | src/app/Application_Viewport.cpp:4837 | `// occluding face is normally many mm in front.` |
 | comment | src/app/Application_Viewport.cpp:5295 | `// ~ 0.85 mm at 240 dpi is unhittable). Still clamped` |
-| comment | src/app/Application_Viewport.cpp:5737 | `// 0.5 mm line nudge → 1 mm mirror shift on a 1 mm grid).` |
-| comment | src/app/Application_Viewport.cpp:6263 | `// user lands within 0.4 mm of the previous click -` |
-| comment | src/app/Application_Viewport.cpp:7439 | `// The pad edits in the display unit; the floor is mm.` |
-| comment | src/app/Application_Viewport.cpp:7473 | `// Converting those display->mm made a typed 180 deg arrive` |
+| comment | src/app/Application_Viewport.cpp:5741 | `// 0.5 mm line nudge → 1 mm mirror shift on a 1 mm grid).` |
+| comment | src/app/Application_Viewport.cpp:6267 | `// user lands within 0.4 mm of the previous click -` |
+| comment | src/app/Application_Viewport.cpp:7443 | `// The pad edits in the display unit; the floor is mm.` |
+| comment | src/app/Application_Viewport.cpp:7477 | `// Converting those display->mm made a typed 180 deg arrive` |
 | diagnostic | src/app/EdgeOpController.cpp:546 | `std::fprintf(stdout, "%s edited to %.1f mm\n",` |
 | diagnostic | src/app/EdgeOpController.cpp:558 | `std::fprintf(stdout, "%s %.1f mm committed\n",` |
 | comment | src/app/EdgeOpController.cpp:597 | `// visible arrow length (1 mm single / 0.6 mm per chamfer arrow) keeps the hit` |

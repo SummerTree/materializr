@@ -5508,7 +5508,11 @@ void Application::renderViewport() {
                                     // same (working) path. The whole-sketch
                                     // entry survives only for open profiles
                                     // that have no regions to offer.
-                                    auto regions = sk.buildRegions();
+                                    // Heavy cold sketch: no multi-minute fuse on a drag-select;
+                                    // take the whole-sketch entry below instead.
+                                    auto regions = (sk.regionBuildIsHeavy() && !sk.regionsCached())
+                                                       ? std::vector<Sketch::Region>{}
+                                                       : sk.buildRegions();
                                     int added = 0;
                                     const gp_Pln& pln = sk.getPlane();
                                     const gp_Ax3& rax = pln.Position();

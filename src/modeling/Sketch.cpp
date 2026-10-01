@@ -1702,6 +1702,13 @@ std::vector<Sketch::Region> Sketch::buildRegions() const {
     return m_regionCache;
 }
 
+bool Sketch::regionBuildIsHeavy() const {
+    constexpr size_t kHeavySplinePoints = 100;
+    for (const auto& sp : m_splines)
+        if (sp.controlPointIds.size() > kHeavySplinePoints) return true;
+    return false;
+}
+
 bool Sketch::regionsCached() const {
     return m_regionCacheValid && geometryHash() == m_regionHash;
 }

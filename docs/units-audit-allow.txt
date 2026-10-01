@@ -169,10 +169,10 @@ src/app/Application_Viewport.cpp:3312:
 src/app/Application_Viewport.cpp:4836:
 src/app/Application_Viewport.cpp:4837:
 src/app/Application_Viewport.cpp:5295:
-src/app/Application_Viewport.cpp:5737:
-src/app/Application_Viewport.cpp:6263:
-src/app/Application_Viewport.cpp:7439:
-src/app/Application_Viewport.cpp:7473:
+src/app/Application_Viewport.cpp:5741:
+src/app/Application_Viewport.cpp:6267:
+src/app/Application_Viewport.cpp:7443:
+src/app/Application_Viewport.cpp:7477:
 src/app/EdgeOpController.cpp:546:
 src/app/EdgeOpController.cpp:558:
 src/app/EdgeOpController.cpp:597:
