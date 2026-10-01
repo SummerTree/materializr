@@ -466,7 +466,7 @@ classifier is heuristic; rows it cannot decide are pinned in the script's OVERRI
 | comment | src/core/Document.h:56 | `// Half-size of the rendered translucent quad in mm. Free to grow later` |
 | comment | src/core/Document.h:57 | `// for autoscale; 50 mm (= 100 mm square) is a reasonable default that's` |
 | comment | src/core/Document.h:119 | `// a render-extent (halfLength for the drawn segment in mm).` |
-| comment | src/core/MeshParams.h:81 | `// outline, and Watson then spends 25 s+ on one at Ultra quality (0.01 mm /` |
+| comment | src/core/MeshParams.h:87 | `// outline, and Watson then spends 25 s+ on one at Ultra quality (0.01 mm /` |
 | comment | src/core/SheetSpec.h:61 | `// offset = (T/2)·tan(θ/2). For a 90° corner in 12.7 mm ply this is 6.35 mm.` |
 | comment | src/io/DxfExport.cpp:14 | `// CAM package reads. Minimal file = HEADER ($ACADVER + $INSUNITS mm) and an` |
 | comment | src/io/DxfImport.cpp:35 | `double unitScale = 1.0; // file units → mm` |

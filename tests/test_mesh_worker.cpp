@@ -7,7 +7,17 @@
 
 #include <gtest/gtest.h>
 
+#include <BRepAdaptor_Surface.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
+#include <BRepAlgoAPI_Fuse.hxx>
+#include <BRepBuilderAPI_MakeEdge.hxx>
+#include <BRepBuilderAPI_MakeWire.hxx>
+#include <BRepBuilderAPI_Transform.hxx>
+#include <BRepCheck_Analyzer.hxx>
+#include <BRepPrimAPI_MakePrism.hxx>
+#include <BRepTools.hxx>
+#include <GeomAPI_Interpolate.hxx>
+#include <TColgp_HArray1OfPnt.hxx>
 #include <BRepBuilderAPI_Copy.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
@@ -30,6 +40,7 @@
 #include <gp_Vec.hxx>
 
 #include <chrono>
+#include <cmath>
 #include <thread>
 #include <vector>
 
@@ -261,4 +272,93 @@ TEST(MeshWorker, NewestRequestForABodyWins) {
     EXPECT_EQ(results[0].bodyId, 2);
     EXPECT_EQ(results[0].tshape, c.TShape().get());
     EXPECT_EQ(worker.pending(), 0u);
+}
+
+// A boolean through the wall of a traced-outline extrusion TRIMS that wall: it
+// keeps its ruling but gains many boundary edges, some oblique in (u, v). The
+// ruled-strip mesher used to take only an untrimmed wall, so the trimmed one went
+// to Watson (seconds to minutes at fine quality; the lettering in autumn.mzr
+// vanished for about a minute after a union). It must now be meshed directly,
+// and correctly.
+namespace {
+double triVolume(const TopoDS_Shape& s) {
+    double v = 0.0;
+    for (TopExp_Explorer e(s, TopAbs_FACE); e.More(); e.Next()) {
+        const TopoDS_Face f = TopoDS::Face(e.Current());
+        TopLoc_Location loc;
+        Handle(Poly_Triangulation) t = BRep_Tool::Triangulation(f, loc);
+        if (t.IsNull()) continue;
+        const bool rev = f.Orientation() == TopAbs_REVERSED;
+        for (int i = 1; i <= t->NbTriangles(); ++i) {
+            int a, b, c; t->Triangle(i).Get(a, b, c);
+            if (rev) std::swap(b, c);
+            const gp_XYZ p1 = t->Node(a).Transformed(loc).XYZ(), p2 = t->Node(b).Transformed(loc).XYZ(),
+                         p3 = t->Node(c).Transformed(loc).XYZ();
+            v += p1.Dot(p2.Crossed(p3)) / 6.0;
+        }
+    }
+    return v;
+}
+int edgeCount(const TopoDS_Face& f) {
+    int n = 0;
+    for (TopExp_Explorer e(f, TopAbs_EDGE); e.More(); e.Next()) ++n;
+    return n;
+}
+} // namespace
+
+TEST(MeshWorker, TrimmedExtrusionWallIsMeshedDirectlyAndCorrectly) {
+    // Wavy closed outline, interpolated as one periodic B-spline.
+    Handle(TColgp_HArray1OfPnt) pts = new TColgp_HArray1OfPnt(1, 36);
+    for (int i = 0; i < 36; ++i) {
+        const double th = 2.0 * M_PI * i / 36.0, r = 30.0 + 4.0 * std::sin(5.0 * th);
+        pts->SetValue(i + 1, gp_Pnt(r * std::cos(th), r * std::sin(th), 0.0));
+    }
+    GeomAPI_Interpolate interp(pts, Standard_True, 1e-6);
+    interp.Perform();
+    ASSERT_TRUE(interp.IsDone());
+    TopoDS_Wire w = BRepBuilderAPI_MakeWire(BRepBuilderAPI_MakeEdge(interp.Curve())).Wire();
+    TopoDS_Shape prism = BRepPrimAPI_MakePrism(BRepBuilderAPI_MakeFace(w).Face(), gp_Vec(0, 0, 10)).Shape();
+
+    // A box tilted about X, straddling the wall at (30, 0): its sides meet the wall
+    // in curves that are oblique in the wall's (u, v), not just iso-lines.
+    gp_Trsf tilt;
+    tilt.SetRotation(gp_Ax1(gp_Pnt(30, 0, 4), gp_Dir(1, 0, 0)), 25.0 * M_PI / 180.0);
+    TopoDS_Shape box = BRepBuilderAPI_Transform(
+        BRepPrimAPI_MakeBox(gp_Pnt(24, -5, 2), 12, 10, 4).Shape(), tilt, true).Shape();
+
+    BRepAlgoAPI_Fuse fuse(prism, box);
+    ASSERT_TRUE(fuse.IsDone());
+    TopoDS_Shape fused = fuse.Shape();
+    ASSERT_TRUE(BRepCheck_Analyzer(fused).IsValid());
+
+    int walls = 0, trimmed = 0;
+    for (TopExp_Explorer e(fused, TopAbs_FACE); e.More(); e.Next()) {
+        const TopoDS_Face f = TopoDS::Face(e.Current());
+        if (BRepAdaptor_Surface(f, false).GetType() != GeomAbs_SurfaceOfExtrusion) continue;
+        ++walls;
+        if (edgeCount(f) > 4) ++trimmed;
+        BRepTools::Clean(f);
+        EXPECT_TRUE(materializr::meshExtrusionWallStrip(f, kDefl, kAng))
+            << "a swept wall (" << edgeCount(f) << " edges) was left to the slow meshers";
+        TopLoc_Location l;
+        EXPECT_FALSE(BRep_Tool::Triangulation(f, l).IsNull());
+    }
+    ASSERT_GE(walls, 1);
+    ASSERT_GE(trimmed, 1) << "the box did not trim the wall: this test is not exercising the trimmed path";
+
+    // Mesh the rest (planar caps etc.) the usual way, then compare the volume with
+    // an independent fine mesh of an untouched copy.
+    BRepMesh_IncrementalMesh(fused, materializr::meshParams(kDefl, kAng, false));
+    for (TopExp_Explorer e(fused, TopAbs_FACE); e.More(); e.Next()) {
+        TopLoc_Location l;
+        EXPECT_FALSE(BRep_Tool::Triangulation(TopoDS::Face(e.Current()), l).IsNull());
+    }
+    TopoDS_Shape ref = BRepBuilderAPI_Copy(fused).Shape();
+    BRepTools::Clean(ref);
+    IMeshTools_Parameters rp = materializr::meshParams(0.005, 0.05, false);
+    rp.MeshAlgo = IMeshTools_MeshAlgoType_Watson;
+    BRepMesh_IncrementalMesh(ref, rp);
+    const double got = triVolume(fused), want = triVolume(ref);
+    ASSERT_GT(want, 1000.0);
+    EXPECT_NEAR(got, want, 0.01 * want) << "directly meshed wall disagrees with a fine reference mesh";
 }

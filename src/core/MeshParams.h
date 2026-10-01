@@ -24,6 +24,12 @@
 #include <TopoDS_Shape.hxx>
 #include <Adaptor3d_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
+#include <BRepAdaptor_Curve2d.hxx>
+#include <gp_Pnt2d.hxx>
+#include <set>
+#include <map>
+#include <vector>
+#include <cmath>
 #include <BRepTools.hxx>
 #include <BRep_Builder.hxx>
 #include <GCPnts_TangentialDeflection.hxx>
@@ -82,6 +88,9 @@ private:
 // 0.10 rad); this is O(n) and instant. Only a FULL wall qualifies - all four
 // edges must be iso-lines in the face's UV domain (two along u, two along v) -
 // so a wall trimmed by a boolean falls through to the real meshers.
+inline bool meshExtrusionWallTrimmed(const TopoDS_Face& f, double deflection,
+                                     double angularDeflection);
+
 inline bool meshExtrusionWallStrip(const TopoDS_Face& f, double deflection,
                                    double angularDeflection) {
     try {
@@ -95,13 +104,17 @@ inline bool meshExtrusionWallStrip(const TopoDS_Face& f, double deflection,
             if (Handle(Geom2d_TrimmedCurve) t = Handle(Geom2d_TrimmedCurve)::DownCast(pc))
                 pc = t->BasisCurve();
             Handle(Geom2d_Line) ln = Handle(Geom2d_Line)::DownCast(pc);
-            if (ln.IsNull()) return false;
+            // Not a plain full wall (a boolean trimmed it, or its boundary
+            // pcurves are B-splines): see whether it is still a rectilinear
+            // region in (u, v) before giving up to the slow meshers.
+            if (ln.IsNull()) return meshExtrusionWallTrimmed(f, deflection, angularDeflection);
             const gp_Dir2d d = ln->Direction();
             if (std::abs(d.Y()) < 1e-9) ++alongU;
             else if (std::abs(d.X()) < 1e-9) ++alongV;
-            else return false;
+            else return meshExtrusionWallTrimmed(f, deflection, angularDeflection);
         }
-        if (alongU != 2 || alongV != 2) return false;
+        if (alongU != 2 || alongV != 2)
+            return meshExtrusionWallTrimmed(f, deflection, angularDeflection);
 
         double u0, u1, v0, v1;
         BRepTools::UVBounds(f, u0, u1, v0, v1);
@@ -124,6 +137,148 @@ inline bool meshExtrusionWallStrip(const TopoDS_Face& f, double deflection,
             tri->SetTriangle(2 * k - 1, Poly_Triangle(k, k + 1, n + k + 1));
             tri->SetTriangle(2 * k, Poly_Triangle(k, n + k + 1, n + k));
         }
+        tri->Deflection(deflection);
+        BRep_Builder().UpdateFace(f, tri);
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+// A swept wall that a boolean has TRIMMED, still meshed as ruled strips.
+//
+// meshExtrusionWallStrip only takes a wall whose four edges are iso-lines. Fuse
+// a second body through a traced-outline wall and the wall keeps its ruling
+// S(u,v) = C(u) + v*dir but its boundary grows to many edges, several of them
+// B-spline pcurves and some oblique in (u, v) (autumn.mzr: 16 edges, 10 of
+// them B-spline, 4 slanted where the other body's curved wall meets this one).
+// That sent it to Watson: 1.7 s at Medium, 11 s + 9 s of escalation at Ultra,
+// which is why a union made the lettering vanish for about a minute while the
+// background mesh ground away.
+//
+// Cut the face into thin columns along u. Within a column every boundary edge
+// is a single-valued v(u), so the wall is just the stretches between
+// consecutive boundary curves (even-odd, as in any trapezoidal decomposition),
+// and each stretch is a quad strip - ruled, so exact. Boundary pcurves are
+// sampled and split into runs that are monotone in u; constant-u pieces (the
+// cuts parallel to dir) only contribute a column break. Column breaks also
+// include every sample of every run and the directrix's own deflection
+// sampling, so v is linear per column and the outline stays as fine as it
+// would have been untrimmed. A face whose columns do not pair up (an odd
+// count: a shape this does not understand) is declined and falls through to
+// the real meshers exactly as before.
+inline bool meshExtrusionWallTrimmed(const TopoDS_Face& f, double deflection,
+                                     double angularDeflection) {
+    try {
+        BRepAdaptor_Surface s(f, Standard_False);
+        if (s.GetType() != GeomAbs_SurfaceOfExtrusion) return false;
+        double u0, u1, v0, v1;
+        BRepTools::UVBounds(f, u0, u1, v0, v1);
+        if (!(v1 > v0) || !(u1 > u0)) return false;
+        const double du = u1 - u0;
+        const double vertical = 1e-7 * du;   // |du| below this: a cut parallel to dir
+
+        struct Run { std::vector<double> u, v; };       // u strictly increasing
+        std::vector<Run> runs;
+        std::set<double> breaks;
+        breaks.insert(u0); breaks.insert(u1);
+
+        for (TopExp_Explorer ex(f, TopAbs_EDGE); ex.More(); ex.Next()) {
+            BRepAdaptor_Curve2d c(TopoDS::Edge(ex.Current()), f);
+            const double a = c.FirstParameter(), b = c.LastParameter();
+            int n = 24;
+            if (c.GetType() == GeomAbs_BSplineCurve)
+                n = std::max(24, std::min(512, 8 * c.NbKnots()));
+            else if (c.GetType() == GeomAbs_Line)
+                n = 2;
+            std::vector<gp_Pnt2d> p(n + 1);
+            for (int k = 0; k <= n; ++k) p[k] = c.Value(a + (b - a) * k / double(n));
+
+            // Split into runs that are monotone in u and non-vertical.
+            size_t i = 0;
+            while (i < p.size() - 1) {
+                const double d0 = p[i + 1].X() - p[i].X();
+                if (std::abs(d0) <= vertical) { breaks.insert(p[i].X()); breaks.insert(p[i + 1].X()); ++i; continue; }
+                const int dirSign = d0 > 0 ? 1 : -1;
+                Run r;
+                r.u.push_back(p[i].X()); r.v.push_back(p[i].Y());
+                size_t j = i;
+                while (j < p.size() - 1) {
+                    const double dj = p[j + 1].X() - p[j].X();
+                    if (std::abs(dj) <= vertical || (dj > 0 ? 1 : -1) != dirSign) break;
+                    r.u.push_back(p[j + 1].X()); r.v.push_back(p[j + 1].Y());
+                    ++j;
+                }
+                if (dirSign < 0) { std::reverse(r.u.begin(), r.u.end()); std::reverse(r.v.begin(), r.v.end()); }
+                for (double x : r.u) breaks.insert(x);
+                runs.push_back(std::move(r));
+                i = j;
+            }
+        }
+        if (runs.empty()) return false;
+
+        const gp_Vec dir(s.Direction());
+        Handle(Adaptor3d_Curve) base = s.BasisCurve();
+        if (base.IsNull()) return false;
+        GCPnts_TangentialDeflection pts(*base, u0, u1, angularDeflection, deflection, 2);
+        for (int k = 1; k <= pts.NbPoints(); ++k) breaks.insert(pts.Parameter(k));
+
+        std::vector<double> U;
+        for (double x : breaks)
+            if (x >= u0 - vertical && x <= u1 + vertical && (U.empty() || x - U.back() > vertical))
+                U.push_back(x);
+        if (U.size() < 2) return false;
+
+        // v of a run at u (u inside the run's span), by linear interpolation.
+        auto vAt = [](const Run& r, double u) {
+            size_t k = std::upper_bound(r.u.begin(), r.u.end(), u) - r.u.begin();
+            if (k == 0) return r.v.front();
+            if (k >= r.u.size()) return r.v.back();
+            const double t = (u - r.u[k - 1]) / (r.u[k] - r.u[k - 1]);
+            return r.v[k - 1] + t * (r.v[k] - r.v[k - 1]);
+        };
+
+        std::vector<gp_Pnt> colPt(U.size());
+        for (size_t i = 0; i < U.size(); ++i) colPt[i] = base->Value(U[i]);
+
+        std::vector<gp_Pnt> nodes;
+        std::map<std::pair<size_t, long long>, int> nodeOf;   // (column, v) -> node, shared
+        auto node = [&](size_t i, double v) {
+            auto key = std::make_pair(i, std::llround(v * 1e6));
+            auto it = nodeOf.find(key);
+            if (it != nodeOf.end()) return it->second;
+            nodes.push_back(colPt[i].Translated(dir * v));
+            return nodeOf[key] = int(nodes.size());
+        };
+        std::vector<Poly_Triangle> tris;
+
+        std::vector<std::pair<double, const Run*>> hit;
+        for (size_t i = 0; i + 1 < U.size(); ++i) {
+            const double um = 0.5 * (U[i] + U[i + 1]);
+            hit.clear();
+            for (const Run& r : runs)
+                if (r.u.front() <= um && um <= r.u.back()) hit.push_back({vAt(r, um), &r});
+            if (hit.empty()) continue;                    // wholly outside the face
+            if (hit.size() % 2) return false;             // does not pair up: not understood
+            std::sort(hit.begin(), hit.end(),
+                      [](const auto& x, const auto& y) { return x.first < y.first; });
+            for (size_t k = 0; k + 1 < hit.size(); k += 2) {
+                const Run& lo = *hit[k].second;
+                const Run& hi = *hit[k + 1].second;
+                const double lo0 = vAt(lo, U[i]), lo1 = vAt(lo, U[i + 1]);
+                const double hi0 = vAt(hi, U[i]), hi1 = vAt(hi, U[i + 1]);
+                if (hi0 - lo0 < 1e-9 && hi1 - lo1 < 1e-9) continue;   // sliver of zero height
+                const int a = node(i, lo0), b = node(i + 1, lo1), c = node(i + 1, hi1), d = node(i, hi0);
+                tris.emplace_back(a, b, c);               // natural surface orientation (du x dv)
+                tris.emplace_back(a, c, d);
+            }
+        }
+        if (tris.empty()) return false;
+
+        Handle(Poly_Triangulation) tri =
+            new Poly_Triangulation(int(nodes.size()), int(tris.size()), Standard_False);
+        for (size_t k = 0; k < nodes.size(); ++k) tri->SetNode(int(k) + 1, nodes[k]);
+        for (size_t k = 0; k < tris.size(); ++k) tri->SetTriangle(int(k) + 1, tris[k]);
         tri->Deflection(deflection);
         BRep_Builder().UpdateFace(f, tri);
         return true;
@@ -227,6 +382,10 @@ inline void meshWithFallback(const TopoDS_Shape& shape, double deflection,
         const TopoDS_Face& f = TopoDS::Face(fx.Current());
         TopLoc_Location loc;
         if (!BRep_Tool::Triangulation(f, loc).IsNull()) continue;
+        // A swept wall of a traced outline (whole, or trimmed by a boolean) is
+        // exactly a ruled grid; Watson takes seconds to minutes on it (the
+        // autumn lettering: 131 s at Ultra). Same shortcut the display path uses.
+        if (meshExtrusionWallStrip(f, deflection, angularDeflection)) continue;
         try {
             IMeshTools_Parameters wp = meshParams(deflection, angularDeflection, false);
             wp.MeshAlgo = IMeshTools_MeshAlgoType_Watson;
