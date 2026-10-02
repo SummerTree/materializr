@@ -92,23 +92,23 @@ classifier is heuristic; rows it cannot decide are pinned in the script's OVERRI
 | CONVERTED | src/app/Application_Dialogs.cpp:5824 | `if (materializr::lengthField(materializr::trFormat("Thickness (%s)", materializr::unitSuffix()).c_str(), &m_un` |
 | angle | src/app/Application_Dialogs.cpp:5838 | `if (ImGui::SliderFloat(materializr::tr("Curve detail"), &m_unfoldMaxBevelDeg, 2.0f, 40.0f, "%.0f°"))` |
 | angle | src/app/Application_Dialogs.cpp:5897 | `ImGui::SliderFloat(materializr::tr("Rotate"), &m_unfoldRotationDeg, -180.0f, 180.0f, "%.0f°");` |
-| CONVERTED | src/app/Application_Viewport.cpp:2116 | `(void)materializr::parseFinite(m_sketchShapeDimBuf,` |
-| CONVERTED | src/app/Application_Viewport.cpp:2118 | `if (touchui::numberField("##bubbleDia", nullptr,` |
-| CONVERTED | src/app/Application_Viewport.cpp:2139 | `materializr::lengthField("##bubbleW", &m_sketchShapeDimW);` |
-| CONVERTED | src/app/Application_Viewport.cpp:2142 | `materializr::lengthField("##bubbleH", &m_sketchShapeDimH);` |
-| CONVERTED | src/app/Application_Viewport.cpp:2162 | `if (!materializr::parseLength(m_sketchShapeDimBuf, mm) \|\| mm <= 0.0) return false;` |
-| CONVERTED | src/app/Application_Viewport.cpp:3285 | `(void)materializr::parseFinite(m_dimEditingBuf, dimPadV);` |
-| CONVERTED | src/app/Application_Viewport.cpp:3290 | `if (materializr::inputNumber("##dimval", &dimPadV, 0.0, 0.0, padFmt,` |
-| angle | src/app/Application_Viewport.cpp:6078 | `(void)materializr::parseFinite(m_sketchGizmoRotateBuf,` |
-| angle | src/app/Application_Viewport.cpp:6080 | `bool typedEnter = materializr::inputNumber(` |
-| angle | src/app/Application_Viewport.cpp:6093 | `(void)materializr::parseFinite(m_sketchGizmoRotateBuf, deg);` |
-| angle | src/app/Application_Viewport.cpp:6110 | `(void)materializr::parseFinite(m_sketchGizmoRotateBuf, deg);` |
-| CONVERTED | src/app/Application_Viewport.cpp:7412 | `materializr::lengthField("##dimW", &m_sketchShapeDimW);` |
-| CONVERTED | src/app/Application_Viewport.cpp:7415 | `materializr::lengthField("##dimH", &m_sketchShapeDimH);` |
-| CONVERTED | src/app/Application_Viewport.cpp:7451 | `const bool entered = materializr::inputNumber(` |
-| CONVERTED | src/app/Application_Viewport.cpp:7469 | `return dimIsLen ? materializr::lengthFieldCommit(shown) : shown;` |
-| CONVERTED | src/app/Application_Viewport.cpp:7504 | `const bool ok = isLen ? materializr::parseLength(m_sketchDimBuf, v0)` |
-| angle | src/app/Application_Viewport.cpp:7505 | `: materializr::parseFinite(m_sketchDimBuf, v0);` |
+| CONVERTED | src/app/Application_Viewport.cpp:2122 | `(void)materializr::parseFinite(m_sketchShapeDimBuf,` |
+| CONVERTED | src/app/Application_Viewport.cpp:2124 | `if (touchui::numberField("##bubbleDia", nullptr,` |
+| CONVERTED | src/app/Application_Viewport.cpp:2145 | `materializr::lengthField("##bubbleW", &m_sketchShapeDimW);` |
+| CONVERTED | src/app/Application_Viewport.cpp:2148 | `materializr::lengthField("##bubbleH", &m_sketchShapeDimH);` |
+| CONVERTED | src/app/Application_Viewport.cpp:2168 | `if (!materializr::parseLength(m_sketchShapeDimBuf, mm) \|\| mm <= 0.0) return false;` |
+| CONVERTED | src/app/Application_Viewport.cpp:3291 | `(void)materializr::parseFinite(m_dimEditingBuf, dimPadV);` |
+| CONVERTED | src/app/Application_Viewport.cpp:3296 | `if (materializr::inputNumber("##dimval", &dimPadV, 0.0, 0.0, padFmt,` |
+| angle | src/app/Application_Viewport.cpp:6084 | `(void)materializr::parseFinite(m_sketchGizmoRotateBuf,` |
+| angle | src/app/Application_Viewport.cpp:6086 | `bool typedEnter = materializr::inputNumber(` |
+| angle | src/app/Application_Viewport.cpp:6099 | `(void)materializr::parseFinite(m_sketchGizmoRotateBuf, deg);` |
+| angle | src/app/Application_Viewport.cpp:6116 | `(void)materializr::parseFinite(m_sketchGizmoRotateBuf, deg);` |
+| CONVERTED | src/app/Application_Viewport.cpp:7418 | `materializr::lengthField("##dimW", &m_sketchShapeDimW);` |
+| CONVERTED | src/app/Application_Viewport.cpp:7421 | `materializr::lengthField("##dimH", &m_sketchShapeDimH);` |
+| CONVERTED | src/app/Application_Viewport.cpp:7457 | `const bool entered = materializr::inputNumber(` |
+| CONVERTED | src/app/Application_Viewport.cpp:7475 | `return dimIsLen ? materializr::lengthFieldCommit(shown) : shown;` |
+| CONVERTED | src/app/Application_Viewport.cpp:7510 | `const bool ok = isLen ? materializr::parseLength(m_sketchDimBuf, v0)` |
+| angle | src/app/Application_Viewport.cpp:7511 | `: materializr::parseFinite(m_sketchDimBuf, v0);` |
 | CONVERTED | src/app/EdgeOpController.cpp:823 | `if (materializr::amountLengthField("edgeAmt", isFillet ? "Radius" : "Distance", &m_value, /*allowSign=*/false,` |
 | CONVERTED | src/app/EdgeOpController.cpp:836 | `(void)materializr::parseLength(m_inputBuf, m_value);` |
 | CONVERTED | src/app/EdgeOpController.cpp:844 | `if (materializr::parseLength(m_inputBuf, parsed) &&` |
@@ -425,23 +425,23 @@ classifier is heuristic; rows it cannot decide are pinned in the script's OVERRI
 | comment | src/app/Application_Viewport.cpp:144 | `// 0.05 mm-per-pixel, which felt sluggish zoomed in and jumpy zoomed out.` |
 | comment | src/app/Application_Viewport.cpp:500 | `// the step (base 1 mm -> 10 mm) the drawn grid sat up to a full` |
 | comment | src/app/Application_Viewport.cpp:561 | `// 1-mm lines are clutter that drowns the major (10-mm) lines.` |
-| comment | src/app/Application_Viewport.cpp:1118 | `// coarsen them pinned the trim/pick radius at its 10 mm cap the` |
-| comment | src/app/Application_Viewport.cpp:1700 | `// Push/pull STARTS at 0 mm (no change), and drawDim draws` |
-| comment | src/app/Application_Viewport.cpp:1819 | `// the analogue of the mm readout for moves. Uses the cached pivot` |
-| comment | src/app/Application_Viewport.cpp:1885 | `// format hid everything under 0.1 mm. (No <cstring> needed -` |
-| comment | src/app/Application_Viewport.cpp:1887 | `auto fmtLen = [](char* out, size_t n, float v) {   // v is mm; prints display unit` |
-| identifier/other | src/app/Application_Viewport.cpp:2161 | `double mm = 0.0;   // "2in" honoured; bare = display unit` |
-| identifier/other | src/app/Application_Viewport.cpp:2162 | `if (!materializr::parseLength(m_sketchShapeDimBuf, mm) \|\| mm <= 0.0) return false;` |
-| identifier/other | src/app/Application_Viewport.cpp:2163 | `v = static_cast<float>(mm);` |
-| comment | src/app/Application_Viewport.cpp:2664 | `// Cursor in sketch mm - the space labelOffX/Y lives in, so a` |
-| comment | src/app/Application_Viewport.cpp:3312 | `// Convert to mm FIRST, then halve a circle's` |
-| comment | src/app/Application_Viewport.cpp:4858 | `// 0.5 mm + 0.5 % of view distance instead; an actually-` |
-| comment | src/app/Application_Viewport.cpp:4859 | `// occluding face is normally many mm in front.` |
-| comment | src/app/Application_Viewport.cpp:5317 | `// ~ 0.85 mm at 240 dpi is unhittable). Still clamped` |
-| comment | src/app/Application_Viewport.cpp:5763 | `// 0.5 mm line nudge → 1 mm mirror shift on a 1 mm grid).` |
-| comment | src/app/Application_Viewport.cpp:6289 | `// user lands within 0.4 mm of the previous click -` |
-| comment | src/app/Application_Viewport.cpp:7466 | `// The pad edits in the display unit; the floor is mm.` |
-| comment | src/app/Application_Viewport.cpp:7500 | `// Converting those display->mm made a typed 180 deg arrive` |
+| comment | src/app/Application_Viewport.cpp:1124 | `// coarsen them pinned the trim/pick radius at its 10 mm cap the` |
+| comment | src/app/Application_Viewport.cpp:1706 | `// Push/pull STARTS at 0 mm (no change), and drawDim draws` |
+| comment | src/app/Application_Viewport.cpp:1825 | `// the analogue of the mm readout for moves. Uses the cached pivot` |
+| comment | src/app/Application_Viewport.cpp:1891 | `// format hid everything under 0.1 mm. (No <cstring> needed -` |
+| comment | src/app/Application_Viewport.cpp:1893 | `auto fmtLen = [](char* out, size_t n, float v) {   // v is mm; prints display unit` |
+| identifier/other | src/app/Application_Viewport.cpp:2167 | `double mm = 0.0;   // "2in" honoured; bare = display unit` |
+| identifier/other | src/app/Application_Viewport.cpp:2168 | `if (!materializr::parseLength(m_sketchShapeDimBuf, mm) \|\| mm <= 0.0) return false;` |
+| identifier/other | src/app/Application_Viewport.cpp:2169 | `v = static_cast<float>(mm);` |
+| comment | src/app/Application_Viewport.cpp:2670 | `// Cursor in sketch mm - the space labelOffX/Y lives in, so a` |
+| comment | src/app/Application_Viewport.cpp:3318 | `// Convert to mm FIRST, then halve a circle's` |
+| comment | src/app/Application_Viewport.cpp:4864 | `// 0.5 mm + 0.5 % of view distance instead; an actually-` |
+| comment | src/app/Application_Viewport.cpp:4865 | `// occluding face is normally many mm in front.` |
+| comment | src/app/Application_Viewport.cpp:5323 | `// ~ 0.85 mm at 240 dpi is unhittable). Still clamped` |
+| comment | src/app/Application_Viewport.cpp:5769 | `// 0.5 mm line nudge → 1 mm mirror shift on a 1 mm grid).` |
+| comment | src/app/Application_Viewport.cpp:6295 | `// user lands within 0.4 mm of the previous click -` |
+| comment | src/app/Application_Viewport.cpp:7472 | `// The pad edits in the display unit; the floor is mm.` |
+| comment | src/app/Application_Viewport.cpp:7506 | `// Converting those display->mm made a typed 180 deg arrive` |
 | diagnostic | src/app/EdgeOpController.cpp:546 | `std::fprintf(stdout, "%s edited to %.1f mm\n",` |
 | diagnostic | src/app/EdgeOpController.cpp:558 | `std::fprintf(stdout, "%s %.1f mm committed\n",` |
 | comment | src/app/EdgeOpController.cpp:597 | `// visible arrow length (1 mm single / 0.6 mm per chamfer arrow) keeps the hit` |

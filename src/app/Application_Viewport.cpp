@@ -854,8 +854,14 @@ void Application::renderViewport() {
         bool gizmoShown = false;
         if (m_selection->hasSelectedBodies() && !m_selection->navigationOnly() &&
             !anyInteractiveOpActive) {
-            const auto& sel = m_selection->getSelection();
-            int bodyId = sel[0].bodyId;
+            // The first selected BODY, not the first item: with sketches picked
+            // before the body, sel[0] is a sketch (bodyId -1), getBody threw,
+            // and the gizmo silently never appeared - while the sketch branch
+            // below stands down because a body IS selected. The drag itself
+            // already gathers every body and sketch regardless of order.
+            int bodyId = -1;
+            for (const auto& e : m_selection->getSelection())
+                if (e.type == SelectionType::Body && e.bodyId >= 0) { bodyId = e.bodyId; break; }
             try {
                 const TopoDS_Shape& shape = m_document->getBody(bodyId);
                 // Cache the body's bbox-centre keyed on its TShape pointer.
