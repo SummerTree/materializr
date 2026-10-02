@@ -261,15 +261,13 @@ classifier is heuristic; rows it cannot decide are pinned in the script's OVERRI
 ## `mm` literals by class
 
 - CONVERTED: 1
-- READOUT-LITERAL: 1
 - allowed-by-hand: 92
-- comment: 280
+- comment: 281
 - diagnostic: 11
 - identifier/other: 9
 
 | class | file:line | code |
 |---|---|---|
-| READOUT-LITERAL | src/core/MeshParams.h:529 | `"%s -> %.3f mm\n", BRep_Tool::Surface(f)->DynamicType()->Name(),` |
 | comment | src/ai/AiToolDispatcher.cpp:227 | `// mm value formatted with up to 2 decimals, trailing zeros trimmed` |
 | allowed-by-hand | src/ai/AiToolDispatcher.cpp:345 | `"centered at (x=%.1f, y=%.1f, z=%.1f)mm, size (width=%.1f, depth=%.1f, height=%.1f)mm",` |
 | allowed-by-hand | src/ai/AiToolDispatcher.cpp:735 | `" at radius " + std::to_string(radius) + "mm"};` |
@@ -472,7 +470,8 @@ classifier is heuristic; rows it cannot decide are pinned in the script's OVERRI
 | comment | src/core/MeshParams.h:109 | `// a fan of 16 mm chords across the curve - a 0.4 mm flat dent in the STL.` |
 | comment | src/core/MeshParams.h:426 | `// How far a face's mesh strays from its surface, in mm: the worst gap between a` |
 | comment | src/core/MeshParams.h:491 | `// gross misses - the autumn wall fan was 3.9 mm off at 0.01.` |
-| diagnostic | src/core/MeshParams.h:528 | `std::fprintf(stderr, "[Mesh] %s face strayed %.3f mm from its surface (limit %.3f): "` |
+| comment | src/core/MeshParams.h:529 | `// format string's second half reads as a user-facing "mm" readout.` |
+| diagnostic | src/core/MeshParams.h:530 | `std::fprintf(stderr, "[Mesh] %s face strayed %.3f mm from its surface (limit %.3f): %s -> %.3f mm\n",` |
 | comment | src/core/SheetSpec.h:61 | `// offset = (T/2)·tan(θ/2). For a 90° corner in 12.7 mm ply this is 6.35 mm.` |
 | comment | src/io/DxfExport.cpp:14 | `// CAM package reads. Minimal file = HEADER ($ACADVER + $INSUNITS mm) and an` |
 | comment | src/io/DxfImport.cpp:35 | `double unitScale = 1.0; // file units → mm` |

@@ -525,9 +525,10 @@ inline int repairInaccurateFaces(const TopoDS_Shape& shape, double deflection,
             else BRep_Builder().UpdateFace(f, before);
         }
         if (best < sag) ++improved;
-        std::fprintf(stderr, "[Mesh] %s face strayed %.3f mm from its surface (limit %.3f): "
-                     "%s -> %.3f mm\n", BRep_Tool::Surface(f)->DynamicType()->Name(),
-                     sag, tol, how, best);
+        // One line: the units audit classifies line by line, and a wrapped
+        // format string's second half reads as a user-facing "mm" readout.
+        std::fprintf(stderr, "[Mesh] %s face strayed %.3f mm from its surface (limit %.3f): %s -> %.3f mm\n",
+                     BRep_Tool::Surface(f)->DynamicType()->Name(), sag, tol, how, best);
     }
     return improved;
 }

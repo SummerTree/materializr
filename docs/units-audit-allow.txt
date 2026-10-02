@@ -203,7 +203,8 @@ src/core/MeshParams.h:95:
 src/core/MeshParams.h:109:
 src/core/MeshParams.h:426:
 src/core/MeshParams.h:491:
-src/core/MeshParams.h:528:
+src/core/MeshParams.h:529:
+src/core/MeshParams.h:530:
 src/core/SheetSpec.h:61:
 src/io/DxfExport.cpp:14:
 src/io/DxfImport.cpp:35:
