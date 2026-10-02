@@ -21,6 +21,8 @@
 #include <Bnd_Box.hxx>
 #include <Geom_Plane.hxx>
 #include <Geom_Surface.hxx>
+#include <TopExp.hxx>
+#include <TopTools_IndexedMapOfShape.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
 #include <cmath>
@@ -186,6 +188,22 @@ std::unique_ptr<Operation> ExtrudeController::buildOp(const IopContext& ctx) {
     op->setMode(ExtrudeMode::NewBody);
     op->setSketchSource(m_sketchId);
     return op;
+}
+
+// Face count above which the boolean is worth a progress window. Measured on
+// hole-grid plates a cut costs ~155 ms at 102 faces and grows fast from there;
+// below this it finishes before a window could be drawn, so it stays inline.
+// A threaded target also stays inline: History reflows the cut beneath the
+// Thread step and re-cuts the thread around it, which a deferred push breaks.
+bool ExtrudeController::wantsDeferredCommit(const IopContext& ctx) const {
+    if (m_mode != ExtrudeMode::Subtract && m_mode != ExtrudeMode::Union) return false;
+    if (m_targetBody < 0 || ctx.history.isBodyThreaded(m_targetBody)) return false;
+    TopoDS_Shape target;
+    try { target = ctx.doc.getBody(m_targetBody); } catch (...) { return false; }
+    if (target.IsNull()) return false;
+    TopTools_IndexedMapOfShape faces;
+    TopExp::MapShapes(target, TopAbs_FACE, faces);
+    return faces.Extent() >= 40;
 }
 
 bool ExtrudeController::syncLiveOp(Operation& op) {

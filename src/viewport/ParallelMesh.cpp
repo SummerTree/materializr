@@ -1,6 +1,7 @@
 #include "ParallelMesh.h"
 
 #include "core/MeshParams.h"
+#include "io/MeshDiskCache.h"
 
 #include <BRepMesh_IncrementalMesh.hxx>
 #include <OSD.hxx>
@@ -133,8 +134,20 @@ ParallelMeshBatch parallelMesh(const std::vector<ParallelMeshJob>& jobs,
                             // first, the same reason tessellate() does.
                             if (options.mesh) options.mesh(jobs[i], deflection, angularDeflection);
                             else {
-                                BRepMesh_IncrementalMesh mesher(jobs[i].shape,
-                                    meshParams(deflection, angularDeflection, false));
+                                // Last open's mesh for these exact bytes, if
+                                // it was slow enough to keep (MeshDiskCache).
+                                if (!meshcache::load(jobs[i].shape, deflection,
+                                                     angularDeflection)) {
+                                    premeshRuledWalls(jobs[i].shape, deflection,
+                                                      angularDeflection);
+                                    BRepMesh_IncrementalMesh mesher(jobs[i].shape,
+                                        meshParams(deflection, angularDeflection, false));
+                                    repairInaccurateFaces(jobs[i].shape, deflection,
+                                                          angularDeflection);
+                                    if (elapsed(start) >= meshcache::kStoreMinMs)
+                                        meshcache::store(jobs[i].shape, deflection,
+                                                         angularDeflection);
+                                }
                             }
                             result.ok = true;
                             result.millis = elapsed(start);

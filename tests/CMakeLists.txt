@@ -97,6 +97,7 @@ add_library(materializr_core STATIC
     ${CMAKE_SOURCE_DIR}/src/modeling/GenerationLedger.cpp
     ${CMAKE_SOURCE_DIR}/src/io/ProjectIO.cpp
     ${CMAKE_SOURCE_DIR}/src/io/ImageDecode.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/MeshDiskCache.cpp
     ${CMAKE_SOURCE_DIR}/src/io/ImageEncode.cpp
     ${CMAKE_SOURCE_DIR}/src/modeling/FaceLineage.cpp
     ${CMAKE_SOURCE_DIR}/src/io/BrepIO.cpp

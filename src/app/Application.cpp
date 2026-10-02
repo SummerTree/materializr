@@ -109,6 +109,7 @@ inline void resetFpuForOcct() {
 #include "modeling/ResizeCylindricalOp.h"
 #include "io/StepIO.h"
 #include "io/StlExport.h"
+#include "io/MeshDiskCache.h"
 #include "io/SvgExport.h"
 #include "io/DxfExport.h"
 #include "io/FileDialogs.h"
@@ -4611,6 +4612,8 @@ void Application::loadProjectWithProgress(const std::string& path) {
     if (ok) {
         // Tessellate up front HERE (between frames) so the per-body progress
         // frames are safe, instead of letting the first render frame block.
+        // The disk mesh cache is consulted for this pass only (MeshDiskCache.h).
+        materializr::meshcache::LoadScope meshCacheScope;
         rebuildMeshes();
         m_meshesDirty = false;
     }

@@ -118,11 +118,11 @@ classifier is heuristic; rows it cannot decide are pinned in the script's OVERRI
 | CONVERTED | src/app/EdgeOpController.cpp:895 | `if (materializr::parseLength(m_inputBuf2, p2) &&` |
 | CONVERTED | src/app/EdgeOpController.cpp:905 | `materializr::lengthStepperRow("edgeStep2", &m_value2,` |
 | CONVERTED | src/app/EdgeOpController.cpp:929 | `(void)materializr::parseLength(m_inputBuf, m_value);` |
-| CONVERTED | src/app/ExtrudeController.cpp:411 | `if (materializr::amountLengthField("extAmt", materializr::tr("Distance"), &m_distance, /*allowSign=*/true)) {` |
-| CONVERTED | src/app/ExtrudeController.cpp:427 | `(void)materializr::parseLength(m_inputBuf, m_distance);` |
-| CONVERTED | src/app/ExtrudeController.cpp:434 | `if (materializr::parseLength(m_inputBuf, parsed) &&` |
-| CONVERTED | src/app/ExtrudeController.cpp:447 | `materializr::lengthStepperRow("extrudeStep", &m_distance,` |
-| CONVERTED | src/app/ExtrudeController.cpp:493 | `(void)materializr::parseLength(m_inputBuf, m_distance);` |
+| CONVERTED | src/app/ExtrudeController.cpp:429 | `if (materializr::amountLengthField("extAmt", materializr::tr("Distance"), &m_distance, /*allowSign=*/true)) {` |
+| CONVERTED | src/app/ExtrudeController.cpp:445 | `(void)materializr::parseLength(m_inputBuf, m_distance);` |
+| CONVERTED | src/app/ExtrudeController.cpp:452 | `if (materializr::parseLength(m_inputBuf, parsed) &&` |
+| CONVERTED | src/app/ExtrudeController.cpp:465 | `materializr::lengthStepperRow("extrudeStep", &m_distance,` |
+| CONVERTED | src/app/ExtrudeController.cpp:511 | `(void)materializr::parseLength(m_inputBuf, m_distance);` |
 | CONVERTED | src/app/FaceOpControllers.cpp:128 | `if (materializr::amountLengthField("shellAmt", nullptr, &m_thickness, /*allowSign=*/false, 0.1f, 20.0f)) {` |
 | CONVERTED | src/app/FaceOpControllers.cpp:144 | `(void)materializr::parseLength(m_inputBuf, m_thickness);` |
 | CONVERTED | src/app/FaceOpControllers.cpp:151 | `if (materializr::parseLength(m_inputBuf, parsed) &&` |
@@ -178,8 +178,8 @@ classifier is heuristic; rows it cannot decide are pinned in the script's OVERRI
 | CONVERTED | src/modeling/CopyOp.cpp:79 | `materializr::lengthField("X", &m_dx);` |
 | CONVERTED | src/modeling/CopyOp.cpp:80 | `materializr::lengthField("Y", &m_dy);` |
 | CONVERTED | src/modeling/CopyOp.cpp:81 | `materializr::lengthField("Z", &m_dz);` |
-| CONVERTED | src/modeling/ExtrudeOp.cpp:810 | `materializr::lengthField(materializr::tr("Distance"), &m_distance);` |
-| angle | src/modeling/ExtrudeOp.cpp:826 | `materializr::inputNumber(materializr::tr("Draft Angle"), &m_draftAngle, 0.1, 1.0, "%.1f");` |
+| CONVERTED | src/modeling/ExtrudeOp.cpp:869 | `materializr::lengthField(materializr::tr("Distance"), &m_distance);` |
+| angle | src/modeling/ExtrudeOp.cpp:885 | `materializr::inputNumber(materializr::tr("Draft Angle"), &m_draftAngle, 0.1, 1.0, "%.1f");` |
 | CONVERTED | src/modeling/FilletOp.cpp:676 | `materializr::lengthField(materializr::tr("Radius"), &m_radius);` |
 | CONVERTED | src/modeling/PatternOp.cpp:226 | `materializr::lengthField(materializr::tr("Spacing X"), &m_spacingX);` |
 | CONVERTED | src/modeling/PatternOp.cpp:227 | `materializr::lengthField(materializr::tr("Spacing Y"), &m_spacingY);` |
@@ -261,13 +261,15 @@ classifier is heuristic; rows it cannot decide are pinned in the script's OVERRI
 ## `mm` literals by class
 
 - CONVERTED: 1
+- READOUT-LITERAL: 1
 - allowed-by-hand: 92
-- comment: 277
-- diagnostic: 10
+- comment: 280
+- diagnostic: 11
 - identifier/other: 9
 
 | class | file:line | code |
 |---|---|---|
+| READOUT-LITERAL | src/core/MeshParams.h:529 | `"%s -> %.3f mm\n", BRep_Tool::Surface(f)->DynamicType()->Name(),` |
 | comment | src/ai/AiToolDispatcher.cpp:227 | `// mm value formatted with up to 2 decimals, trailing zeros trimmed` |
 | allowed-by-hand | src/ai/AiToolDispatcher.cpp:345 | `"centered at (x=%.1f, y=%.1f, z=%.1f)mm, size (width=%.1f, depth=%.1f, height=%.1f)mm",` |
 | allowed-by-hand | src/ai/AiToolDispatcher.cpp:735 | `" at radius " + std::to_string(radius) + "mm"};` |
@@ -341,25 +343,25 @@ classifier is heuristic; rows it cannot decide are pinned in the script's OVERRI
 | allowed-by-hand | src/ai/AiToolSchema.cpp:323 | `num("target_z", "Height (user-space Z, up) of the destination point, in mm.")}},` |
 | allowed-by-hand | src/ai/AiToolSchema.cpp:335 | `num("offset", "Offset distance from the plane along its normal, in mm. Defaults to 0.", false),` |
 | allowed-by-hand | src/ai/AiToolSchema.cpp:340 | `num("distance", "Sweep distance in mm. Must be nonzero. The sign picks a direction (positive = along the profi` |
-| comment | src/app/Application.cpp:939 | `// ios_platform.mm).` |
-| comment | src/app/Application.cpp:1197 | `// Create a demo box so there's something to see (a 20 mm cube) - but only` |
-| comment | src/app/Application.cpp:1991 | `// Absolute linear deflection (mm) and angular deflection (radians). Lower` |
-| comment | src/app/Application.cpp:2065 | `// or, from before the presets converted, wrote 1 and reloaded as a 1 mm` |
-| comment | src/app/Application.cpp:4432 | `// Sketch origin should lie on the face's plane within 0.05 mm.` |
-| comment | src/app/Application.cpp:4458 | `// origin on the face plane within 0.05 mm). Used to re-adopt a sketch whose` |
-| comment | src/app/Application.cpp:4844 | `// step is the snap lattice and the visible grid, so leaving it at 1 mm` |
-| comment | src/app/Application.cpp:4852 | `// 152 mm - see 0733a59, which reverted exactly that.` |
-| comment | src/app/Application.cpp:5625 | `// the surface's parametric origin ~0.3 mm off-axis - the fitted anchor` |
-| comment | src/app/Application.cpp:5687 | `// 0.64 mm off-axis). Fit a circle to the OUTER wire instead, then` |
-| comment | src/app/Application.cpp:5752 | `// then keeps the wrong band, landing 0.6 mm off with a` |
-| comment | src/app/Application.cpp:5801 | `// 0.64 mm off-axis at the surface origin) that WON` |
-| comment | src/app/Application.cpp:5895 | `// sides at a generous offset (1 mm) so tessellation slack near the` |
-| comment | src/app/Application.cpp:5910 | `const double eps = 1.0; // mm` |
-| comment | src/app/Application.cpp:6538 | `// lines wrote raw millimetres: placing a dimension under any non-mm unit` |
-| comment | src/app/Application.cpp:6573 | `// Hash point positions and circle/arc radii too (quantised to 1e-4 mm)` |
-| comment | src/app/Application.cpp:6920 | `// millimetres. 40 mm is a reasonable first view in millimetres and an` |
-| comment | src/app/Application.cpp:6980 | `// Measured offsets were 10–50% of a cell. At a 1 mm grid that reads as` |
-| comment | src/app/Application.cpp:6981 | `// slightly-fat lines; at 0.1 mm it is most of a cell, i.e. "I can't draw a` |
+| comment | src/app/Application.cpp:940 | `// ios_platform.mm).` |
+| comment | src/app/Application.cpp:1198 | `// Create a demo box so there's something to see (a 20 mm cube) - but only` |
+| comment | src/app/Application.cpp:1992 | `// Absolute linear deflection (mm) and angular deflection (radians). Lower` |
+| comment | src/app/Application.cpp:2066 | `// or, from before the presets converted, wrote 1 and reloaded as a 1 mm` |
+| comment | src/app/Application.cpp:4433 | `// Sketch origin should lie on the face's plane within 0.05 mm.` |
+| comment | src/app/Application.cpp:4459 | `// origin on the face plane within 0.05 mm). Used to re-adopt a sketch whose` |
+| comment | src/app/Application.cpp:4847 | `// step is the snap lattice and the visible grid, so leaving it at 1 mm` |
+| comment | src/app/Application.cpp:4855 | `// 152 mm - see 0733a59, which reverted exactly that.` |
+| comment | src/app/Application.cpp:5628 | `// the surface's parametric origin ~0.3 mm off-axis - the fitted anchor` |
+| comment | src/app/Application.cpp:5690 | `// 0.64 mm off-axis). Fit a circle to the OUTER wire instead, then` |
+| comment | src/app/Application.cpp:5755 | `// then keeps the wrong band, landing 0.6 mm off with a` |
+| comment | src/app/Application.cpp:5804 | `// 0.64 mm off-axis at the surface origin) that WON` |
+| comment | src/app/Application.cpp:5898 | `// sides at a generous offset (1 mm) so tessellation slack near the` |
+| comment | src/app/Application.cpp:5913 | `const double eps = 1.0; // mm` |
+| comment | src/app/Application.cpp:6541 | `// lines wrote raw millimetres: placing a dimension under any non-mm unit` |
+| comment | src/app/Application.cpp:6576 | `// Hash point positions and circle/arc radii too (quantised to 1e-4 mm)` |
+| comment | src/app/Application.cpp:6923 | `// millimetres. 40 mm is a reasonable first view in millimetres and an` |
+| comment | src/app/Application.cpp:6983 | `// Measured offsets were 10–50% of a cell. At a 1 mm grid that reads as` |
+| comment | src/app/Application.cpp:6984 | `// slightly-fat lines; at 0.1 mm it is most of a cell, i.e. "I can't draw a` |
 | comment | src/app/Application.h:697 | `// buttons are an explicit fine override (a 0.1 nudge under a 1 mm grid must` |
 | comment | src/app/Application.h:976 | `// Ceiling on the opening view of an EMPTY sketch, in mm of half-span.` |
 | comment | src/app/Application.h:978 | `// 300 mm because it reads as a round number in the units that needed` |
@@ -447,9 +449,9 @@ classifier is heuristic; rows it cannot decide are pinned in the script's OVERRI
 | comment | src/app/EdgeOpController.cpp:678 | `// Quantise the drag to the displayed precision (0.1 mm): every` |
 | comment | src/app/EdgeOpController.cpp:682 | `m_value = static_cast<float>(materializr::quantiseDragMm(m_value));   // display-unit step, not 0.1 mm` |
 | comment | src/app/EdgeOpController.cpp:754 | `// Minimum 1 mm visible even at value 0 so the handle can be seen and` |
-| diagnostic | src/app/ExtrudeController.cpp:259 | `std::fprintf(stdout, "Subtracted %.1f mm from %d of %zu bodies\n",` |
-| diagnostic | src/app/ExtrudeController.cpp:282 | `std::fprintf(stdout, "Extruded %.1f mm\n", m_distance);` |
-| diagnostic | src/app/ExtrudeController.cpp:291 | `std::fprintf(stdout, "Subtracted %.1f mm from body %d\n",` |
+| diagnostic | src/app/ExtrudeController.cpp:277 | `std::fprintf(stdout, "Subtracted %.1f mm from %d of %zu bodies\n",` |
+| diagnostic | src/app/ExtrudeController.cpp:300 | `std::fprintf(stdout, "Extruded %.1f mm\n", m_distance);` |
+| diagnostic | src/app/ExtrudeController.cpp:309 | `std::fprintf(stdout, "Subtracted %.1f mm from body %d\n",` |
 | comment | src/app/FaceOpControllers.cpp:163 | `// Snap to 0.1 mm - wall thicknesses are almost always in tenths, and a` |
 | comment | src/app/FaceOpControllers.cpp:164 | `// free-floating 3.47 mm slider value is just noise.` |
 | comment | src/app/FaceOpControllers.cpp:984 | `// in DISPLAY units. "%.2f" wrote mm into it and also fixed the` |
@@ -466,7 +468,11 @@ classifier is heuristic; rows it cannot decide are pinned in the script's OVERRI
 | comment | src/core/Document.h:56 | `// Half-size of the rendered translucent quad in mm. Free to grow later` |
 | comment | src/core/Document.h:57 | `// for autoscale; 50 mm (= 100 mm square) is a reasonable default that's` |
 | comment | src/core/Document.h:119 | `// a render-extent (halfLength for the drawn segment in mm).` |
-| comment | src/core/MeshParams.h:87 | `// outline, and Watson then spends 25 s+ on one at Ultra quality (0.01 mm /` |
+| comment | src/core/MeshParams.h:95 | `// outline, and Watson then spends 25 s+ on one at Ultra quality (0.01 mm /` |
+| comment | src/core/MeshParams.h:109 | `// a fan of 16 mm chords across the curve - a 0.4 mm flat dent in the STL.` |
+| comment | src/core/MeshParams.h:426 | `// How far a face's mesh strays from its surface, in mm: the worst gap between a` |
+| comment | src/core/MeshParams.h:491 | `// gross misses - the autumn wall fan was 3.9 mm off at 0.01.` |
+| diagnostic | src/core/MeshParams.h:528 | `std::fprintf(stderr, "[Mesh] %s face strayed %.3f mm from its surface (limit %.3f): "` |
 | comment | src/core/SheetSpec.h:61 | `// offset = (T/2)·tan(θ/2). For a 90° corner in 12.7 mm ply this is 6.35 mm.` |
 | comment | src/io/DxfExport.cpp:14 | `// CAM package reads. Minimal file = HEADER ($ACADVER + $INSUNITS mm) and an` |
 | comment | src/io/DxfImport.cpp:35 | `double unitScale = 1.0; // file units → mm` |
@@ -478,9 +484,9 @@ classifier is heuristic; rows it cannot decide are pinned in the script's OVERRI
 | comment | src/io/Settings.h:184 | `// to mm on load, after the display unit is applied.` |
 | comment | src/io/Settings.h:209 | `// (0 mm, 1 cm, 2 m, 3 in, 4 ft). An int for the same reason language is -` |
 | comment | src/io/Settings.h:210 | `// this header stays free of core/Units.h. The model is always mm; this only` |
-| comment | src/io/StlExport.cpp:249 | `// OrcaSlicer silently dropped the bottom 5 mm of the print.` |
-| comment | src/io/StlExport.cpp:251 | `// Welding vertices at 1e-3 mm alone took those 6,904 open edges to ONE` |
-| comment | src/io/StlExport.cpp:291 | `{   // weld at 1e-3 mm` |
+| comment | src/io/StlExport.cpp:252 | `// OrcaSlicer silently dropped the bottom 5 mm of the print.` |
+| comment | src/io/StlExport.cpp:254 | `// Welding vertices at 1e-3 mm alone took those 6,904 open edges to ONE` |
+| comment | src/io/StlExport.cpp:294 | `{   // weld at 1e-3 mm` |
 | comment | src/io/StlExport.h:13 | `double linearDeflection = 0.01;  // mm - chord deviation (smaller = smoother)` |
 | comment | src/io/SvgExport.cpp:150 | `// 1 SVG user unit = 1 mm; Y flipped (CAD Y-up -> SVG Y-down).` |
 | comment | src/ios_platform.h:4 | `// iOS runtime services (implemented in ios_platform.mm). Safe to include` |
@@ -679,7 +685,7 @@ classifier is heuristic; rows it cannot decide are pinned in the script's OVERRI
 | no-length | src/modeling/DefeatureOp.cpp:60 | `DefeatureOp` |
 | no-length | src/modeling/DeleteOp.cpp:51 | `DeleteOp` |
 | no-length | src/modeling/DuplicateSketchOp.cpp:41 | `DuplicateSketchOp` |
-| CONVERTED | src/modeling/ExtrudeOp.cpp:795 | `ExtrudeOp` |
+| CONVERTED | src/modeling/ExtrudeOp.cpp:854 | `ExtrudeOp` |
 | CONVERTED | src/modeling/FaceTweakOp.cpp:126 | `FaceTweakOp` |
 | CONVERTED | src/modeling/FilletOp.cpp:667 | `FilletOp` |
 | no-length | src/modeling/GuidedLoftOp.cpp:421 | `GuidedLoftOp` |

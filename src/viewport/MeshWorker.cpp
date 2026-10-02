@@ -171,6 +171,7 @@ void MeshWorker::run()
         r.angularDeflection = job.angularDeflection;
         try {
             const auto t0 = std::chrono::steady_clock::now();
+            materializr::premeshRuledWalls(job.copy, job.deflection, job.angularDeflection);
             BRepMesh_IncrementalMesh mesher(
                 job.copy, materializr::meshParams(job.deflection, job.angularDeflection, true));
             r.millis = std::chrono::duration<double, std::milli>(
@@ -196,6 +197,9 @@ void MeshWorker::run()
                     materializr::meshBareFaceEscalating(jf.copy, job.deflection,
                                                         job.angularDeflection);
             }
+            // Meshed but wrong is the other failure - see repairInaccurateFaces.
+            materializr::repairInaccurateFaces(job.copy, job.deflection,
+                                               job.angularDeflection);
             for (const auto& jf : job.faces) {
                 Result::Face rf;
                 rf.live = jf.live;

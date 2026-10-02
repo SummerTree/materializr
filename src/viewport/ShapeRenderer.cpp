@@ -7,6 +7,7 @@
 #include <TopoDS_Shape.hxx>
 #include <BRepMesh_IncrementalMesh.hxx>
 #include "core/MeshParams.h"
+#include "io/MeshDiskCache.h"
 #include <chrono>
 #include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
@@ -266,6 +267,14 @@ int ShapeRenderer::tessellate(const TopoDS_Shape& shape, float deflection,
 #ifdef MZR_PARALLEL_MESH_TESTING
         ++m_meshCallsForTest;
 #endif
+        // Opening a project: the same bytes as last time mesh the same way,
+        // so take last time's mesh if it was worth keeping (MeshDiskCache).
+        const bool fromDisk =
+            materializr::meshcache::load(shape, deflection, angularDeflection);
+        if (!fromDisk) {
+        // Ruled walls first, exactly: the general pass keeps them, and spent
+        // 16 s on autumn.mzr's lettering wall at Ultra (meshing it wrong).
+        materializr::premeshRuledWalls(shape, deflection, angularDeflection);
         BRepMesh_IncrementalMesh meshGen(
             shape, materializr::meshParams(deflection, angularDeflection, true));
 
@@ -299,9 +308,14 @@ int ShapeRenderer::tessellate(const TopoDS_Shape& shape, float deflection,
                 "[ShapeRenderer] Delabella left %d face(s) bare - Watson "
                 "fallback recovered %d\n", watsonRetried, watsonRecovered);
         }
+        // A face can also come back meshed but wrong - see repairInaccurateFaces.
+        materializr::repairInaccurateFaces(shape, deflection, angularDeflection);
+        }
 
         m_lastMeshMs = std::chrono::duration<double, std::milli>(
                            std::chrono::steady_clock::now() - t0).count();
+        if (!fromDisk && m_lastMeshMs >= materializr::meshcache::kStoreMinMs)
+            materializr::meshcache::store(shape, deflection, angularDeflection);
         m_meshedAt[key] = materializr::makeMeshTag(shape, deflection, angularDeflection);
     }
 

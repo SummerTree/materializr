@@ -237,7 +237,10 @@ StlExportResult StlExport::exportShape(const std::string& filePath, const TopoDS
     // face with zero triangles on otherwise valid geometry - meshWithFallback
     // retries any bare face with Watson, then escalating deflection, so a
     // spline-derived face doesn't silently vanish from the export.
-    materializr::meshWithFallback(shape, options.linearDeflection, options.angularDeflection, false);
+    // In parallel: the gather below walks faces in explorer order whatever
+    // order they were meshed in, and single-threaded this was the slow half
+    // of an export (autumn.mzr: ~475k triangles at the default quality).
+    materializr::meshWithFallback(shape, options.linearDeflection, options.angularDeflection, true);
 
     // Gather, weld, and repair the mesh before writing.
     //

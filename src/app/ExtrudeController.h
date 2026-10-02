@@ -70,6 +70,9 @@ protected:
     int onBegin(const IopContext& ctx) override;
     std::unique_ptr<Operation> buildOp(const IopContext& ctx) override;
     bool syncLiveOp(Operation& op) override;
+    // A Subtract/Union against a face-heavy body runs its boolean behind the
+    // cancellable progress window, like Push/Pull, instead of freezing the frame.
+    bool wantsDeferredCommit(const IopContext& ctx) const override;
     std::unique_ptr<Operation> buildCommitOp(const IopContext& ctx) override;
     void panelBody(const IopContext& ctx, bool& changed) override;
     // The panel is renderExtrudePanel (viewport-anchored), so the scaffold's

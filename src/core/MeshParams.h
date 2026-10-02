@@ -43,8 +43,16 @@
 #include <Message_ProgressIndicator.hxx>
 #include <Message_ProgressScope.hxx>
 #include <Standard_Type.hxx>
+#include <Geom_BSplineSurface.hxx>
+#include <Geom_Plane.hxx>
+#include <Geom_RectangularTrimmedSurface.hxx>
+#include <Geom_Surface.hxx>
+#include <GeomAdaptor_Curve.hxx>
 #include <algorithm>
 #include <chrono>
+#include <limits>
+#include <cstdio>
+#include <utility>
 
 namespace materializr {
 
@@ -91,11 +99,61 @@ private:
 inline bool meshExtrusionWallTrimmed(const TopoDS_Face& f, double deflection,
                                      double angularDeflection);
 
+// A wall swept straight along one direction: S(u, v) = C(u) + (v - vRef) * perV.
+// A prism wall is one (SurfaceOfLinearExtrusion). So is a B-spline that is
+// degree 1 with two pole rows in v, where the second row is the first moved by
+// one fixed vector - which is what a traced outline's wall becomes once a
+// boolean or a union has rebuilt it (autumn.mzr: a degree-8, 3243-pole wall,
+// rows exact translates). The type check used to accept only the prism kind,
+// so those walls went to Delabella, which meshed one around a drilled hole as
+// a fan of 16 mm chords across the curve - a 0.4 mm flat dent in the STL.
+struct RuledWall {
+    Handle(Adaptor3d_Curve) base;   // C(u), in the triangulation's (face-local) frame
+    gp_Vec perV;
+    double vRef = 0.0;
+    gp_Pnt at(const gp_Pnt& c, double v) const { return c.Translated(perV * (v - vRef)); }
+};
+
+inline bool ruledWallOf(const TopoDS_Face& f, RuledWall& w) {
+    BRepAdaptor_Surface s(f, Standard_False);
+    if (s.GetType() == GeomAbs_SurfaceOfExtrusion) {
+        w.base = s.BasisCurve();
+        w.perV = gp_Vec(s.Direction());
+        w.vRef = 0.0;
+        return !w.base.IsNull();
+    }
+    if (s.GetType() != GeomAbs_BSplineSurface) return false;
+    TopLoc_Location loc;
+    Handle(Geom_Surface) gs = BRep_Tool::Surface(f, loc);
+    while (Handle(Geom_RectangularTrimmedSurface) t = Handle(Geom_RectangularTrimmedSurface)::DownCast(gs))
+        gs = t->BasisSurface();
+    Handle(Geom_BSplineSurface) bs = Handle(Geom_BSplineSurface)::DownCast(gs);
+    if (bs.IsNull() || bs->VDegree() != 1 || bs->NbVPoles() != 2 || bs->IsVPeriodic())
+        return false;
+    const gp_Vec d(bs->Pole(1, 1), bs->Pole(1, 2));
+    const double len = d.Magnitude();
+    if (len < 1e-9) return false;
+    const bool rational = bs->IsURational() || bs->IsVRational();
+    for (int i = 1; i <= bs->NbUPoles(); ++i) {
+        if ((gp_Vec(bs->Pole(i, 1), bs->Pole(i, 2)) - d).Magnitude() > 1e-7 * len + 1e-9)
+            return false;
+        // A weight that differs between the two rows bends the ruling.
+        if (rational && std::abs(bs->Weight(i, 1) - bs->Weight(i, 2)) > 1e-12 * bs->Weight(i, 1))
+            return false;
+    }
+    const double v0 = bs->VKnot(1), v1 = bs->VKnot(bs->NbVKnots());
+    if (!(v1 > v0)) return false;
+    w.base = new GeomAdaptor_Curve(bs->VIso(v0));
+    w.perV = d / (v1 - v0);
+    w.vRef = v0;
+    return true;
+}
+
 inline bool meshExtrusionWallStrip(const TopoDS_Face& f, double deflection,
                                    double angularDeflection) {
     try {
-        BRepAdaptor_Surface s(f, Standard_False);   // raw surface: nodes stay in face-local coordinates
-        if (s.GetType() != GeomAbs_SurfaceOfExtrusion) return false;
+        RuledWall w;
+        if (!ruledWallOf(f, w)) return false;
         int alongU = 0, alongV = 0;
         for (TopExp_Explorer ex(f, TopAbs_EDGE); ex.More(); ex.Next()) {
             double a = 0.0, b = 0.0;
@@ -119,19 +177,20 @@ inline bool meshExtrusionWallStrip(const TopoDS_Face& f, double deflection,
         double u0, u1, v0, v1;
         BRepTools::UVBounds(f, u0, u1, v0, v1);
         if (!(v1 > v0) || !(u1 > u0)) return false;
-        const gp_Vec dir(s.Direction());
-        Handle(Adaptor3d_Curve) base = s.BasisCurve();
-        if (base.IsNull()) return false;
 
-        GCPnts_TangentialDeflection pts(*base, u0, u1, angularDeflection, deflection, 2);
+        GCPnts_TangentialDeflection pts(*w.base, u0, u1, angularDeflection, deflection, 2);
         const int n = pts.NbPoints();
         if (n < 2) return false;
 
-        Handle(Poly_Triangulation) tri = new Poly_Triangulation(2 * n, 2 * (n - 1), Standard_False);
+        // UV nodes too, so meshSag can check this mesh like any other.
+        Handle(Poly_Triangulation) tri = new Poly_Triangulation(2 * n, 2 * (n - 1), Standard_True);
         for (int k = 0; k < n; ++k) {
             const gp_Pnt c = pts.Value(k + 1);
-            tri->SetNode(k + 1, c.Translated(dir * v0));
-            tri->SetNode(n + k + 1, c.Translated(dir * v1));
+            const double u = pts.Parameter(k + 1);
+            tri->SetNode(k + 1, w.at(c, v0));
+            tri->SetNode(n + k + 1, w.at(c, v1));
+            tri->SetUVNode(k + 1, gp_Pnt2d(u, v0));
+            tri->SetUVNode(n + k + 1, gp_Pnt2d(u, v1));
         }
         for (int k = 1; k < n; ++k) {       // natural surface orientation (du x dv)
             tri->SetTriangle(2 * k - 1, Poly_Triangle(k, k + 1, n + k + 1));
@@ -170,8 +229,8 @@ inline bool meshExtrusionWallStrip(const TopoDS_Face& f, double deflection,
 inline bool meshExtrusionWallTrimmed(const TopoDS_Face& f, double deflection,
                                      double angularDeflection) {
     try {
-        BRepAdaptor_Surface s(f, Standard_False);
-        if (s.GetType() != GeomAbs_SurfaceOfExtrusion) return false;
+        RuledWall w;
+        if (!ruledWallOf(f, w)) return false;
         double u0, u1, v0, v1;
         BRepTools::UVBounds(f, u0, u1, v0, v1);
         if (!(v1 > v0) || !(u1 > u0)) return false;
@@ -217,10 +276,7 @@ inline bool meshExtrusionWallTrimmed(const TopoDS_Face& f, double deflection,
         }
         if (runs.empty()) return false;
 
-        const gp_Vec dir(s.Direction());
-        Handle(Adaptor3d_Curve) base = s.BasisCurve();
-        if (base.IsNull()) return false;
-        GCPnts_TangentialDeflection pts(*base, u0, u1, angularDeflection, deflection, 2);
+        GCPnts_TangentialDeflection pts(*w.base, u0, u1, angularDeflection, deflection, 2);
         for (int k = 1; k <= pts.NbPoints(); ++k) breaks.insert(pts.Parameter(k));
 
         std::vector<double> U;
@@ -239,15 +295,17 @@ inline bool meshExtrusionWallTrimmed(const TopoDS_Face& f, double deflection,
         };
 
         std::vector<gp_Pnt> colPt(U.size());
-        for (size_t i = 0; i < U.size(); ++i) colPt[i] = base->Value(U[i]);
+        for (size_t i = 0; i < U.size(); ++i) colPt[i] = w.base->Value(U[i]);
 
         std::vector<gp_Pnt> nodes;
+        std::vector<gp_Pnt2d> uvs;
         std::map<std::pair<size_t, long long>, int> nodeOf;   // (column, v) -> node, shared
         auto node = [&](size_t i, double v) {
             auto key = std::make_pair(i, std::llround(v * 1e6));
             auto it = nodeOf.find(key);
             if (it != nodeOf.end()) return it->second;
-            nodes.push_back(colPt[i].Translated(dir * v));
+            nodes.push_back(w.at(colPt[i], v));
+            uvs.emplace_back(U[i], v);
             return nodeOf[key] = int(nodes.size());
         };
         std::vector<Poly_Triangle> tris;
@@ -276,8 +334,11 @@ inline bool meshExtrusionWallTrimmed(const TopoDS_Face& f, double deflection,
         if (tris.empty()) return false;
 
         Handle(Poly_Triangulation) tri =
-            new Poly_Triangulation(int(nodes.size()), int(tris.size()), Standard_False);
-        for (size_t k = 0; k < nodes.size(); ++k) tri->SetNode(int(k) + 1, nodes[k]);
+            new Poly_Triangulation(int(nodes.size()), int(tris.size()), Standard_True);
+        for (size_t k = 0; k < nodes.size(); ++k) {
+            tri->SetNode(int(k) + 1, nodes[k]);
+            tri->SetUVNode(int(k) + 1, uvs[k]);
+        }
         for (size_t k = 0; k < tris.size(); ++k) tri->SetTriangle(int(k) + 1, tris[k]);
         tri->Deflection(deflection);
         BRep_Builder().UpdateFace(f, tri);
@@ -362,6 +423,115 @@ inline bool meshBareFaceEscalating(const TopoDS_Face& f, double deflection,
     return false;
 }
 
+// How far a face's mesh strays from its surface, in mm: the worst gap between a
+// triangle's centroid and the surface point at that triangle's UV centroid,
+// over the `cap` LONGEST triangles (sag grows with size, so a bad region is
+// always among them - a fan of chords is long by definition). Planes are 0 by
+// construction, as is a mesh without UV nodes (nothing to compare against).
+inline double meshSag(const TopoDS_Face& f, const Handle(Poly_Triangulation)& t,
+                      int cap = 2000) {
+    if (t.IsNull() || !t->HasUVNodes() || t->NbTriangles() == 0) return 0.0;
+    try {
+        TopLoc_Location sl;
+        Handle(Geom_Surface) gs = BRep_Tool::Surface(f, sl);
+        if (gs.IsNull()) return 0.0;
+        Handle(Geom_Surface) basis = gs;
+        while (Handle(Geom_RectangularTrimmedSurface) tr = Handle(Geom_RectangularTrimmedSurface)::DownCast(basis))
+            basis = tr->BasisSurface();
+        if (!Handle(Geom_Plane)::DownCast(basis).IsNull()) return 0.0;
+        TopLoc_Location tl;
+        BRep_Tool::Triangulation(f, tl);
+        const bool sameFrame = tl.IsEqual(sl);
+
+        const int n = t->NbTriangles();
+        std::vector<std::pair<double, int>> bySize(n);
+        for (int k = 1; k <= n; ++k) {
+            int a, b, c; t->Triangle(k).Get(a, b, c);
+            const gp_Pnt A = t->Node(a), B = t->Node(b), C = t->Node(c);
+            bySize[k - 1] = {std::max({A.SquareDistance(B), B.SquareDistance(C), C.SquareDistance(A)}), k};
+        }
+        if (n > cap) {
+            std::nth_element(bySize.begin(), bySize.begin() + cap, bySize.end(),
+                             [](const auto& x, const auto& y) { return x.first > y.first; });
+            bySize.resize(cap);
+        }
+        double worst = 0.0;
+        for (const auto& [sz, k] : bySize) {
+            (void)sz;
+            int a, b, c; t->Triangle(k).Get(a, b, c);
+            gp_XYZ m = (t->Node(a).XYZ() + t->Node(b).XYZ() + t->Node(c).XYZ()) / 3.0;
+            const gp_XY uv = (t->UVNode(a).XY() + t->UVNode(b).XY() + t->UVNode(c).XY()) / 3.0;
+            gp_Pnt onSurf = gs->Value(uv.X(), uv.Y());
+            gp_Pnt onMesh(m);
+            if (!sameFrame) {
+                onSurf.Transform(sl.Transformation());
+                onMesh.Transform(tl.Transformation());
+            }
+            worst = std::max(worst, onSurf.Distance(onMesh));
+        }
+        return worst;
+    } catch (...) {
+        return 0.0;
+    }
+}
+
+// Re-mesh any face whose mesh strays far from its surface - a mesher that
+// "succeeded" but fanned long chords across a curve (Delabella does this: it
+// adds no interior points, so nothing makes it follow the curvature between
+// distant boundary nodes). Bare faces are the fallback loop's job, not this.
+// A ruled wall goes to the exact strip mesher; anything else gets a bounded
+// Watson pass with surface-deflection control on. Whichever mesh is truer
+// wins, so this never leaves a face worse than it found it. Returns how many
+// faces it improved.
+inline int repairInaccurateFaces(const TopoDS_Shape& shape, double deflection,
+                                 double angularDeflection) {
+    // Generous on purpose: a legitimate mesh can sit a little over the chord
+    // deflection at a centroid (cones and offset faces at 1.05x were tripping a
+    // 4x limit and paying for a Watson pass each), and this exists for the
+    // gross misses - the autumn wall fan was 3.9 mm off at 0.01.
+    const double tol = std::max(10.0 * deflection, 0.05);
+    int improved = 0;
+    for (TopExp_Explorer fx(shape, TopAbs_FACE); fx.More(); fx.Next()) {
+        const TopoDS_Face& f = TopoDS::Face(fx.Current());
+        TopLoc_Location loc;
+        const Handle(Poly_Triangulation) old = BRep_Tool::Triangulation(f, loc);
+        if (old.IsNull()) continue;
+        const double sag = meshSag(f, old);
+        if (sag <= tol) continue;
+
+        double best = sag;
+        const char* how = "kept";
+        if (meshExtrusionWallStrip(f, deflection, angularDeflection)) {
+            const double s2 = meshSag(f, BRep_Tool::Triangulation(f, loc));
+            if (s2 < best) { best = s2; how = "ruled strip"; }
+            else BRep_Builder().UpdateFace(f, old);
+        }
+        if (best > tol) {
+            const Handle(Poly_Triangulation) before = BRep_Tool::Triangulation(f, loc);
+            try {
+                IMeshTools_Parameters wp = meshParams(deflection, angularDeflection, false);
+                wp.MeshAlgo = IMeshTools_MeshAlgoType_Watson;
+                wp.ControlSurfaceDeflection = true;
+                BRepTools::Clean(f);
+                opencascade::handle<MeshDeadline> pi = new MeshDeadline(kBareFaceBudgetSec);
+                BRepMesh_IncrementalMesh retry(f, wp, pi->Start());
+                if (pi->UserBreak()) BRepTools::Clean(f);
+            } catch (...) {
+                BRepTools::Clean(f);
+            }
+            const Handle(Poly_Triangulation) w = BRep_Tool::Triangulation(f, loc);
+            const double s3 = w.IsNull() ? std::numeric_limits<double>::infinity() : meshSag(f, w);
+            if (s3 < best) { best = s3; how = "Watson"; }
+            else BRep_Builder().UpdateFace(f, before);
+        }
+        if (best < sag) ++improved;
+        std::fprintf(stderr, "[Mesh] %s face strayed %.3f mm from its surface (limit %.3f): "
+                     "%s -> %.3f mm\n", BRep_Tool::Surface(f)->DynamicType()->Name(),
+                     sag, tol, how, best);
+    }
+    return improved;
+}
+
 // Delabella (meshParams()'s algorithm, chosen for speed on many-holed faces)
 // can leave a face with zero triangles on otherwise fully BRepCheck-valid,
 // closed geometry - confirmed on real boolean-result bodies (issue #117).
@@ -374,9 +544,32 @@ inline bool meshBareFaceEscalating(const TopoDS_Face& f, double deflection,
 // once (the main render path, and again for the async worker a live
 // interactive op's result gets pre-meshed on) precisely because it is easy to
 // add a new meshing call site without remembering the fallback.
+// Mesh every curved ruled wall with the exact strip mesher BEFORE the general
+// pass, which keeps a face whose triangulation already meets the requested
+// deflection. Delabella spent 82 s (in parallel) on autumn.mzr's 3243-pole
+// lettering wall at export quality, and fanned it wrong; the strip is exact
+// and takes milliseconds. Straight-sided ruled faces (a flat quad patch) are
+// left to Delabella - nothing to gain there. Returns how many faces it took.
+inline int premeshRuledWalls(const TopoDS_Shape& shape, double deflection,
+                             double angularDeflection) {
+    int n = 0;
+    for (TopExp_Explorer fx(shape, TopAbs_FACE); fx.More(); fx.Next()) {
+        const TopoDS_Face& f = TopoDS::Face(fx.Current());
+        RuledWall w;
+        if (!ruledWallOf(f, w)) continue;
+        const GeomAbs_CurveType ct = w.base->GetType();
+        if (ct == GeomAbs_Line ||
+            (ct == GeomAbs_BSplineCurve && w.base->Degree() == 1 && w.base->NbPoles() == 2))
+            continue;
+        if (meshExtrusionWallStrip(f, deflection, angularDeflection)) ++n;
+    }
+    return n;
+}
+
 inline void meshWithFallback(const TopoDS_Shape& shape, double deflection,
                              double angularDeflection, bool inParallel)
 {
+    premeshRuledWalls(shape, deflection, angularDeflection);
     BRepMesh_IncrementalMesh(shape, meshParams(deflection, angularDeflection, inParallel));
     for (TopExp_Explorer fx(shape, TopAbs_FACE); fx.More(); fx.Next()) {
         const TopoDS_Face& f = TopoDS::Face(fx.Current());
@@ -396,6 +589,7 @@ inline void meshWithFallback(const TopoDS_Shape& shape, double deflection,
         if (BRep_Tool::Triangulation(f, loc).IsNull())
             meshBareFaceEscalating(f, deflection, angularDeflection);
     }
+    repairInaccurateFaces(shape, deflection, angularDeflection);
 }
 
 } // namespace materializr

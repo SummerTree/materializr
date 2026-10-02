@@ -2,6 +2,8 @@
 #include "core/Units.h"
 #include "../core/NumFormat.h"
 #include "../core/UiKeepAlive.h"
+#include "../core/OpProgress.h"
+#include <functional>
 #include "ExtrudeOp.h"
 #include <BRepTools.hxx>
 #include <BRep_Builder.hxx>
@@ -283,9 +285,18 @@ void ExtrudeOp::setDraftAngle(double degrees) {
 // these cuts RE-RUN at project load, so one bad step made the file unopenable:
 // the app sat at 98% CPU forever before the window ever appeared.
 namespace {
-struct ExtrudeTimeBox : public Message_ProgressIndicator {
+// The 45 s abandon budget and the UI keep-alive, on top of OpProgressBridge so
+// a commit run behind the progress window (ExtrudeController::
+// wantsDeferredCommit) also gets a live bar and a Cancel that lands inside the
+// boolean. With no sink the bridge reports nothing and this is the keep-alive
+// and time box alone, exactly as before.
+struct ExtrudeTimeBox : public materializr::OpProgressBridge {
+    DEFINE_STANDARD_RTTI_INLINE(ExtrudeTimeBox, materializr::OpProgressBridge)
     std::clock_t start; double limit;
-    explicit ExtrudeTimeBox(double seconds) : start(std::clock()), limit(seconds) {}
+    ExtrudeTimeBox(double seconds, std::function<bool(float, const char*)> sink,
+                   const char* label)
+        : materializr::OpProgressBridge(std::move(sink), label),
+          start(std::clock()), limit(seconds) {}
     Standard_Boolean UserBreak() override {
         // These two overrides are the ONLY points where control comes back to
         // us during a multi-second Build(). Pump the UI here or the window
@@ -293,23 +304,32 @@ struct ExtrudeTimeBox : public Message_ProgressIndicator {
         // four of these booleans re-run back to back on every project load.
         // uiKeepAlive() self-throttles and no-ops off the main thread.
         materializr::uiKeepAlive();
+        return materializr::OpProgressBridge::UserBreak() ||
+               double(std::clock() - start) / CLOCKS_PER_SEC > limit;
+    }
+    bool timedOut() const {
         return double(std::clock() - start) / CLOCKS_PER_SEC > limit;
     }
-    void Show(const Message_ProgressScope&, const Standard_Boolean) override {
+protected:
+    void Show(const Message_ProgressScope& s, const Standard_Boolean f) override {
+        materializr::OpProgressBridge::Show(s, f);
         materializr::uiKeepAlive();
     }
 };
 template <class OP>
 bool timedBooleanBuild(OP& op, const TopoDS_Shape& a, const TopoDS_Shape& b,
-                       const char* what) {
+                       const char* what,
+                       std::function<bool(float, const char*)> sink = {}) {
     TopTools_ListOfShape la, lb;
     la.Append(a); lb.Append(b);
     op.SetArguments(la);
     op.SetTools(lb);
     op.SetRunParallel(Standard_True);
-    Handle(ExtrudeTimeBox) tb = new ExtrudeTimeBox(45.0);
+    Handle(ExtrudeTimeBox) tb = new ExtrudeTimeBox(45.0, std::move(sink),
+                                                   materializr::tr("Extrude"));
     op.Build(tb->Start());
-    if (tb->UserBreak()) {
+    if (tb->cancelled()) return false;   // user cancel: a clean no-op
+    if (tb->timedOut()) {
         std::fprintf(stderr, "[Extrude] %s abandoned after 45 s -- the target "
                      "body's geometry is too degenerate for this boolean.\n", what);
         return false;
@@ -501,7 +521,7 @@ bool ExtrudeOp::execute(Document& doc) {
                     m_prevFaceIds = *im;
                 BRepAlgoAPI_Fuse fuse;
                 if (!timedBooleanBuild(fuse, m_previousTargetShape, extrudedShape,
-                                       "fuse")) return false;
+                                       "fuse", progressSink())) return false;
                 TopoDS_Shape fused = fuse.Shape();
                 fused = materializr::unifySameDomain(fused, "Extrude fuse");
                 if (!commitGuard(fused)) {
@@ -522,7 +542,7 @@ bool ExtrudeOp::execute(Document& doc) {
                     m_prevFaceIds = *im;
                 BRepAlgoAPI_Cut cut;
                 if (!timedBooleanBuild(cut, m_previousTargetShape, extrudedShape,
-                                       "cut")) return false;
+                                       "cut", progressSink())) return false;
                 if (!commitGuard(cut.Shape())) {
                     return false;
                 }
@@ -606,6 +626,23 @@ std::string ExtrudeOp::serializeParams() const {
             blob += pb;
         }
     }
+    // The footprint a boolean-mode reload recovers with a full cut between the
+    // step's before/after bodies. It only depends on saved data, so save the
+    // OUTCOME and the next load skips the cut: the profile when it worked, an
+    // empty record when it didn't. The failure is the case that mattered - on
+    // autumn.mzr's two holes the cut never finishes, and each load spent its
+    // whole 45 s CPU budget (4 s wall on 32 cores, far longer on a laptop)
+    // just to arrive at no profile again. Length-prefixed, ahead of any brep
+    // blob; deserializeParams lifts it out before parsing the rest.
+    if (m_sketchId >= 0 && (m_recoveryTried || !m_recoveredProfile.IsNull())) {
+        std::string fp;
+        if (!m_recoveredProfile.IsNull()) {
+            std::ostringstream os;
+            BRepTools::Write(m_recoveredProfile, os);
+            fp = os.str();
+        }
+        blob += ";fp=" + std::to_string(fp.size()) + ":" + fp;
+    }
     if (m_sketchId < 0 && !m_profile.IsNull()) {
         std::ostringstream os;
         BRepTools::Write(m_profile, os);
@@ -615,9 +652,29 @@ std::string ExtrudeOp::serializeParams() const {
     return blob;
 }
 
-bool ExtrudeOp::deserializeParams(const std::string& blob) {
+bool ExtrudeOp::deserializeParams(const std::string& rawBlob) {
     bool any = false;
     size_t pos = 0;
+    // Saved recovered footprint (see serializeParams): read it, then cut the
+    // whole record out so the scalar and brep parsing below never see it.
+    std::string blob = rawBlob;
+    const size_t fkey = blob.find(";fp=");
+    if (fkey != std::string::npos) {
+        const size_t colon = blob.find(':', fkey + 4);
+        size_t n = 0, payload = 0;
+        if (colon != std::string::npos &&
+            materializr::readLenPrefix(blob, fkey + 4, colon, n, payload)) {
+            if (n > 0) {
+                std::istringstream is(blob.substr(payload, n));
+                BRep_Builder bb;
+                TopoDS_Shape fp;
+                try { BRepTools::Read(fp, is, bb); } catch (...) { fp.Nullify(); }
+                if (!fp.IsNull()) m_recoveredProfile = fp;
+            }
+            m_recoveryTried = true;   // either way, the answer is known
+            blob = blob.substr(0, fkey) + blob.substr(payload + n);
+        }
+    }
     // Optional trailing BREP blob (face-driven profile): "brep=<len>:<raw>".
     size_t bkey = blob.find(";brep=");
     std::string scalars = blob;
@@ -734,8 +791,10 @@ bool ExtrudeOp::rehydrateFromReload(const ReloadState& state, Document& doc) {
         // Its planar faces on the sketch plane are the regions this extrude
         // used. ALWAYS recover the profile (the historically-exact fallback
         // when stored seeds fail to re-match - see the NewBody note above);
-        // derive seeds only for old files that lack them.
-        if (m_sketchId >= 0) {
+        // derive seeds only for old files that lack them. Skipped when a save
+        // already recorded how this went (see serializeParams).
+        if (m_sketchId >= 0 && !m_recoveryTried) {
+            m_recoveryTried = true;
             TopoDS_Shape after;
             for (const auto& [id, shp] : state.modifiedAfter)
                 if (id == m_targetBodyId) { after = shp; break; }

@@ -407,6 +407,7 @@ add_executable(materializr
     src/ui/HelpPanel.cpp
     src/io/ProjectIO.cpp
     src/io/ImageDecode.cpp
+    src/io/MeshDiskCache.cpp
     src/io/ImageEncode.cpp
     src/io/SketchRecovery.cpp
     src/io/ProjectRecovery.cpp

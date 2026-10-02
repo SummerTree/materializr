@@ -1,4 +1,5 @@
 #pragma once
+#include <functional>
 #include "../core/Operation.h"
 #include "../core/Document.h"
 #include "GenerationLedger.h"
@@ -63,6 +64,13 @@ public:
     int createdBodyId() const { return m_createdBodyId; }
 
 private:
+    // The commit's progress reporter as a sink for the boolean's time box, or
+    // empty when none is set (headless, preview worker, history replay).
+    std::function<bool(float, const char*)> progressSink() {
+        if (!m_progress) return {};
+        return [this](float f, const char* l) { return reportProgress(f, l); };
+    }
+
     TopoDS_Shape m_profile;
     double m_distance = 10.0;
     ExtrudeDirection m_direction = ExtrudeDirection::Normal;
@@ -99,4 +107,7 @@ private:
     // user later deleted/moved that geometry) - historically correct, and
     // never the catastrophic every-region fallback (#53).
     TopoDS_Shape m_recoveredProfile;
+    // The boolean-mode footprint recovery has run (or a save recorded its
+    // outcome), so a reload must not pay for the cut again.
+    bool m_recoveryTried = false;
 };
