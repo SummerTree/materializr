@@ -1,394 +1,394 @@
-src/ios_platform.h:4:
-src/ios_storekit.h:6:
-src/mobile_files.h:9:
-src/ai/AiToolDispatcher.cpp:227:
-src/ai/AiToolDispatcher.cpp:345:
-src/ai/AiToolDispatcher.cpp:735:
-src/ai/AiToolDispatcher.cpp:759:
-src/ai/AiToolDispatcher.cpp:856:
-src/ai/AiToolDispatcher.cpp:888:
-src/ai/AiToolDispatcher.cpp:962:
-src/ai/AiToolDispatcher.cpp:1000:
-src/ai/AiToolDispatcher.cpp:1044:
-src/ai/AiToolDispatcher.cpp:1363:
-src/ai/AiToolDispatcher.cpp:1746:
-src/ai/AiToolDispatcher.cpp:1748:
-src/ai/AiToolDispatcher.cpp:1769:
-src/ai/AiToolDispatcher.cpp:1784:
-src/ai/AiToolDispatcher.cpp:1801:
-src/ai/AiToolSchema.cpp:29:
-src/ai/AiToolSchema.cpp:30:
-src/ai/AiToolSchema.cpp:32:
-src/ai/AiToolSchema.cpp:33:
-src/ai/AiToolSchema.cpp:64:
-src/ai/AiToolSchema.cpp:65:
-src/ai/AiToolSchema.cpp:66:
-src/ai/AiToolSchema.cpp:72:
-src/ai/AiToolSchema.cpp:73:
-src/ai/AiToolSchema.cpp:75:
-src/ai/AiToolSchema.cpp:77:
-src/ai/AiToolSchema.cpp:78:
-src/ai/AiToolSchema.cpp:79:
-src/ai/AiToolSchema.cpp:81:
-src/ai/AiToolSchema.cpp:82:
-src/ai/AiToolSchema.cpp:86:
-src/ai/AiToolSchema.cpp:87:
-src/ai/AiToolSchema.cpp:88:
-src/ai/AiToolSchema.cpp:112:
-src/ai/AiToolSchema.cpp:113:
-src/ai/AiToolSchema.cpp:114:
-src/ai/AiToolSchema.cpp:136:
-src/ai/AiToolSchema.cpp:137:
-src/ai/AiToolSchema.cpp:138:
-src/ai/AiToolSchema.cpp:144:
-src/ai/AiToolSchema.cpp:145:
-src/ai/AiToolSchema.cpp:146:
-src/ai/AiToolSchema.cpp:153:
-src/ai/AiToolSchema.cpp:157:
-src/ai/AiToolSchema.cpp:165:
-src/ai/AiToolSchema.cpp:180:
-src/ai/AiToolSchema.cpp:193:
-src/ai/AiToolSchema.cpp:194:
-src/ai/AiToolSchema.cpp:197:
-src/ai/AiToolSchema.cpp:198:
-src/ai/AiToolSchema.cpp:205:
-src/ai/AiToolSchema.cpp:206:
-src/ai/AiToolSchema.cpp:209:
-src/ai/AiToolSchema.cpp:210:
-src/ai/AiToolSchema.cpp:217:
-src/ai/AiToolSchema.cpp:219:
-src/ai/AiToolSchema.cpp:222:
-src/ai/AiToolSchema.cpp:223:
-src/ai/AiToolSchema.cpp:230:
-src/ai/AiToolSchema.cpp:231:
-src/ai/AiToolSchema.cpp:232:
-src/ai/AiToolSchema.cpp:240:
-src/ai/AiToolSchema.cpp:241:
-src/ai/AiToolSchema.cpp:259:
-src/ai/AiToolSchema.cpp:283:
-src/ai/AiToolSchema.cpp:318:
-src/ai/AiToolSchema.cpp:319:
-src/ai/AiToolSchema.cpp:320:
-src/ai/AiToolSchema.cpp:321:
-src/ai/AiToolSchema.cpp:322:
-src/ai/AiToolSchema.cpp:323:
-src/ai/AiToolSchema.cpp:335:
-src/ai/AiToolSchema.cpp:340:
-src/app/Application.cpp:940:
-src/app/Application.cpp:1198:
-src/app/Application.cpp:1992:
-src/app/Application.cpp:2066:
-src/app/Application.cpp:4433:
-src/app/Application.cpp:4459:
-src/app/Application.cpp:4847:
-src/app/Application.cpp:4855:
-src/app/Application.cpp:5628:
-src/app/Application.cpp:5690:
-src/app/Application.cpp:5755:
-src/app/Application.cpp:5804:
-src/app/Application.cpp:5898:
-src/app/Application.cpp:5913:
-src/app/Application.cpp:6541:
-src/app/Application.cpp:6576:
-src/app/Application.cpp:6923:
-src/app/Application.cpp:6983:
-src/app/Application.cpp:6984:
-src/app/Application.h:697:
-src/app/Application.h:976:
-src/app/Application.h:978:
-src/app/Application.h:980:
-src/app/Application.h:983:
-src/app/Application.h:985:
-src/app/Application.h:991:
-src/app/Application.h:1189:
-src/app/Application.h:1398:
-src/app/Application.h:1404:
-src/app/Application.h:1484:
-src/app/Application.h:1486:
-src/app/Application.h:1702:
-src/app/Application.h:2201:
-src/app/Application_Dialogs.cpp:922:
-src/app/Application_Dialogs.cpp:928:
-src/app/Application_Dialogs.cpp:967:
-src/app/Application_Dialogs.cpp:969:
-src/app/Application_Dialogs.cpp:972:
-src/app/Application_Dialogs.cpp:979:
-src/app/Application_Dialogs.cpp:982:
-src/app/Application_Dialogs.cpp:984:
-src/app/Application_Dialogs.cpp:993:
-src/app/Application_Dialogs.cpp:996:
-src/app/Application_Dialogs.cpp:1004:
-src/app/Application_Dialogs.cpp:1019:
-src/app/Application_Dialogs.cpp:1031:
-src/app/Application_Dialogs.cpp:1059:
-src/app/Application_Dialogs.cpp:1066:
-src/app/Application_Dialogs.cpp:1123:
-src/app/Application_Dialogs.cpp:2192:
-src/app/Application_Dialogs.cpp:2656:
-src/app/Application_Dialogs.cpp:2666:
-src/app/Application_Dialogs.cpp:2813:
-src/app/Application_Dialogs.cpp:2873:
-src/app/Application_Dialogs.cpp:3140:
-src/app/Application_Dialogs.cpp:3202:
-src/app/Application_Dialogs.cpp:3203:
-src/app/Application_Dialogs.cpp:3204:
-src/app/Application_Dialogs.cpp:3327:
-src/app/Application_Dialogs.cpp:4536:
-src/app/Application_Dialogs.cpp:4538:
-src/app/Application_Dialogs.cpp:4565:
-src/app/Application_Dialogs.cpp:4651:
-src/app/Application_Dialogs.cpp:4817:
-src/app/Application_Dialogs.cpp:5367:
-src/app/Application_Dialogs.cpp:5472:
-src/app/Application_Dialogs.cpp:5474:
-src/app/Application_Dialogs.cpp:5475:
-src/app/Application_Dialogs.cpp:5504:
-src/app/Application_Dialogs.cpp:5509:
-src/app/Application_Dialogs.cpp:5547:
-src/app/Application_Dialogs.cpp:5559:
-src/app/Application_Dialogs.cpp:5569:
-src/app/Application_Dialogs.cpp:5616:
-src/app/Application_Dialogs.cpp:5621:
-src/app/Application_Dialogs.cpp:5643:
-src/app/Application_Dialogs.cpp:5648:
-src/app/Application_Dialogs.cpp:6076:
-src/app/Application_InteractiveOps.cpp:309:
-src/app/Application_Viewport.cpp:144:
-src/app/Application_Viewport.cpp:500:
-src/app/Application_Viewport.cpp:561:
-src/app/Application_Viewport.cpp:1124:
-src/app/Application_Viewport.cpp:1706:
-src/app/Application_Viewport.cpp:1825:
-src/app/Application_Viewport.cpp:1891:
-src/app/Application_Viewport.cpp:1893:
-src/app/Application_Viewport.cpp:2167:
-src/app/Application_Viewport.cpp:2168:
-src/app/Application_Viewport.cpp:2169:
-src/app/Application_Viewport.cpp:2670:
-src/app/Application_Viewport.cpp:3318:
-src/app/Application_Viewport.cpp:4864:
-src/app/Application_Viewport.cpp:4865:
-src/app/Application_Viewport.cpp:5323:
-src/app/Application_Viewport.cpp:5769:
-src/app/Application_Viewport.cpp:6295:
-src/app/Application_Viewport.cpp:7472:
-src/app/Application_Viewport.cpp:7506:
-src/app/EdgeOpController.cpp:546:
-src/app/EdgeOpController.cpp:558:
-src/app/EdgeOpController.cpp:597:
-src/app/EdgeOpController.cpp:674:
-src/app/EdgeOpController.cpp:678:
-src/app/EdgeOpController.cpp:682:
-src/app/EdgeOpController.cpp:754:
-src/app/ExtrudeController.cpp:277:
-src/app/ExtrudeController.cpp:300:
-src/app/ExtrudeController.cpp:309:
-src/app/FaceOpControllers.cpp:163:
-src/app/FaceOpControllers.cpp:164:
-src/app/FaceOpControllers.cpp:984:
-src/app/FaceOpControllers.cpp:985:
-src/app/FaceOpControllers.cpp:1568:
-src/app/FaceOpControllers.cpp:2366:
-src/app/PushPullController.cpp:131:
-src/app/PushPullController.cpp:601:
-src/app/PushPullController.cpp:613:
-src/app/PushPullController.cpp:625:
-src/app/PushPullController.cpp:632:
-src/app/SplitController.h:49:
-src/app/layout/imtouch/ImTouchLayout.cpp:259:
-src/core/Document.h:56:
-src/core/Document.h:57:
-src/core/Document.h:119:
-src/core/MeshParams.h:95:
-src/core/MeshParams.h:109:
-src/core/MeshParams.h:426:
-src/core/MeshParams.h:491:
-src/core/MeshParams.h:529:
-src/core/MeshParams.h:530:
-src/core/SheetSpec.h:61:
-src/io/DxfExport.cpp:14:
-src/io/DxfImport.cpp:35:
-src/io/DxfImport.cpp:130:
-src/io/DxfImport.cpp:460:
-src/io/Settings.cpp:200:
-src/io/Settings.h:174:
-src/io/Settings.h:176:
-src/io/Settings.h:184:
-src/io/Settings.h:209:
-src/io/Settings.h:210:
-src/io/StlExport.cpp:252:
-src/io/StlExport.cpp:254:
-src/io/StlExport.cpp:294:
-src/io/StlExport.h:13:
-src/io/SvgExport.cpp:150:
-src/modeling/BooleanOp.cpp:284:
-src/modeling/ChamferOp.cpp:429:
-src/modeling/ChamferOp.cpp:430:
-src/modeling/ChamferOp.cpp:538:
-src/modeling/FilletOp.cpp:390:
-src/modeling/FilletOp.cpp:399:
-src/modeling/FilletOp.cpp:400:
-src/modeling/FilletOp.cpp:488:
-src/modeling/FilletOp.cpp:496:
-src/modeling/FilletOp.cpp:497:
-src/modeling/FilletOp.cpp:512:
-src/modeling/FilletOp.cpp:524:
-src/modeling/FilletOp.cpp:855:
-src/modeling/FilletOp.cpp:856:
-src/modeling/FilletProbe.cpp:66:
-src/modeling/LoftOp.cpp:92:
-src/modeling/LoftOp.cpp:99:
-src/modeling/LoftOp.cpp:154:
-src/modeling/LoftOp.cpp:155:
-src/modeling/LoftOp.cpp:254:
-src/modeling/LoftOp.cpp:295:
-src/modeling/LoftOp.cpp:296:
-src/modeling/MergeFacesOp.cpp:118:
-src/modeling/MergeFacesOp.cpp:174:
-src/modeling/MergeFacesOp.cpp:182:
-src/modeling/MergeFacesOp.cpp:184:
-src/modeling/MergeFacesOp.cpp:226:
-src/modeling/MergeFacesOp.cpp:230:
-src/modeling/MergeFacesOp.cpp:231:
-src/modeling/MergeFacesOp.cpp:290:
-src/modeling/MergeFacesOp.cpp:292:
-src/modeling/MoveHoleOp.cpp:296:
-src/modeling/PatchOp.cpp:459:
-src/modeling/PatchOp.h:96:
-src/modeling/PatchOp.h:106:
-src/modeling/PrimitiveOp.h:23:
-src/modeling/PushPullOp.cpp:404:
-src/modeling/PushPullOp.cpp:592:
-src/modeling/ResizeCylindricalOp.cpp:517:
-src/modeling/ResizeCylindricalOp.cpp:542:
-src/modeling/ScaleFaceOp.cpp:368:
-src/modeling/SewOp.cpp:214:
-src/modeling/ShellOp.cpp:221:
-src/modeling/ShellOp.cpp:337:
-src/modeling/Sketch.cpp:556:
-src/modeling/Sketch.cpp:645:
-src/modeling/Sketch.cpp:650:
-src/modeling/SketchConstraints.h:84:
-src/modeling/SketchEditOp.cpp:140:
-src/modeling/SketchOffset.cpp:796:
-src/modeling/SketchOffset.cpp:959:
-src/modeling/SketchTool.cpp:506:
-src/modeling/SketchTool.cpp:693:
-src/modeling/SketchTool.cpp:720:
-src/modeling/SketchTool.cpp:924:
-src/modeling/SketchTool.cpp:925:
-src/modeling/SketchTool.cpp:926:
-src/modeling/SketchTool.cpp:927:
-src/modeling/SketchTool.cpp:928:
-src/modeling/SketchTool.cpp:930:
-src/modeling/SketchTool.cpp:983:
-src/modeling/SketchTool.cpp:984:
-src/modeling/SketchTool.cpp:1351:
-src/modeling/SketchTool.cpp:1352:
-src/modeling/SketchTool.cpp:1359:
-src/modeling/SketchTool.cpp:1372:
-src/modeling/SketchTool.cpp:1375:
-src/modeling/SketchTool.cpp:1376:
-src/modeling/SketchTool.cpp:1378:
-src/modeling/SketchTool.cpp:1816:
-src/modeling/SketchTool.cpp:1817:
-src/modeling/SketchTool.cpp:1992:
-src/modeling/SketchTool.cpp:2014:
-src/modeling/SketchTool.cpp:2015:
-src/modeling/SketchTool.cpp:2030:
-src/modeling/SketchTool.cpp:2031:
-src/modeling/SketchTool.cpp:2033:
-src/modeling/SketchTool.cpp:2038:
-src/modeling/SketchTool.cpp:2039:
-src/modeling/SketchTool.cpp:2041:
-src/modeling/SketchTool.cpp:2042:
-src/modeling/SketchTool.cpp:2044:
-src/modeling/SketchTool.cpp:2047:
-src/modeling/SketchTool.cpp:2205:
-src/modeling/SketchTool.cpp:2244:
-src/modeling/SketchTool.cpp:2254:
-src/modeling/SketchTool.cpp:2273:
-src/modeling/SketchTool.cpp:2278:
-src/modeling/SketchTool.cpp:2280:
-src/modeling/SketchTool.cpp:2283:
-src/modeling/SketchTool.cpp:2473:
-src/modeling/SketchTool.cpp:2480:
-src/modeling/SketchTool.h:26:
-src/modeling/SketchTool.h:172:
-src/modeling/SketchTool.h:182:
-src/modeling/SketchTool.h:192:
-src/modeling/SketchTool.h:195:
-src/modeling/SketchTool.h:293:
-src/modeling/SketchTool.h:299:
-src/modeling/SketchTool.h:305:
-src/modeling/SketchTool.h:313:
-src/modeling/SketchTool.h:316:
-src/modeling/SketchTool.h:320:
-src/modeling/SketchTool.h:330:
-src/modeling/SketchTool.h:331:
-src/modeling/SketchTool.h:332:
-src/modeling/SketchTool.h:344:
-src/modeling/SketchTool.h:345:
-src/modeling/SketchTool.h:349:
-src/modeling/SketchTool.h:356:
-src/modeling/SketchTool.h:357:
-src/modeling/SketchTool.h:369:
-src/modeling/SketchTool.h:372:
-src/modeling/SketchTool.h:373:
-src/modeling/SketchTool.h:374:
-src/modeling/SketchTool.h:375:
-src/modeling/SketchTool.h:437:
-src/modeling/SketchTool.h:444:
-src/modeling/SketchTool.h:656:
-src/modeling/SketchTool.h:657:
-src/modeling/SketchTool.h:712:
-src/modeling/SketchTool.h:722:
-src/modeling/SketchTool.h:724:
-src/modeling/SketchTool.h:750:
-src/modeling/SubShapeIndex.cpp:136:
-src/modeling/SubShapeIndex.cpp:183:
-src/modeling/SvgImport.cpp:706:
-src/modeling/SvgImport.cpp:846:
-src/modeling/TextSketchOp.cpp:61:
-src/modeling/TextSketchOp.cpp:131:
-src/modeling/TextSketchOp.h:30:
-src/modeling/TextSketchOp.h:37:
-src/modeling/ThreadOp.cpp:225:
-src/modeling/ThreadOp.cpp:450:
-src/modeling/ThreadOp.cpp:492:
-src/modeling/ThreadOp.h:62:
-src/modeling/ThreadOp.h:163:
-src/modeling/ThreadOp.h:164:
-src/plugins/DxfImportPlugin.cpp:12:
-src/plugins/DxfImportPlugin.cpp:13:
-src/plugins/SvgImportPlugin.cpp:53:
-src/third_party/nanosvg.h:50:
-src/ui/HistoryPanel.cpp:167:
-src/ui/ItemsPanel.h:92:
-src/ui/PropertiesPanel.cpp:338:
-src/ui/PropertiesPanel.cpp:877:
-src/ui/PropertiesPanel.cpp:917:
-src/ui/PropertiesPanel.h:137:
-src/ui/StepperRow.h:18:
-src/ui/Toolbar.cpp:549:
-src/ui/TouchWidgets.h:94:
-src/ui/TouchWidgets.h:137:
-src/viewport/Camera.cpp:215:
-src/viewport/Camera.cpp:231:
-src/viewport/Grid.cpp:170:
-src/viewport/Grid.cpp:171:
-src/viewport/GridScale.h:6:
-src/viewport/GridScale.h:9:
-src/viewport/GridScale.h:21:
-src/viewport/GridScale.h:53:
-src/viewport/GridScale.h:65:
-src/viewport/Picker.cpp:353:
-src/viewport/Picker.cpp:354:
-src/viewport/Picker.cpp:581:
-src/viewport/RefImageRenderer.cpp:194:
-src/viewport/RefImageRenderer.cpp:211:
-src/viewport/RefImageRenderer.cpp:214:
-src/viewport/SectionCap.cpp:45:
-src/viewport/SectionCap.cpp:47:
-src/viewport/SectionCap.cpp:210:
-src/viewport/SketchRenderer.cpp:756:
+src/ios_platform.h: // iOS runtime services (implemented in ios_platform.mm). Safe to include
+src/ios_storekit.h: // iOS StoreKit tip jar (implemented in ios_storekit.mm). One non-consumable
+src/mobile_files.h: //   iOS     - ios_files.mm (UIDocumentPickerViewController, UIActivityViewController
+src/ai/AiToolDispatcher.cpp: // mm value formatted with up to 2 decimals, trailing zeros trimmed
+src/ai/AiToolDispatcher.cpp: "centered at (x=%.1f, y=%.1f, z=%.1f)mm, size (width=%.1f, depth=%.1f, height=%.1f)mm",
+src/ai/AiToolDispatcher.cpp: " at radius " + std::to_string(radius) + "mm"};
+src/ai/AiToolDispatcher.cpp: " at distance " + std::to_string(distance) + "mm"};
+src/ai/AiToolDispatcher.cpp: std::to_string(radius) + "mm"};
+src/ai/AiToolDispatcher.cpp: std::to_string(distance) + "mm"};
+src/ai/AiToolDispatcher.cpp: " - at radius " + std::to_string(radius) + "mm"};
+src/ai/AiToolDispatcher.cpp: " - at distance " + std::to_string(distance) + "mm"};
+src/ai/AiToolDispatcher.cpp: "mm (positive = outward, negative = cut inward)"};
+src/ai/AiToolDispatcher.cpp: std::to_string(thickness) + "mm walls" +
+src/ai/AiToolDispatcher.cpp: o << " origin=(" << fmtMM(ox) << "," << fmtMM(oy) << "," << fmtMM(oz) << ")mm"
+src/ai/AiToolDispatcher.cpp: << "mm (w x h x d)";
+src/ai/AiToolDispatcher.cpp: o << " plane_origin=(" << fmtMM(ox) << "," << fmtMM(oy) << "," << fmtMM(oz) << ")mm"
+src/ai/AiToolDispatcher.cpp: o << " origin=(" << fmtMM(ox) << "," << fmtMM(oy) << "," << fmtMM(oz) << ")mm"
+src/ai/AiToolDispatcher.cpp: o << " origin=(" << fmtMM(ox) << "," << fmtMM(oy) << "," << fmtMM(oz) << ")mm"
+src/ai/AiToolSchema.cpp: std::string xDesc = "World X position in mm (default 0).";
+src/ai/AiToolSchema.cpp: if (anchor) xDesc = "World X position in mm (default 0) - " + std::string(anchor);
+src/ai/AiToolSchema.cpp: params.push_back(num("y", "World Y position in mm (default 0).", false));
+src/ai/AiToolSchema.cpp: params.push_back(num("z", "World Z position in mm (default 0).", false));
+src/ai/AiToolSchema.cpp: withOrigin({num("width", "Size along X in mm."),
+src/ai/AiToolSchema.cpp: num("height", "Size along the up axis (Z) in mm."),
+src/ai/AiToolSchema.cpp: num("depth", "Size along the horizontal depth axis (Y) in mm.")},
+src/ai/AiToolSchema.cpp: withOrigin({num("radius", "Radius in mm."),
+src/ai/AiToolSchema.cpp: num("height", "Height in mm.")})},
+src/ai/AiToolSchema.cpp: withOrigin({num("radius", "Radius in mm.")})},
+src/ai/AiToolSchema.cpp: withOrigin({num("bottom_radius", "Base radius in mm."),
+src/ai/AiToolSchema.cpp: num("top_radius", "Top radius in mm; 0 for a point."),
+src/ai/AiToolSchema.cpp: num("height", "Height in mm.")})},
+src/ai/AiToolSchema.cpp: withOrigin({num("major_radius", "Distance from centre to tube centre, in mm."),
+src/ai/AiToolSchema.cpp: num("minor_radius", "Tube radius in mm.")})},
+src/ai/AiToolSchema.cpp: num("dx", "Move along X in mm."),
+src/ai/AiToolSchema.cpp: num("dy", "Move along Y in mm."),
+src/ai/AiToolSchema.cpp: num("dz", "Move along Z in mm.")}},
+src/ai/AiToolSchema.cpp: num("dx", "Offset of the copy along X in mm (default 20).", false),
+src/ai/AiToolSchema.cpp: num("dy", "Offset of the copy along Y in mm (default 0).", false),
+src/ai/AiToolSchema.cpp: num("dz", "Offset of the copy along Z in mm (default 0).", false)}},
+src/ai/AiToolSchema.cpp: "between copies along X in mm.", false),
+src/ai/AiToolSchema.cpp: num("spacing_y", "LINEAR ONLY: spacing along Y in mm.", false),
+src/ai/AiToolSchema.cpp: num("spacing_z", "LINEAR ONLY: spacing along Z in mm.", false),
+src/ai/AiToolSchema.cpp: "through, X in mm (default 0 - the world origin).", false),
+src/ai/AiToolSchema.cpp: num("origin_y", "RADIAL ONLY: rotation axis point, Y in mm (default 0).", false),
+src/ai/AiToolSchema.cpp: num("origin_z", "RADIAL ONLY: rotation axis point, Z in mm (default 0).", false),
+src/ai/AiToolSchema.cpp: num("radius", "Fillet radius in mm. Must be small enough to fit the body's "
+src/ai/AiToolSchema.cpp: num("distance", "Chamfer distance in mm, measured along each adjoining face.")}},
+src/ai/AiToolSchema.cpp: num("radius", "Fillet radius in mm. Must be small enough to fit the face's "
+src/ai/AiToolSchema.cpp: num("distance", "Chamfer distance in mm, measured along each adjoining face."),
+src/ai/AiToolSchema.cpp: num("radius", "Fillet radius in mm."),
+src/ai/AiToolSchema.cpp: num("x", "Approximate X position near the edge to fillet, in mm - same "
+src/ai/AiToolSchema.cpp: num("y", "Approximate Y position near the edge, in mm."),
+src/ai/AiToolSchema.cpp: num("z", "Approximate Z position near the edge, in mm.")}},
+src/ai/AiToolSchema.cpp: num("distance", "Chamfer distance in mm, measured along each adjoining face."),
+src/ai/AiToolSchema.cpp: num("x", "Approximate X position near the edge to chamfer, in mm - same "
+src/ai/AiToolSchema.cpp: num("y", "Approximate Y position near the edge, in mm."),
+src/ai/AiToolSchema.cpp: num("z", "Approximate Z position near the edge, in mm.")}},
+src/ai/AiToolSchema.cpp: num("distance", "Distance in mm. Positive extends the face outward (adds "
+src/ai/AiToolSchema.cpp: num("x", "Approximate X position near the face to push/pull, in mm - same "
+src/ai/AiToolSchema.cpp: num("y", "Approximate Y position near the face, in mm."),
+src/ai/AiToolSchema.cpp: num("z", "Approximate Z position near the face, in mm.")}},
+src/ai/AiToolSchema.cpp: {num("width", "Profile width in mm, along the extrude direction's local X."),
+src/ai/AiToolSchema.cpp: num("depth", "Profile depth in mm, along the extrude direction's local Y."),
+src/ai/AiToolSchema.cpp: num("distance", "Extrude distance in mm along the direction (can be "
+src/ai/AiToolSchema.cpp: {num("radius", "Profile radius in mm."),
+src/ai/AiToolSchema.cpp: num("distance", "Extrude distance in mm along the direction (can be "
+src/ai/AiToolSchema.cpp: num("distance", "Extrude distance in mm along the direction (can be "
+src/ai/AiToolSchema.cpp: num("thickness", "Wall thickness in mm."),
+src/ai/AiToolSchema.cpp: num("source_x", "X of the point on the body, in mm."),
+src/ai/AiToolSchema.cpp: num("source_y", "Depth (user-space Y) of the point on the body, in mm."),
+src/ai/AiToolSchema.cpp: num("source_z", "Height (user-space Z, up) of the point on the body, in mm."),
+src/ai/AiToolSchema.cpp: num("target_x", "X of the destination point, in mm."),
+src/ai/AiToolSchema.cpp: num("target_y", "Depth (user-space Y) of the destination point, in mm."),
+src/ai/AiToolSchema.cpp: num("target_z", "Height (user-space Z, up) of the destination point, in mm.")}},
+src/ai/AiToolSchema.cpp: num("offset", "Offset distance from the plane along its normal, in mm. Defaults to 0.", false),
+src/ai/AiToolSchema.cpp: num("distance", "Sweep distance in mm. Must be nonzero. The sign picks a direction (positive = along the profi
+src/app/Application.cpp: // ios_platform.mm).
+src/app/Application.cpp: // Create a demo box so there's something to see (a 20 mm cube) - but only
+src/app/Application.cpp: // Absolute linear deflection (mm) and angular deflection (radians). Lower
+src/app/Application.cpp: // or, from before the presets converted, wrote 1 and reloaded as a 1 mm
+src/app/Application.cpp: // Sketch origin should lie on the face's plane within 0.05 mm.
+src/app/Application.cpp: // origin on the face plane within 0.05 mm). Used to re-adopt a sketch whose
+src/app/Application.cpp: // step is the snap lattice and the visible grid, so leaving it at 1 mm
+src/app/Application.cpp: // 152 mm - see 0733a59, which reverted exactly that.
+src/app/Application.cpp: // the surface's parametric origin ~0.3 mm off-axis - the fitted anchor
+src/app/Application.cpp: // 0.64 mm off-axis). Fit a circle to the OUTER wire instead, then
+src/app/Application.cpp: // then keeps the wrong band, landing 0.6 mm off with a
+src/app/Application.cpp: // 0.64 mm off-axis at the surface origin) that WON
+src/app/Application.cpp: // sides at a generous offset (1 mm) so tessellation slack near the
+src/app/Application.cpp: const double eps = 1.0; // mm
+src/app/Application.cpp: // lines wrote raw millimetres: placing a dimension under any non-mm unit
+src/app/Application.cpp: // Hash point positions and circle/arc radii too (quantised to 1e-4 mm)
+src/app/Application.cpp: // millimetres. 40 mm is a reasonable first view in millimetres and an
+src/app/Application.cpp: // Measured offsets were 10–50% of a cell. At a 1 mm grid that reads as
+src/app/Application.cpp: // slightly-fat lines; at 0.1 mm it is most of a cell, i.e. "I can't draw a
+src/app/Application.h: // buttons are an explicit fine override (a 0.1 nudge under a 1 mm grid must
+src/app/Application.h: // Ceiling on the opening view of an EMPTY sketch, in mm of half-span.
+src/app/Application.h: // 300 mm because it reads as a round number in the units that needed
+src/app/Application.h: // the unit-aware 40-unit span is 12192 mm - a twelve-metre view, which put
+src/app/Application.h: // 40 mm and this never engages, so the common case does not move.
+src/app/Application.h: // Metres are the unit this serves least well: a 300 mm view makes every
+src/app/Application.h: // Sketch grid step in mm. This is the BASE the user chose (a display
+src/app/Application.h: // sketch mm, so the tag keeps its grab point instead of snapping its centre
+src/app/Application.h: // Scale popup unit mode. Percent is the multi-body-safe default; mm only
+src/app/Application.h: // mm-mode text buffer + focus state per user axis (X, Y, Z in Z-up
+src/app/Application.h: float  m_threadClearance = 0.0f; // radial fit gap for printed threads (mm)
+src/app/Application.h: float  m_threadGrooveWidth = 0.0f; // explicit cut width (mm); 0 = from pitch
+src/app/Application.h: float m_patternDistance = 5.0f; // linear: spacing in mm along chosen axis
+src/app/Application.h: // (0.1 / 1 / 10 mm) and gets a solid-blue border when snap is on. Click
+src/app/Application_Dialogs.cpp: // mm mode only makes sense for a single body - multi-body scale needs a
+src/app/Application_Dialogs.cpp: // Resolve the (single-body) bbox now so mm-mode fields can pre-fill from
+src/app/Application_Dialogs.cpp: const bool mm = (m_scaleUnitMode == ScaleUnitMode::Millimeter);
+src/app/Application_Dialogs.cpp: // printf-style, and the mm branch takes an argument the other does not.
+src/app/Application_Dialogs.cpp: if (mm)
+src/app/Application_Dialogs.cpp: // Unit toggle. mm disabled when multi-body so we don't mislead - there's
+src/app/Application_Dialogs.cpp: if (ImGui::RadioButton("%", !mm))  m_scaleUnitMode = ScaleUnitMode::Percent;
+src/app/Application_Dialogs.cpp: if (ImGui::RadioButton(materializr::unitSuffix(), mm))  m_scaleUnitMode = ScaleUnitMode::Millimeter;
+src/app/Application_Dialogs.cpp: // mm mode: m_scaleMmEdit[i].buf reflects the current bbox extent on the
+src/app/Application_Dialogs.cpp: // (mm mode) so the body keeps proportional in both modes.
+src/app/Application_Dialogs.cpp: if (!mm) {
+src/app/Application_Dialogs.cpp: // mm mode - show current dim, target on commit applies a per-axis
+src/app/Application_Dialogs.cpp: ImGui::InputText("##mm", edit.buf, sizeof(edit.buf),
+src/app/Application_Dialogs.cpp: if (!mm) {
+src/app/Application_Dialogs.cpp: // mm mode: target dims → ratios on each USER axis,
+src/app/Application_Dialogs.cpp: // Reset % fields after Apply. mm-mode fields reseed naturally
+src/app/Application_Dialogs.cpp: static_cast<float>(tMin), static_cast<float>(tMax), "%.1f mm")) {
+src/app/Application_Dialogs.cpp: // Typed in the display unit (or with its own suffix); the model wants mm.
+src/app/Application_Dialogs.cpp: // mm-per-pixel from the picked pair → full-frame physical width.
+src/app/Application_Dialogs.cpp: ImGui::Text("%s", materializr::tr("Gap tolerance (mm)"));
+src/app/Application_Dialogs.cpp: ImGui::TextDisabled(materializr::tr("Gap %.4f mm  -  tangency %.2f deg"),
+src/app/Application_Dialogs.cpp: // and print a literal, so choosing "1" under centimetres stored 10 mm and
+src/app/Application_Dialogs.cpp: // literal mm under a header that already said "(cm)" or "(in)", so the
+src/app/Application_Dialogs.cpp: // label named one unit while the button set another - 1 meant 1 mm while
+src/app/Application_Dialogs.cpp: // the popup claimed centimetres. m_sketchGridStep stays mm; only the
+src/app/Application_Dialogs.cpp: // in, and dragging a -100..100 slider cannot land on 12.5 mm. Same row the
+src/app/Application_Dialogs.cpp: // traversed - the old fixed ±100 mm couldn't reach the far side of a
+src/app/Application_Dialogs.cpp: // bodies (floored at 100 mm so small parts keep a usable range), cached
+src/app/Application_Dialogs.cpp: // slider alone can't land on a round mm value once the range has
+src/app/Application_Dialogs.cpp: // dimension, and a text height that came out 1 mm or 100 mm
+src/app/Application_Dialogs.cpp: // Real extents of the section, anchor-relative and in mm, so the
+src/app/Application_Dialogs.cpp: // Write a 1:1-mm SVG. cut = solid black (the outline). For SemiRigid the fold
+src/app/Application_Dialogs.cpp: double minx = 0, miny = 0, maxx = 0, maxy = 0;   // pattern bbox (mm)
+src/app/Application_Dialogs.cpp: double pad = 5, margin = 12, strip = 12, overlap = 12;  // mm
+src/app/Application_Dialogs.cpp: double cwMM = 0, chMM = 0, stepX = 0, stepY = 0; // tile content + step (mm)
+src/app/Application_Dialogs.cpp: // An alignment cross at a position (in drawing-mm) that falls inside a tile
+src/app/Application_Dialogs.cpp: // filler marks between the seams so you can pick the density. The same drawing-mm
+src/app/Application_Dialogs.cpp: // corners, an overlap between tiles for assembly, and a 50 mm scale bar in the
+src/app/Application_Dialogs.cpp: auto DX = [&](double x) { return (x - minx) + pad; };   // world → drawing mm (Y up)
+src/app/Application_Dialogs.cpp: const double ox = col * stepX, oy = row * stepY;    // tile origin (drawing mm)
+src/app/Application_Dialogs.cpp: // Registration crosses in the tile OVERLAPS: the same drawing-mm point
+src/app/Application_Dialogs.cpp: const double regArm = 4.0;                    // mm half-length of each arm
+src/app/Application_Dialogs.cpp: // 50 mm scale bar in the bottom strip + caption + tile label.
+src/app/Application_Dialogs.cpp: pdff(s, "BT /F1 8 Tf %.2f %.2f Td (50 mm \\(5 cm\\) - verify print scale) Tj ET\n",
+src/app/Application_Dialogs.cpp: : "Tiled, full-size (1:1) PDF with crop marks, a 50 mm scale bar, and "
+src/app/Application_InteractiveOps.cpp: // field defaulting to 1.0 mm. Typing rebuilds via ShellOp::execute against
+src/app/Application_Viewport.cpp: // 0.05 mm-per-pixel, which felt sluggish zoomed in and jumpy zoomed out.
+src/app/Application_Viewport.cpp: // the step (base 1 mm -> 10 mm) the drawn grid sat up to a full
+src/app/Application_Viewport.cpp: // 1-mm lines are clutter that drowns the major (10-mm) lines.
+src/app/Application_Viewport.cpp: // coarsen them pinned the trim/pick radius at its 10 mm cap the
+src/app/Application_Viewport.cpp: // Push/pull STARTS at 0 mm (no change), and drawDim draws
+src/app/Application_Viewport.cpp: // the analogue of the mm readout for moves. Uses the cached pivot
+src/app/Application_Viewport.cpp: // format hid everything under 0.1 mm. (No <cstring> needed -
+src/app/Application_Viewport.cpp: auto fmtLen = [](char* out, size_t n, float v) {   // v is mm; prints display unit
+src/app/Application_Viewport.cpp: double mm = 0.0;   // "2in" honoured; bare = display unit
+src/app/Application_Viewport.cpp: if (!materializr::parseLength(m_sketchShapeDimBuf, mm) || mm <= 0.0) return false;
+src/app/Application_Viewport.cpp: v = static_cast<float>(mm);
+src/app/Application_Viewport.cpp: // Cursor in sketch mm - the space labelOffX/Y lives in, so a
+src/app/Application_Viewport.cpp: // Convert to mm FIRST, then halve a circle's
+src/app/Application_Viewport.cpp: // 0.5 mm + 0.5 % of view distance instead; an actually-
+src/app/Application_Viewport.cpp: // occluding face is normally many mm in front.
+src/app/Application_Viewport.cpp: // ~ 0.85 mm at 240 dpi is unhittable). Still clamped
+src/app/Application_Viewport.cpp: // 0.5 mm line nudge → 1 mm mirror shift on a 1 mm grid).
+src/app/Application_Viewport.cpp: // user lands within 0.4 mm of the previous click -
+src/app/Application_Viewport.cpp: // The pad edits in the display unit; the floor is mm.
+src/app/Application_Viewport.cpp: // Converting those display->mm made a typed 180 deg arrive
+src/app/EdgeOpController.cpp: std::fprintf(stdout, "%s edited to %.1f mm\n",
+src/app/EdgeOpController.cpp: std::fprintf(stdout, "%s %.1f mm committed\n",
+src/app/EdgeOpController.cpp: // visible arrow length (1 mm single / 0.6 mm per chamfer arrow) keeps the hit
+src/app/EdgeOpController.cpp: // the edge grows the value (>= 0.1 mm); dragging back toward or
+src/app/EdgeOpController.cpp: // Quantise the drag to the displayed precision (0.1 mm): every
+src/app/EdgeOpController.cpp: m_value = static_cast<float>(materializr::quantiseDragMm(m_value));   // display-unit step, not 0.1 mm
+src/app/EdgeOpController.cpp: // Minimum 1 mm visible even at value 0 so the handle can be seen and
+src/app/ExtrudeController.cpp: std::fprintf(stdout, "Subtracted %.1f mm from %d of %zu bodies\n",
+src/app/ExtrudeController.cpp: std::fprintf(stdout, "Extruded %.1f mm\n", m_distance);
+src/app/ExtrudeController.cpp: std::fprintf(stdout, "Subtracted %.1f mm from body %d\n",
+src/app/FaceOpControllers.cpp: // Snap to 0.1 mm - wall thicknesses are almost always in tenths, and a
+src/app/FaceOpControllers.cpp: // free-floating 3.47 mm slider value is just noise.
+src/app/FaceOpControllers.cpp: // in DISPLAY units. "%.2f" wrote mm into it and also fixed the
+src/app/FaceOpControllers.cpp: // precision at two decimals, quantising metres to 10 mm. Its
+src/app/FaceOpControllers.cpp: // of the hole rather than swamping a 3 mm bore.
+src/app/FaceOpControllers.cpp: // round mm value on a large face; these steppers give the same
+src/app/PushPullController.cpp: // hundreds of mm away - a push/pull on an unlinked sketch must
+src/app/PushPullController.cpp: std::fprintf(stdout, "Push/Pull %scommitted at %.2f mm\n",
+src/app/PushPullController.cpp: std::fprintf(stdout, "Push/Pull committed at %.2f mm\n", m_st.distance);
+src/app/PushPullController.cpp: std::fprintf(stdout, "Push/Pull (smart cut) committed at %.2f mm\n",
+src/app/PushPullController.cpp: std::fprintf(stdout, "Push/Pull committed at %.2f mm\n", m_st.distance);
+src/app/SplitController.h: float m_offset = 0.0f;    // mm from the body's bbox centre, along the axis
+src/app/layout/imtouch/ImTouchLayout.cpp: // badge. Raw mm here read "10" after picking the "1" preset under cm.
+src/core/Document.h: // Half-size of the rendered translucent quad in mm. Free to grow later
+src/core/Document.h: // for autoscale; 50 mm (= 100 mm square) is a reasonable default that's
+src/core/Document.h: // a render-extent (halfLength for the drawn segment in mm).
+src/core/MeshParams.h: // outline, and Watson then spends 25 s+ on one at Ultra quality (0.01 mm /
+src/core/MeshParams.h: // a fan of 16 mm chords across the curve - a 0.4 mm flat dent in the STL.
+src/core/MeshParams.h: // How far a face's mesh strays from its surface, in mm: the worst gap between a
+src/core/MeshParams.h: // gross misses - the autumn wall fan was 3.9 mm off at 0.01.
+src/core/MeshParams.h: // format string's second half reads as a user-facing "mm" readout.
+src/core/MeshParams.h: std::fprintf(stderr, "[Mesh] %s face strayed %.3f mm from its surface (limit %.3f): %s -> %.3f mm\n",
+src/core/SheetSpec.h: // offset = (T/2)·tan(θ/2). For a 90° corner in 12.7 mm ply this is 6.35 mm.
+src/io/DxfExport.cpp: // CAM package reads. Minimal file = HEADER ($ACADVER + $INSUNITS mm) and an
+src/io/DxfImport.cpp: double unitScale = 1.0; // file units → mm
+src/io/DxfImport.cpp: default: return 1.0;     // unitless / exotic → assume mm
+src/io/DxfImport.cpp: // Scale to mm, then centre the drawing's bounding box on the sketch
+src/io/Settings.cpp: // millimetres, where a deliberate 0.05 mm grid is a real choice
+src/io/Settings.h: // Snap-to-grid toggle and step (mm) shared by the sketch grid and the
+src/io/Settings.h: // have to re-enable snap and re-pick a 1 mm step every launch.
+src/io/Settings.h: // to mm on load, after the display unit is applied.
+src/io/Settings.h: // (0 mm, 1 cm, 2 m, 3 in, 4 ft). An int for the same reason language is -
+src/io/Settings.h: // this header stays free of core/Units.h. The model is always mm; this only
+src/io/StlExport.cpp: // OrcaSlicer silently dropped the bottom 5 mm of the print.
+src/io/StlExport.cpp: // Welding vertices at 1e-3 mm alone took those 6,904 open edges to ONE
+src/io/StlExport.cpp: {   // weld at 1e-3 mm
+src/io/StlExport.h: double linearDeflection = 0.01;  // mm - chord deviation (smaller = smoother)
+src/io/SvgExport.cpp: // 1 SVG user unit = 1 mm; Y flipped (CAD Y-up -> SVG Y-down).
+src/modeling/BooleanOp.cpp: // values (it used to go to 0.1 mm) let OCCT snap distant entities
+src/modeling/ChamferOp.cpp: // face than the original session did, and a 11.4 mm setback aimed
+src/modeling/ChamferOp.cpp: // along a 2 mm face simply cannot build (!IsDone) - the "two-distance
+src/modeling/ChamferOp.cpp: // mask a dead middle: ChFi3d blended a few mm at each end
+src/modeling/FilletOp.cpp: // robot dog cover.mzr, body "Extrude", its 114 mm top edge:
+src/modeling/FilletOp.cpp: // was "I can't fillet beyond about 1.5 mm" on an edge where 2.5, 3, 5
+src/modeling/FilletOp.cpp: // and 8 mm all worked.
+src/modeling/FilletOp.cpp: // (Steve: a coffee-cup rim could only fillet to 1.5 mm on the
+src/modeling/FilletOp.cpp: // which inflated the result bbox by ~8 mm on a 100 mm cup and
+src/modeling/FilletOp.cpp: // tripped the growth gate even on 0.1 mm fillets.
+src/modeling/FilletOp.cpp: "%.2fx%.2fx%.2f -> %.2fx%.2fx%.2f mm.\n",
+src/modeling/FilletOp.cpp: "[Fillet] result volume ~= 0 (R=%.2f mm).\n",
+src/modeling/FilletOp.cpp: // ≈ m_radius. Matching on radius keeps a 3 mm fillet from ever claiming a
+src/modeling/FilletOp.cpp: // neighbouring 4 mm fillet's faces, and is invariant under rigid moves.
+src/modeling/FilletProbe.cpp: // Quantise the radius to 1e-6 mm so float noise in a dragged value doesn't
+src/modeling/LoftOp.cpp: // fractions. Worst case measured (robot dog cover.mzr, two ~2 mm-wide C-shaped
+src/modeling/LoftOp.cpp: //     arc-length resample + best seam    still folded (rms misfit 18.7 mm)
+src/modeling/LoftOp.cpp: // sampled version missed the ~0.2 mm tip arcs by up to 50 um, which forced the
+src/modeling/LoftOp.cpp: // bridge sew tolerance to 2e-2 and left seam edges carrying ~0.05 mm
+src/modeling/LoftOp.cpp: // float32 sketch storage), and a planar cap whose boundary sits 0.1 mm
+src/modeling/LoftOp.cpp: // fuzzy 1e-5/1e-3, glue, 0.2 mm forced interpenetration, healed inputs. The
+src/modeling/LoftOp.cpp: // contact is two long ~2 mm-wide tangent strips, and BOP either returns an
+src/modeling/MergeFacesOp.cpp: // Left at OCCT's default (Precision::Confusion, 1e-7 mm) unless asked.
+src/modeling/MergeFacesOp.cpp: // 1e-7 mm. That decides whether two PARALLEL planes count as the same plane --
+src/modeling/MergeFacesOp.cpp: //     separation      = 3.054738e-06 mm     -- 30x the default tolerance
+src/modeling/MergeFacesOp.cpp: // Their normals agree exactly; they share a 127.76 mm continuous boundary; and
+src/modeling/MergeFacesOp.cpp: // 85.699996948, which is 3.05e-6 mm out. A sketch snapped to an edge at that
+src/modeling/MergeFacesOp.cpp: // Measured on robot dog cover.mzr, body "Extrude": three such faces, 97.00 mm
+src/modeling/MergeFacesOp.cpp: // and 15.38 mm long, each exactly 3.0546e-6 mm wide -- the same figure as the
+src/modeling/MergeFacesOp.cpp: // "Extrude"): two coplanar faces, centres 0.47 mm apart, outward normals
+src/modeling/MergeFacesOp.cpp: // thing it was not: they are the same plane to 3e-6 mm.
+src/modeling/MoveHoleOp.cpp: // measured on a Ø10 hole it left a 14 mm-wide opening, the silhouette of the
+src/modeling/PatchOp.cpp: ImGui::TextDisabled(materializr::tr("Fit: gap %.4f mm, tangency %.2f deg"),
+src/modeling/PatchOp.h: double tol3d       = 1e-4;   // G0: max gap to the boundary, mm
+src/modeling/PatchOp.h: double g0Error() const { return m_g0Error; }  // mm
+src/modeling/PrimitiveOp.h: // Box: XYZ extents in mm.
+src/modeling/PushPullOp.cpp: // BRepAlgoAPI_Cut of coincident faces yields ~1e-3 mm³ of noise). Such
+src/modeling/PushPullOp.cpp: // leave ~1e-3 mm³ slivers, and the plug/hole pair can
+src/modeling/ResizeCylindricalOp.cpp: "[Resize] cap-following fill built (final vol=%.3f mm³)\n",
+src/modeling/ResizeCylindricalOp.cpp: "[Resize] fuse: bodyVol %.3f → %.3f mm³ (delta=%+.3f)\n",
+src/modeling/ScaleFaceOp.cpp: // they were converted display->mm on commit, so typing 100 under inches
+src/modeling/SewOp.cpp: ImGui::TextDisabled(materializr::tr("Joined at %.4f mm."), m_tolUsed);
+src/modeling/ShellOp.cpp: "body (thickness %.3f mm).\n", m_thickness);
+src/modeling/ShellOp.cpp: "[Shell] failed at thickness %.3f mm - the wall is too thick, "
+src/modeling/Sketch.cpp: // these a later dimension (e.g. a 2 mm gap to another edge) lets the naive
+src/modeling/Sketch.cpp: // point pair a handful of mm apart (anywhere someone clicks close
+src/modeling/Sketch.cpp: // so a gently curving stretch of a real part's outline can go many mm
+src/modeling/SketchConstraints.h: // dimension label rather than clicking it. Pixels rather than sketch mm because
+src/modeling/SketchEditOp.cpp: // "Add sketch element" into "Rectangle 80 × 45 mm", "Circle Ø20 mm", etc.,
+src/modeling/SketchOffset.cpp: // comfortably more than 1e-3 mm - so an analytic epsilon condemns perfectly
+src/modeling/SketchOffset.cpp: // accept the (sub-0.1 mm) deviation that comes with it.
+src/modeling/SketchTool.cpp: // Popup asks for DIAMETER (matching the on-canvas "X.X mm dia"
+src/modeling/SketchTool.cpp: // comes out NEARLY axis-aligned, "nearly" is the bug: 1° over 80 mm is
+src/modeling/SketchTool.cpp: // 4° rule. (Steve: a 1 mm rise over a long run must not snap to horizontal.)
+src/modeling/SketchTool.cpp: // neighbouring grid intersection. The old absolute 0.25 mm floor meant a
+src/modeling/SketchTool.cpp: // fine grid was swamped by it: at a 0.1 mm grid a second point placed one
+src/modeling/SketchTool.cpp: // or two steps (0.1–0.2 mm) from the first snapped straight back onto it -
+src/modeling/SketchTool.cpp: // so nothing shorter than ~0.3 mm could be drawn, and an endpoint snap
+src/modeling/SketchTool.cpp: // hijacked the cursor within 0.3 mm of any point (Steve's report). Coarse
+src/modeling/SketchTool.cpp: // ~0.42 mm). Grid OFF: the cursor is freehand, so keep an absolute band to
+src/modeling/SketchTool.cpp: // 0.25 mm even with snap off), which is why Steve couldn't make a line
+src/modeling/SketchTool.cpp: // under ~0.25 mm with grid AND inferences both off. Loop closure welds
+src/modeling/SketchTool.cpp: // snap above: with grid snap on, an absolute 0.2 mm floor would fire a
+src/modeling/SketchTool.cpp: // horizontal/vertical guide off a point within 0.2 mm on a fine grid,
+src/modeling/SketchTool.cpp: // shrinks to sub-pixel at low zoom (e.g. on an 80 mm part viewed whole),
+src/modeling/SketchTool.cpp: // at 100 mm = 5 mm of cursor theft). An inference may only pull the
+src/modeling/SketchTool.cpp: // absolute 1.5 mm floor let a directional guide yank the cursor ~1.5 mm -
+src/modeling/SketchTool.cpp: // 15 increments at a 0.1 mm grid - so once the (now tight) endpoint band
+src/modeling/SketchTool.cpp: // ~1.3 mm out. Tie the pull to the grid so it can't reach past ~1.5
+src/modeling/SketchTool.cpp: // angular window up: at a 1 mm grid it means 5.7 deg of catch
+src/modeling/SketchTool.cpp: // on a 3 mm leg and worse below that, which is exactly the
+src/modeling/SketchTool.cpp: // x=9.0033 on a 0.1 mm grid, a guide pair at y=12.2012. Over a few
+src/modeling/SketchTool.cpp: // a 1 mm grid: 8.4 deg on a 3 mm leg off a 70 deg corner, 3.4 deg at
+src/modeling/SketchTool.cpp: // 5 mm, decaying as 1/length). The guide still highlights, because it
+src/modeling/SketchTool.cpp: // charged vertical, that can be a few mm off the cursor's perpendicular
+src/modeling/SketchTool.cpp: // path. With posCap (1.5 mm) we'd silently fall through to single-line
+src/modeling/SketchTool.cpp: // which is what Steve hit in the 18.9 mm screenshot.
+src/modeling/SketchTool.cpp: // does is relative to the segment being drawn - 1.5 mm off a 100 mm line
+src/modeling/SketchTool.cpp: // is nothing, 1.5 mm off a 2 mm line is the line. That asymmetry is why
+src/modeling/SketchTool.cpp: // near the anchor (Steve, 2026-09-03: a 2 mm line placed fine, 1 mm and
+src/modeling/SketchTool.cpp: // 3 mm were unreachable, the only alternatives being no line at all - an
+src/modeling/SketchTool.cpp: // 19 mm jump to a farther intersection still inside the 5x pair cap).
+src/modeling/SketchTool.cpp: // out of the way: past ~6 mm of draw the absolute caps bind again, so
+src/modeling/SketchTool.cpp: // (Steve.) Grid off keeps the original mm-based cap.
+src/modeling/SketchTool.cpp: // when they explicitly asked for 1 mm precision. The toolbar "Snap to
+src/modeling/SketchTool.cpp: // declaration for why. 0.3 mm is the radius every caller here used before the
+src/modeling/SketchTool.cpp: // A weld radius is a SCREEN distance. As a fixed 0.3 mm it shrank with the
+src/modeling/SketchTool.cpp: // welded. Change the lattice underfoot and it stops - switching feet -> mm
+src/modeling/SketchTool.cpp: // (304.8-based vs 1-based), the closing click snaps elsewhere, and 0.3 mm
+src/modeling/SketchTool.cpp: // Same shape as tolStep()'s screen term, and the 0.3 mm stays as a floor so
+src/modeling/SketchTool.cpp: // It used to be a hand-rolled scan at 1e-4 mm, which is exact equality
+src/modeling/SketchTool.cpp: // sketch to extrude" after switching feet -> mm, then as "I can't close
+src/modeling/SketchTool.h: // current geometry value: mm for distances, RADIUS in mm for Radius (UI
+src/modeling/SketchTool.h: // Unrotated text extents relative to the anchor (mm), pushed by the app
+src/modeling/SketchTool.h: // Actual glyph contours (anchor-relative, unrotated mm - same space as the
+src/modeling/SketchTool.h: // real-world size in mm, and the click lands on the LEADING EDGE.
+src/modeling/SketchTool.h: void  setAirfoilChord(float mm) { m_airfoilChord = (mm < 0.1f) ? 0.1f : mm; }
+src/modeling/SketchTool.h: // Grid step (in sketch-plane mm). Used for both visual grid and snap-to-line.
+src/modeling/SketchTool.h: // at 152 mm: a click on empty space could cut geometry 15 cm away, with
+src/modeling/SketchTool.h: // the pick radius at 10 mm the moment a 1 mm grid coarsened - see tolStep.
+src/modeling/SketchTool.h: // an aim radius; at 3 mm/px it is an 18 mm topological merge and it grows
+src/modeling/SketchTool.h: // merging. At the zooms sketching actually happens (under ~1.7 mm/px) this
+src/modeling/SketchTool.h: // the default millimetre framing this lands on the 0.3-1 mm the tolerances
+src/modeling/SketchTool.h: // model. Deriving it from the grid alone gave 152 mm under a foot grid
+src/modeling/SketchTool.h: // (a click on empty space cut distant geometry) and, once capped at 10 mm,
+src/modeling/SketchTool.h: // gave 5 mm in a view where one pixel is 8 mm: sub-pixel, so nothing could
+src/modeling/SketchTool.h: // around 1-2 mm and silently overrode a sub-1 mm grid choice - the
+src/modeling/SketchTool.h: // tolerance stayed pinned near a ~1 mm grid's proximity no matter how
+src/modeling/SketchTool.h: // (the "5 mm in a view where one pixel is 8 mm" case above); once
+src/modeling/SketchTool.h: // 1 mm base coarsening to 10 mm pins this at the cap below, turning a
+src/modeling/SketchTool.h: // ~1.5 mm pick radius into 10 mm - an 80-pixel grab - for no reason
+src/modeling/SketchTool.h: // never go below 0.1 mm - but the VISIBLE lattice (m_gridStep) is a
+src/modeling/SketchTool.h: // finer than that 0.1 mm floor. Without this, zooming in on a
+src/modeling/SketchTool.h: // visibly-0.01 mm grid still inferred/snapped at whatever coarser
+src/modeling/SketchTool.h: // base preset was chosen - "I'm zoomed in to a 0.01 mm grid and it's
+src/modeling/SketchTool.h: // still sticking to 0.1 mm" (Steve, 2026-09-26). Only follow the
+src/modeling/SketchTool.h: // on the drawing (a 90-degree corner versus a 6 mm fillet run). The cursor's
+src/modeling/SketchTool.h: // display->mm on the way in, so under inches a typed 180 deg arrived as
+src/modeling/SketchTool.h: // or diameter (2-point mode) to whole grid units, so a 1 mm grid can't
+src/modeling/SketchTool.h: // produce a 10.05 mm circle. No-op when grid snap is off.
+src/modeling/SketchTool.h: float m_textHeight = 8.0f;  // capital height, mm
+src/modeling/SketchTool.h: float m_airfoilChord = 100.0f;  // mm, a typical model-wing root chord
+src/modeling/SketchTool.h: float m_svgWidth = 50.0f; // target artwork width, mm
+src/modeling/SketchTool.h: float m_gridStep = 1.0f; // default 1 mm grid (zoom-scaled; snapping)
+src/modeling/SubShapeIndex.cpp: constexpr double kDistTol = 1e-3;   // mm
+src/modeling/SubShapeIndex.cpp: // same-curve-type candidate within 2 mm ONLY when it wins unambiguously
+src/modeling/SvgImport.cpp: NSVGimage* img = nsvgParse(text.data(), "mm", 96.0f);
+src/modeling/SvgImport.cpp: std::fprintf(stderr, "[SVG] placed %d loops at %.1f mm wide\n", placed,
+src/modeling/TextSketchOp.cpp: // units to mm for the requested capital height.
+src/modeling/TextSketchOp.cpp: // 0.2%% of the em - ~0.02 mm chord error on 10 mm letters.
+src/modeling/TextSketchOp.h: // Text extents relative to the baseline-left anchor, UNROTATED, in mm:
+src/modeling/TextSketchOp.h: // Glyph contours relative to the baseline-left anchor, UNROTATED, in mm -
+src/modeling/ThreadOp.cpp: // One pitch spans 360°, so `clearance` mm ↦ clearance/pitch·360°; the
+src/modeling/ThreadOp.cpp: // Runaway guard: a 0.1 mm pitch over a long rod would sweep thousands of
+src/modeling/ThreadOp.cpp: // Flank clearance (mm per side): widen the groove - and thus every gate
+src/modeling/ThreadOp.h: // Explicit groove width in mm, decoupling the cut from the pitch. Every
+src/modeling/ThreadOp.h: double m_clearance = 0.0;   // radial fit gap (mm); 0 = geometrically exact
+src/modeling/ThreadOp.h: double m_grooveWidth = 0.0; // explicit groove width (mm); 0 = from pitch
+src/plugins/DxfImportPlugin.cpp: // format, so unlike SVG there is no width clamp or rescale: a 100 mm part
+src/plugins/DxfImportPlugin.cpp: // imports at exactly 100 mm ($INSUNITS handles inch-authored files), only
+src/plugins/SvgImportPlugin.cpp: "%.0f mm wide) on the ground plane\n",
+src/third_party/nanosvg.h: // The units passed to NanoSVG should be one of: 'px', 'pt', 'pc' 'mm', 'cm', or 'in'.
+src/ui/HistoryPanel.cpp: // dimension steps a useful caption ("Add Distance 25 mm") instead
+src/ui/ItemsPanel.h: // menu. Routes to Application::exportSketchAsSvg (1:1-mm polyline SVG for
+src/ui/PropertiesPanel.cpp: // % / mm toggle and shows live dimensions in mm mode.
+src/ui/PropertiesPanel.cpp: // value to a 1 mm grid on every commit. An Angle is degrees and
+src/ui/PropertiesPanel.cpp: // Lengths: display unit -> mm FIRST, then halve a circle's
+src/ui/PropertiesPanel.h: // Per-body bbox-extent cache for the "Size: X × Y × Z mm" readout.
+src/ui/StepperRow.h: // value, and pulling an 80 mm extrude down to 50 because you pressed +1 loses
+src/ui/Toolbar.cpp: tip(materializr::tr("Create a stock OCCT primitive (box / cylinder / sphere / cone / torus). Picking one opens
+src/ui/TouchWidgets.h: const char* suffix = "mm", int decimals = 1,
+src/ui/TouchWidgets.h: const char* suffix = "mm", int decimals = 1,
+src/viewport/Camera.cpp: // least 0.1 mm of standoff so the view doesn't degenerate.
+src/viewport/Camera.cpp: // showing geometry instead of getting clipped at the legacy 1000 mm far
+src/viewport/Grid.cpp: // zooming reveals finer tiers. Keeps the tiered look (the "10 mm /
+src/viewport/Grid.cpp: // 100 mm lines") the user wants on the ground grid.
+src/viewport/GridScale.h: // -> mm turns a 304.8 mm grid into a 1 mm one without moving the camera, and a
+src/viewport/GridScale.h: // the opposite end: a 1 ft grid in a view 100 mm across puts one cell every
+src/viewport/GridScale.h: // 100 mm view with nothing to show.
+src/viewport/GridScale.h: // Framing a fixed count of DISPLAY units is right in spirit - 40 mm is a fine
+src/viewport/GridScale.h: // shows a sensible number of cells, but a 1 ft base makes it 12192 mm on its
+src/viewport/Picker.cpp: // plane is positive in front and negative behind. The 0.3 mm slack covers
+src/viewport/Picker.cpp: // tessellation noise on curved silhouettes while rejecting any wall ≥ 0.3 mm
+src/viewport/Picker.cpp: // is the renderer's (chords up to 0.5 mm at Low
+src/viewport/RefImageRenderer.cpp: // zoom (bias shrinks with depth precision, the 0.05 mm lift doesn't).
+src/viewport/RefImageRenderer.cpp: // Lift the quad 0.05 mm off its plane: the ground grid renders BEFORE
+src/viewport/RefImageRenderer.cpp: // plane - the common case). 0.05 mm is invisible for tracing and the
+src/viewport/SectionCap.cpp: // Endpoints closer than this (in mm, in the plane) are one vertex. Crossings
+src/viewport/SectionCap.cpp: // mesh feature the app produces is the 0.01 mm Ultra deflection.
+src/viewport/SectionCap.cpp: // tolerance - unlike mergeCollinear (exact collinearity only, ~1e-4 mm),
+src/viewport/SketchRenderer.cpp: // Same mapping AirfoilImport::place uses: chord-normalised -> mm, rotated
