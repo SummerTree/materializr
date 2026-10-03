@@ -5,6 +5,68 @@ All notable changes to Materializr are documented here. Format loosely follows
 
 ## [Unreleased]
 
+## [1.7.2] - 2026-10-03
+
+### Added
+
+- **Move type-in panel.** The Translate gizmo now has a panel for typing an
+  exact X / Y / Z offset in your display unit. Typed values bypass grid
+  snapping, and the move goes through the same history path as a drag.
+- **Exact rotation for anything.** The Rotate type-in panel now appears
+  whenever the Rotate gizmo is active, so a single body, a sketch, or a
+  sketch plus a body can be rotated by an exact angle (it used to need two or
+  more bodies). Fields persist until you leave the tool, Apply rotates by the
+  change, and a new Undo button reverts the panel's last Apply.
+- **Measurements on selection.** A new Settings -> Sketch option, "Show
+  measurements with Select tool" (off by default), labels selected lines with
+  their length, circles with diameter and radius, and arcs with radius, sweep
+  and arc length, plus a total when several lengths are selected.
+
+### Changed
+
+- **History and Lay Flat show Z-up axes.** Transform steps now report their
+  axes the way the ViewCube does, so a move toward the ground reads as Z, not
+  Y. The Lay Flat target planes are renamed to match (Ground XY, XZ, YZ).
+- **Translations.** The interface catalogue grew from 1192 to 1436 strings in
+  all five languages, covering toasts, Mates, the AI Assistant, Patch and Sew
+  dialogs, Sketch Offset and more.
+
+### Fixed
+
+- **Long traced outlines no longer freeze the app.** A single spline with
+  hundreds of control points could stall Extrude for minutes, freeze the app
+  on the click that starts an orbit, and hang project load at high mesh
+  quality. Curve fitting is thinned, region building on click is skipped for
+  such sketches, and heavy bodies mesh in the background.
+- **A committed sketch is recovered after a crash.** Sketch-only projects are
+  now snapshotted, and finishing a sketch snapshots before the draft is
+  discarded.
+- **Faster meshing of swept and trimmed walls.** Extruded outlines and walls
+  trimmed by a boolean are meshed exactly instead of falling back to a slow
+  general mesher: STL export of a lettering-heavy part dropped from 82 s to
+  0.1 s, and reopening it from 8 s to well under a second.
+- **A good union is no longer rejected.** On bodies with large B-spline
+  faces, OCCT's volume estimate could be wrong enough that a valid union was
+  refused with "an operand was lost". The check now falls back to a bounding
+  box test when the estimates disagree, and the failure is reported in 2 s
+  instead of 8.
+- **Error toasts stay on screen.** A toast raised right after a long
+  operation used to expire before it was drawn.
+- **Sketch inference follows edges again.** Edge-following now works past the
+  first point of a chain, and parallel/perpendicular guides no longer hold the
+  cursor over a whole grid square. Snap and inference ranges follow the
+  visible, zoom-scaled grid (#127).
+- **The Move/Rotate gizmo appears when you pick a sketch before a body.**
+- **ViewCube phantom click.** On a view looking along a plane edge-on (such as
+  a sketch's Front view), any click in the viewport counted as a click on the
+  Right face, snapping the camera.
+- **Duplicate Lathe button.** A second Lathe button appeared under Transform
+  and raised an ImGui conflicting-ID error.
+- **Swapped Y/Z colours** in the Rotate, Scale and Sketch Move panels now
+  match the gizmo (X red, Y blue, Z green).
+- **Extrude cut shows progress** on bodies with 40 or more faces, with a
+  cancel button, like Push/Pull.
+
 ## [1.7.0] - 2026-09-19
 
 ### Added
