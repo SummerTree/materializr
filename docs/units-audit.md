@@ -228,11 +228,11 @@ classifier is heuristic; rows it cannot decide are pinned in the script's OVERRI
 | CONVERTED | src/modeling/ThreadOp.cpp | `materializr::lengthField(materializr::trFormat("Groove width (%s)", materializr::unitSuffix()).c_str(), &m_gro` |
 | CONVERTED | src/modeling/ThreadOp.cpp | `materializr::lengthField(materializr::trFormat("Fit clearance (%s)", materializr::unitSuffix()).c_str(), &m_cl` |
 | CONVERTED | src/modeling/TransformOp.cpp | `materializr::lengthField("X", &m_dx);` |
-| CONVERTED | src/modeling/TransformOp.cpp | `materializr::lengthField("Y", &m_dy);` |
-| CONVERTED | src/modeling/TransformOp.cpp | `materializr::lengthField("Z", &m_dz);` |
+| CONVERTED | src/modeling/TransformOp.cpp | `materializr::lengthField("Y", &m_dz);` |
+| CONVERTED | src/modeling/TransformOp.cpp | `materializr::lengthField("Z", &m_dy);` |
 | unitless | src/modeling/TransformOp.cpp | `materializr::inputNumber(materializr::tr("Axis X"), &m_ax, 0.1, 1.0, "%g");` |
-| unitless | src/modeling/TransformOp.cpp | `materializr::inputNumber(materializr::tr("Axis Y"), &m_ay, 0.1, 1.0, "%g");` |
-| unitless | src/modeling/TransformOp.cpp | `materializr::inputNumber(materializr::tr("Axis Z"), &m_az, 0.1, 1.0, "%g");` |
+| unitless | src/modeling/TransformOp.cpp | `materializr::inputNumber(materializr::tr("Axis Y"), &m_az, 0.1, 1.0, "%g");` |
+| unitless | src/modeling/TransformOp.cpp | `materializr::inputNumber(materializr::tr("Axis Z"), &m_ay, 0.1, 1.0, "%g");` |
 | angle | src/modeling/TransformOp.cpp | `materializr::inputNumber(materializr::tr("Angle (deg)"), &m_angle, 1.0, 15.0, "%.1f");` |
 | ratio | src/modeling/TransformOp.cpp | `materializr::inputNumber(materializr::tr("Scale Factor"), &m_scale, 0.1, 0.5, "%g");` |
 | CONVERTED | src/plugins/MatePlugin.cpp | `if (materializr::lengthField(materializr::tr("Offset"), &offset)) {` |

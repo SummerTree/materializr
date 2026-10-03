@@ -253,11 +253,13 @@ bool TransformOp::undo(Document& doc) {
 std::string TransformOp::description() const {
     switch (m_type) {
         case TransformType::Translate:
-            return "Translate " + materializr::fmtVec3(m_dx, m_dy, m_dz);
+            // Shown in the user's Z-up axes (user Y = world Z, user Z = world Y),
+            // matching the ViewCube and the Move/Rotate dialogs.
+            return "Translate " + materializr::fmtVec3(m_dx, m_dz, m_dy);
         case TransformType::Rotate:
             return "Rotate " + std::to_string(m_angle) + " deg around (" +
-                   std::to_string(m_ax) + ", " + std::to_string(m_ay) + ", " +
-                   std::to_string(m_az) + ")";
+                   std::to_string(m_ax) + ", " + std::to_string(m_az) + ", " +
+                   std::to_string(m_ay) + ")";
         case TransformType::Scale:
             return "Scale by " + std::to_string(m_scale);
     }
@@ -278,14 +280,15 @@ void TransformOp::renderProperties() {
 
     switch (m_type) {
         case TransformType::Translate:
+            // User Z-up labels: user Y = world Z, user Z = world Y.
             materializr::lengthField("X", &m_dx);
-            materializr::lengthField("Y", &m_dy);
-            materializr::lengthField("Z", &m_dz);
+            materializr::lengthField("Y", &m_dz);
+            materializr::lengthField("Z", &m_dy);
             break;
         case TransformType::Rotate:
             materializr::inputNumber(materializr::tr("Axis X"), &m_ax, 0.1, 1.0, "%g");
-            materializr::inputNumber(materializr::tr("Axis Y"), &m_ay, 0.1, 1.0, "%g");
-            materializr::inputNumber(materializr::tr("Axis Z"), &m_az, 0.1, 1.0, "%g");
+            materializr::inputNumber(materializr::tr("Axis Y"), &m_az, 0.1, 1.0, "%g");
+            materializr::inputNumber(materializr::tr("Axis Z"), &m_ay, 0.1, 1.0, "%g");
             materializr::inputNumber(materializr::tr("Angle (deg)"), &m_angle, 1.0, 15.0, "%.1f");
             break;
         case TransformType::Scale:

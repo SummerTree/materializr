@@ -3691,8 +3691,8 @@ void Application::renderRevolvePopup() {
 static void alignTargetAxes(const Document* doc, int idx,
                             gp_Pnt& o, gp_Dir& n, gp_Dir& u, gp_Dir& v) {
     switch (idx) {
-        case 0: o = gp_Pnt(0,0,0); n = gp_Dir(0,1,0); u = gp_Dir(1,0,0); break; // Ground (XZ)
-        case 1: o = gp_Pnt(0,0,0); n = gp_Dir(0,0,1); u = gp_Dir(1,0,0); break; // XY
+        case 0: o = gp_Pnt(0,0,0); n = gp_Dir(0,1,0); u = gp_Dir(1,0,0); break; // Ground (user XY)
+        case 1: o = gp_Pnt(0,0,0); n = gp_Dir(0,0,1); u = gp_Dir(1,0,0); break; // user XZ
         case 2: o = gp_Pnt(0,0,0); n = gp_Dir(1,0,0); u = gp_Dir(0,1,0); break; // YZ
         default: {
             o = gp_Pnt(0,0,0); n = gp_Dir(0,1,0); u = gp_Dir(1,0,0);
@@ -3897,7 +3897,7 @@ void Application::renderAlignFacePopup() {
     bool changed = false;
 
     ImGui::TextColored(materializr::accentText(), "%s", materializr::tr("Target plane"));
-    std::vector<std::string> names = {"Ground (XZ)", "XY plane", "YZ plane"};
+    std::vector<std::string> names = {"Ground (XY)", "XZ plane", "YZ plane"};
     if (m_document)
         for (int pid : m_document->getAllPlaneIds())
             names.push_back(m_document->getPlaneName(pid));
