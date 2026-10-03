@@ -1259,7 +1259,8 @@ ToolAction Toolbar::renderSketchRegionTools() {
     if (action == ToolAction::None)
         action = renderCatalogRemainder({ToolAction::PushPull, ToolAction::ExtrudeSketch,
                                          ToolAction::SubtractSketch, ToolAction::EditSketch,
-                                         ToolAction::Move, ToolAction::Rotate});
+                                         ToolAction::Move, ToolAction::Rotate,
+                                         ToolAction::Revolve});
 
     ImGui::Spacing();
     ImGui::TextWrapped("%s", materializr::tr("Drag positive distance to extrude, negative to cut into the body the sketch sits on."));
