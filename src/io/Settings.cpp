@@ -209,6 +209,7 @@ void applyKv(const std::map<std::string, std::string>& kv, AppSettings& s) {
     // -1 is meaningful here ("never chosen"), so the floor is -1, not 0.
     readIntClamped(kv, "language", s.language, -1, 5);
     readBool(kv, "showInferenceToolbarToggle", s.showInferenceToolbarToggle);
+    readBool(kv, "showSelectionMeasurements", s.showSelectionMeasurements);
     readIntClamped(kv, "angleSnapDeg",   s.angleSnapDeg, 1, 90);
     readFloat(kv, "stlImportAccuracy",   s.stlImportAccuracy);
     readBool(kv, "meshShowWireframe",    s.meshShowWireframe);
@@ -481,6 +482,8 @@ bool SettingsIO::save(const std::string& path, const AppSettings& s) {
     ofs << "displayUnit = "             << s.displayUnit         << "\n";
     ofs << "showInferenceToolbarToggle = "
         << (s.showInferenceToolbarToggle ? "true" : "false") << "\n";
+    ofs << "showSelectionMeasurements = "
+        << (s.showSelectionMeasurements ? "true" : "false") << "\n";
     ofs << "angleSnapDeg = "             << s.angleSnapDeg        << "\n";
     ofs << "stlImportAccuracy = "        << s.stlImportAccuracy   << "\n";
     ofs << "meshShowWireframe = "        << (s.meshShowWireframe ? "true" : "false") << "\n";
@@ -583,6 +586,8 @@ bool SettingsIO::exportJson(const std::string& path, const AppSettings& s) {
     ofs << "  \"displayUnit\": "             << s.displayUnit           << ",\n";
     ofs << "  \"showInferenceToolbarToggle\": "
         << b(s.showInferenceToolbarToggle) << ",\n";
+    ofs << "  \"showSelectionMeasurements\": "
+        << b(s.showSelectionMeasurements) << ",\n";
     ofs << "  \"angleSnapDeg\": "             << s.angleSnapDeg          << ",\n";
     ofs << "  \"stlImportAccuracy\": "        << s.stlImportAccuracy     << ",\n";
     ofs << "  \"meshShowWireframe\": "        << b(s.meshShowWireframe)  << "\n";

@@ -196,6 +196,8 @@ inline const TrEntry kEsCatalogue[] = {
     { "Step (%s)", "Paso (%s)" },
     { "Drawing inferences", "Inferencias de dibujo" },
     { "Show level toggle in sketch toolbar", "Mostrar el selector de nivel en la barra de boceto" },
+    { "Show measurements with Select tool", "Mostrar medidas con la herramienta Seleccionar" },
+    { "With the Select tool, selected lines show their length, circles show diameter and radius, and arcs show radius, sweep angle and arc length. Selecting several lines also shows a total. Splines are not measured.", "Con la herramienta Seleccionar, las l\xc3""\xad""neas seleccionadas muestran su longitud, los c\xc3""\xad""rculos su di\xc3""\xa1""metro y radio, y los arcos su radio, \xc3""\xa1""ngulo de barrido y longitud de arco. Al seleccionar varias l\xc3""\xad""neas tambi\xc3""\xa9""n se muestra un total. Las splines no se miden." },
     { "Show FPS counter", "Mostrar contador de FPS" },
     { "Show toolbar tooltips", "Mostrar descripciones emergentes" },
     { "Toolbar tooltips", "Descripciones emergentes" },
@@ -1448,7 +1450,7 @@ inline const TrEntry kEsCatalogue[] = {
     { "Fix up geometry: fill an opening, stitch surfaces into a solid, merge split faces, or take a feature back off", "Arreglar geometr\xc3""\xad""a: rellenar una abertura, coser superficies en un s\xc3""\xb3""lido, fusionar caras divididas o quitar una operaci\xc3""\xb3""n" },
     { "Some faces are doubly-curved - score/fold lines approximate the curvature.", "Algunas caras tienen doble curvatura - las l\xc3""\xad""neas de marcado/plegado aproximan la curvatura." },
 };
-inline constexpr int kEsCount = 1436;
+inline constexpr int kEsCount = 1438;
 
 // --- Portuguese ---
 inline const TrEntry kPtCatalogue[] = {
@@ -1637,6 +1639,8 @@ inline const TrEntry kPtCatalogue[] = {
     { "Step (%s)", "Passo (%s)" },
     { "Drawing inferences", "Infer\xc3""\xaa""ncias de desenho" },
     { "Show level toggle in sketch toolbar", "Mostrar o seletor de n\xc3""\xad""vel na barra de esbo\xc3""\xa7""o" },
+    { "Show measurements with Select tool", "Mostrar medidas com a ferramenta Selecionar" },
+    { "With the Select tool, selected lines show their length, circles show diameter and radius, and arcs show radius, sweep angle and arc length. Selecting several lines also shows a total. Splines are not measured.", "Com a ferramenta Selecionar, as linhas selecionadas mostram o comprimento, os c\xc3""\xad""rculos mostram di\xc3""\xa2""metro e raio, e os arcos mostram raio, \xc3""\xa2""ngulo de varredura e comprimento do arco. Selecionar v\xc3""\xa1""rias linhas tamb\xc3""\xa9""m mostra um total. Splines n\xc3""\xa3""o s\xc3""\xa3""o medidas." },
     { "Show FPS counter", "Mostrar contador de FPS" },
     { "Show toolbar tooltips", "Mostrar dicas da barra de ferramentas" },
     { "Toolbar tooltips", "Dicas da barra de ferramentas" },
@@ -2889,7 +2893,7 @@ inline const TrEntry kPtCatalogue[] = {
     { "Fix up geometry: fill an opening, stitch surfaces into a solid, merge split faces, or take a feature back off", "Corrigir geometria: preencher uma abertura, costurar superf\xc3""\xad""cies em um s\xc3""\xb3""lido, mesclar faces divididas ou remover um recurso" },
     { "Some faces are doubly-curved - score/fold lines approximate the curvature.", "Algumas faces t\xc3""\xaa""m curvatura dupla - as linhas de vinco/dobra aproximam a curvatura." },
 };
-inline constexpr int kPtCount = 1436;
+inline constexpr int kPtCount = 1438;
 
 // --- French ---
 inline const TrEntry kFrCatalogue[] = {
@@ -3078,6 +3082,8 @@ inline const TrEntry kFrCatalogue[] = {
     { "Step (%s)", "Pas (%s)" },
     { "Drawing inferences", "Inf\xc3""\xa9""rences de dessin" },
     { "Show level toggle in sketch toolbar", "Afficher le s\xc3""\xa9""lecteur de niveau dans la barre d'esquisse" },
+    { "Show measurements with Select tool", "Afficher les mesures avec l'outil S\xc3""\xa9""lectionner" },
+    { "With the Select tool, selected lines show their length, circles show diameter and radius, and arcs show radius, sweep angle and arc length. Selecting several lines also shows a total. Splines are not measured.", "Avec l'outil S\xc3""\xa9""lectionner, les lignes s\xc3""\xa9""lectionn\xc3""\xa9""es affichent leur longueur, les cercles leur diam\xc3""\xa8""tre et rayon, et les arcs leur rayon, angle d'ouverture et longueur d'arc. S\xc3""\xa9""lectionner plusieurs lignes affiche aussi un total. Les splines ne sont pas mesur\xc3""\xa9""es." },
     { "Show FPS counter", "Afficher le compteur FPS" },
     { "Show toolbar tooltips", "Afficher les infobulles" },
     { "Toolbar tooltips", "Infobulles" },
@@ -4330,7 +4336,7 @@ inline const TrEntry kFrCatalogue[] = {
     { "Fix up geometry: fill an opening, stitch surfaces into a solid, merge split faces, or take a feature back off", "R\xc3""\xa9""parer la g\xc3""\xa9""om\xc3""\xa9""trie : combler une ouverture, coudre des surfaces en un solide, fusionner des faces scind\xc3""\xa9""es ou retirer une fonction" },
     { "Some faces are doubly-curved - score/fold lines approximate the curvature.", "Certaines faces sont \xc3""\xa0"" double courbure - les lignes de rainage/pliage approximent la courbure." },
 };
-inline constexpr int kFrCount = 1436;
+inline constexpr int kFrCount = 1438;
 
 // --- German ---
 inline const TrEntry kDeCatalogue[] = {
@@ -4519,6 +4525,8 @@ inline const TrEntry kDeCatalogue[] = {
     { "Step (%s)", "Schritt (%s)" },
     { "Drawing inferences", "Zeichenhilfen" },
     { "Show level toggle in sketch toolbar", "Stufenschalter in der Skizzenleiste anzeigen" },
+    { "Show measurements with Select tool", "Ma\xc3""\x9f""e mit dem Auswahlwerkzeug anzeigen" },
+    { "With the Select tool, selected lines show their length, circles show diameter and radius, and arcs show radius, sweep angle and arc length. Selecting several lines also shows a total. Splines are not measured.", "Mit dem Auswahlwerkzeug zeigen ausgew\xc3""\xa4""hlte Linien ihre L\xc3""\xa4""nge, Kreise Durchmesser und Radius und B\xc3""\xb6""gen Radius, \xc3""\x96""ffnungswinkel und Bogenl\xc3""\xa4""nge. Bei mehreren ausgew\xc3""\xa4""hlten Linien wird zus\xc3""\xa4""tzlich eine Summe angezeigt. Splines werden nicht vermessen." },
     { "Show FPS counter", "FPS-Anzeige einblenden" },
     { "Show toolbar tooltips", "QuickInfos anzeigen" },
     { "Toolbar tooltips", "QuickInfos" },
@@ -5771,7 +5779,7 @@ inline const TrEntry kDeCatalogue[] = {
     { "Fix up geometry: fill an opening, stitch surfaces into a solid, merge split faces, or take a feature back off", "Geometrie reparieren: eine \xc3""\x96""ffnung f\xc3""\xbc""llen, Fl\xc3""\xa4""chen zu einem Volumenk\xc3""\xb6""rper vern\xc3""\xa4""hen, geteilte Fl\xc3""\xa4""chen zusammenf\xc3""\xbc""hren oder ein Feature wieder entfernen" },
     { "Some faces are doubly-curved - score/fold lines approximate the curvature.", "Einige Fl\xc3""\xa4""chen sind doppelt gekr\xc3""\xbc""mmt - Ritz-/Falzlinien n\xc3""\xa4""hern die Kr\xc3""\xbc""mmung nur an." },
 };
-inline constexpr int kDeCount = 1436;
+inline constexpr int kDeCount = 1438;
 
 // --- Italian ---
 inline const TrEntry kItCatalogue[] = {
@@ -5960,6 +5968,8 @@ inline const TrEntry kItCatalogue[] = {
     { "Step (%s)", "Passo (%s)" },
     { "Drawing inferences", "Inferenze di disegno" },
     { "Show level toggle in sketch toolbar", "Mostra il selettore di livello nella barra dello schizzo" },
+    { "Show measurements with Select tool", "Mostra le misure con lo strumento Seleziona" },
+    { "With the Select tool, selected lines show their length, circles show diameter and radius, and arcs show radius, sweep angle and arc length. Selecting several lines also shows a total. Splines are not measured.", "Con lo strumento Seleziona, le linee selezionate mostrano la lunghezza, i cerchi diametro e raggio, e gli archi raggio, angolo di apertura e lunghezza dell'arco. Selezionando pi\xc3""\xb9"" linee viene mostrato anche un totale. Le spline non vengono misurate." },
     { "Show FPS counter", "Mostra contatore FPS" },
     { "Show toolbar tooltips", "Mostra suggerimenti" },
     { "Toolbar tooltips", "Suggerimenti" },
@@ -7212,6 +7222,6 @@ inline const TrEntry kItCatalogue[] = {
     { "Fix up geometry: fill an opening, stitch surfaces into a solid, merge split faces, or take a feature back off", "Sistema la geometria: riempi un'apertura, cuci superfici in un solido, unisci facce divise o rimuovi una feature" },
     { "Some faces are doubly-curved - score/fold lines approximate the curvature.", "Alcune facce hanno doppia curvatura - le linee di cordonatura/piega approssimano la curvatura." },
 };
-inline constexpr int kItCount = 1436;
+inline constexpr int kItCount = 1438;
 
 } // namespace materializr

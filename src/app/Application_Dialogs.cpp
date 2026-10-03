@@ -425,6 +425,13 @@ void Application::renderSettings() {
                     }
                     ImGui::TextWrapped("%s", materializr::tr("Off hides the live Full / Reduced / Off cycle button from the sketch toolbar - use this combo instead. On (default) keeps the per-session button visible."));
 
+                    ImGui::Spacing();
+                    if (ImGui::Checkbox(materializr::tr("Show measurements with Select tool"),
+                                        &m_showSelectionMeasurements)) {
+                        changed = true;
+                    }
+                    ImGui::TextWrapped("%s", materializr::tr("With the Select tool, selected lines show their length, circles show diameter and radius, and arcs show radius, sweep angle and arc length. Selecting several lines also shows a total. Splines are not measured."));
+
                     ImGui::EndTabItem();
                 }
 

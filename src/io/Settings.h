@@ -195,6 +195,8 @@ struct AppSettings {
     // button. Off lets users who set the level once in Settings declutter
     // the toolbar; on (default) keeps the per-session live toggle visible.
     bool showInferenceToolbarToggle = true;
+    // Sketch Select tool: show lengths / radii / arc sweep on selected geometry.
+    bool showSelectionMeasurements = false;
     // Line angle-snap increment in degrees (0 = off). The line tool snaps its
     // direction to multiples of this from the segment anchor. Default 15.
     int  angleSnapDeg = 15;

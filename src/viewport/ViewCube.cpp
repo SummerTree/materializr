@@ -141,6 +141,17 @@ ViewCubeAction ViewCube::render(Camera& camera, bool invertDrag, bool lightMode,
 
     // --- Cube faces. Compute visibility per face from eye-space normal.z.
     auto pointInQuad = [&](const ImVec2* q, ImVec2 p) -> bool {
+        // A face seen edge-on collapses to a line. Its sign tests below all fall
+        // under the 1e-3 tolerance and so "pass", which made the whole viewport
+        // read as hovering that face (a plane with ~1e-9 of numeric noise leaves
+        // the side face a hair on the front side of the camera). Such a face has
+        // no area to click.
+        float area2 = 0.0f;
+        for (int i = 0; i < 4; ++i) {
+            const ImVec2 a = q[i], b = q[(i + 1) % 4];
+            area2 += a.x * b.y - b.x * a.y;
+        }
+        if (std::abs(area2) < 1.0f) return false;
         float sign = 0.0f;
         for (int i = 0; i < 4; ++i) {
             ImVec2 a = q[i], b = q[(i+1) % 4];

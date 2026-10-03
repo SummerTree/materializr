@@ -2075,6 +2075,7 @@ AppSettings Application::currentSettings() const {
     s.inferenceLevel = m_sketchTool
         ? static_cast<int>(m_sketchTool->getInferenceLevel()) : 0;
     s.showInferenceToolbarToggle = m_showInferenceToolbarToggle;
+    s.showSelectionMeasurements = m_showSelectionMeasurements;
     s.angleSnapDeg = m_sketchTool ? m_sketchTool->getAngleSnapDeg() : 15;
     s.stlImportAccuracy = m_stlImportAccuracy;
     s.meshShowWireframe = m_meshShowWireframe;
@@ -2164,6 +2165,7 @@ void Application::applyAppSettings(const AppSettings& s) {
     // applied above (applyDisplayUnitChange) before this runs.
     m_sketchGridStep = static_cast<float>(materializr::toMm(s.sketchGridStep));
     m_showInferenceToolbarToggle = s.showInferenceToolbarToggle;
+    m_showSelectionMeasurements = s.showSelectionMeasurements;
     m_stlImportAccuracy = s.stlImportAccuracy;
     m_meshShowWireframe = s.meshShowWireframe;
     materializr::FileDialogs::setLastDir(s.lastFileDir);

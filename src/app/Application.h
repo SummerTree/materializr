@@ -1240,6 +1240,8 @@ private:
     // button. Off hides the button so users who set the level once in
     // Settings can declutter the sketch toolbar.
     bool  m_showInferenceToolbarToggle = true;
+    // Select tool: overlay lengths / radii / arc info on selected sketch geometry.
+    bool  m_showSelectionMeasurements = false;
     // STL import (persisted). m_stlImportAccuracy pre-fills the import dialog's
     // fidelity slider; m_meshShowWireframe gates the facet wireframe of imported
     // mesh bodies (live - toggling it re-runs the mesh-body edge rebuild).

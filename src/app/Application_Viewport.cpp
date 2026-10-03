@@ -2644,6 +2644,136 @@ void Application::renderViewport() {
                 }
             }
 
+            // Select-tool measurements (Settings > Sketch): lengths of selected
+            // lines, Ø / R of circles, R + sweep + arc length of arcs, and a
+            // running total when more than one length is selected. Splines are
+            // left out on purpose (no closed-form length worth showing).
+            if (m_showSelectionMeasurements && m_inSketchMode && m_activeSketch &&
+                m_sketchTool && m_sketchTool->getMode() == SketchToolMode::Select &&
+                m_sketchTool->hasElementSelection()) {
+                const gp_Ax3& max3 = m_activeSketch->getPlane().Position();
+                glm::vec3 mO(max3.Location().X(), max3.Location().Y(), max3.Location().Z());
+                glm::vec3 mX(max3.XDirection().X(), max3.XDirection().Y(), max3.XDirection().Z());
+                glm::vec3 mY(max3.YDirection().X(), max3.YDirection().Y(), max3.YDirection().Z());
+                auto m2w = [&](glm::vec2 p) { return mO + p.x * mX + p.y * mY; };
+                const ImU32 mCol = IM_COL32(150, 235, 255, 255);
+                // Foreground list so the Move/Rotate gizmo can't cover a label,
+                // clipped to the viewport so one near the edge can't spill over
+                // a side panel.
+                ImDrawList* mdl = ImGui::GetForegroundDrawList();
+                mdl->PushClipRect(imgMin, ImVec2(imgMin.x + imgSize.x, imgMin.y + imgSize.y), true);
+                // The foreground list ignores window stacking, so honour it by
+                // hand: nothing while a popup / modal (Exit Sketch confirm, any
+                // dialogue) is open, and a label is dropped if another window
+                // sits in front of the viewport where it would land.
+                ImGuiWindow* vpWin = ImGui::GetCurrentWindow()->RootWindow;
+                const bool popupOpen = ImGui::IsPopupOpen(
+                    nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
+                auto occluded = [&](const ImRect& r) {
+                    ImGuiContext& g = *ImGui::GetCurrentContext();
+                    bool above = false;
+                    for (ImGuiWindow* w : g.Windows) {
+                        if (w == vpWin) { above = true; continue; }
+                        if (!above || !w->WasActive || w->Hidden) continue;
+                        if (w->Flags & (ImGuiWindowFlags_ChildWindow | ImGuiWindowFlags_Tooltip))
+                            continue;
+                        if (w->Rect().Overlaps(r)) return true;
+                    }
+                    return false;
+                };
+                auto pill = [&](ImVec2 centre, const std::string& txt) {
+                    if (popupOpen) return;
+                    ImVec2 ts = ImGui::CalcTextSize(txt.c_str());
+                    ImVec2 tp(centre.x - ts.x * 0.5f, centre.y - ts.y * 0.5f);
+                    if (occluded(ImRect(ImVec2(tp.x - 4, tp.y - 2),
+                                        ImVec2(tp.x + ts.x + 4, tp.y + ts.y + 2))))
+                        return;
+                    mdl->AddRectFilled(ImVec2(tp.x - 4, tp.y - 2),
+                                      ImVec2(tp.x + ts.x + 4, tp.y + ts.y + 2),
+                                      IM_COL32(20, 20, 28, 220), 3.0f);
+                    mdl->AddText(tp, mCol, txt.c_str());
+                };
+                double totalLen = 0.0;
+                int lenCount = 0;
+                for (int id : m_sketchTool->getSelectedLines()) {
+                    const SketchLine* ln = nullptr;
+                    for (const auto& l : m_activeSketch->getLines())
+                        if (l.id == id) { ln = &l; break; }
+                    if (!ln) continue;
+                    const SketchPoint* a = m_activeSketch->getPoint(ln->startPointId);
+                    const SketchPoint* b = m_activeSketch->getPoint(ln->endPointId);
+                    if (!a || !b) continue;
+                    double len = glm::length(b->pos - a->pos);
+                    totalLen += len; ++lenCount;
+                    ImVec2 sa, sb;
+                    if (!toImg(m2w(a->pos), sa) || !toImg(m2w(b->pos), sb)) continue;
+                    // Nudge the pill off the line, perpendicular in screen space,
+                    // so it doesn't sit on top of the stroke it describes.
+                    ImVec2 d(sb.x - sa.x, sb.y - sa.y);
+                    float dn = std::sqrt(d.x * d.x + d.y * d.y);
+                    ImVec2 nrm = dn > 1e-3f ? ImVec2(d.y / dn, -d.x / dn) : ImVec2(0, -1);
+                    if (nrm.y > 0.0f) { nrm.x = -nrm.x; nrm.y = -nrm.y; } // keep it above
+                    pill(ImVec2((sa.x + sb.x) * 0.5f + nrm.x * 30.0f,
+                                (sa.y + sb.y) * 0.5f + nrm.y * 30.0f),
+                         materializr::fmtLength(len));
+                }
+                for (int id : m_sketchTool->getSelectedCircles()) {
+                    for (const auto& c : m_activeSketch->getCircles()) {
+                        if (c.id != id) continue;
+                        const SketchPoint* ctr = m_activeSketch->getPoint(c.centerPointId);
+                        if (!ctr) break;
+                        ImVec2 sp;
+                        // Label sits on the rim at 45 deg, outside the stroke.
+                        glm::vec2 rim = ctr->pos + glm::vec2(0.7071f, 0.7071f) * (float)c.radius;
+                        if (toImg(m2w(rim), sp))
+                            pill(ImVec2(sp.x + 56.0f, sp.y - 30.0f),
+                                 "\xC3\x98 " + materializr::fmtLength(c.radius * 2.0) +
+                                 "   R " + materializr::fmtLength(c.radius));
+                        break;
+                    }
+                }
+                for (int id : m_sketchTool->getSelectedArcs()) {
+                    for (const auto& ar : m_activeSketch->getArcs()) {
+                        if (ar.id != id) continue;
+                        const SketchPoint* ctr = m_activeSketch->getPoint(ar.centerPointId);
+                        const SketchPoint* st  = m_activeSketch->getPoint(ar.startPointId);
+                        const SketchPoint* en  = m_activeSketch->getPoint(ar.endPointId);
+                        if (!ctr || !st || !en) break;
+                        const double twoPi = 6.283185307179586;
+                        double a0 = std::atan2(st->pos.y - ctr->pos.y, st->pos.x - ctr->pos.x);
+                        double a1 = std::atan2(en->pos.y - ctr->pos.y, en->pos.x - ctr->pos.x);
+                        double sweep = a1 - a0;
+                        while (sweep <= 0.0) sweep += twoPi;
+                        while (sweep > twoPi) sweep -= twoPi;
+                        double arcLen = ar.radius * sweep;
+                        totalLen += arcLen; ++lenCount;
+                        double am = a0 + sweep * 0.5;
+                        glm::vec2 mid = ctr->pos + glm::vec2((float)std::cos(am), (float)std::sin(am)) *
+                                                   (float)ar.radius;
+                        ImVec2 sp, sc;
+                        if (toImg(m2w(mid), sp) && toImg(m2w(ctr->pos), sc)) {
+                            // Push outward from the centre on screen.
+                            ImVec2 o(sp.x - sc.x, sp.y - sc.y);
+                            float on = std::sqrt(o.x * o.x + o.y * o.y);
+                            if (on > 1e-3f) { o.x /= on; o.y /= on; } else { o = ImVec2(0, -1); }
+                            char ang[24];
+                            std::snprintf(ang, sizeof(ang), "%.1f\xC2\xB0", sweep * 180.0 / 3.14159265358979);
+                            pill(ImVec2(sp.x + o.x * 56.0f, sp.y + o.y * 32.0f),
+                                 "R " + materializr::fmtLength(ar.radius) + "   " + ang +
+                                 "   L " + materializr::fmtLength(arcLen));
+                        }
+                        break;
+                    }
+                }
+                if (lenCount > 1) {
+                    char tot[96];
+                    std::snprintf(tot, sizeof(tot), materializr::tr("Total: %s"),
+                                  materializr::fmtLength(totalLen).c_str());
+                    pill(ImVec2(imgMin.x + 90.0f, imgMin.y + 24.0f), tot);
+                }
+                mdl->PopClipRect();
+            }
+
             // Dimension value labels - Distance / Radius / Angle constraints
             // get a numeric text overlay near their geometry so the user can
             // see (and later edit) the locked value. Free / undimensioned
