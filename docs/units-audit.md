@@ -7,7 +7,7 @@ classifier is heuristic; rows it cannot decide are pinned in the script's OVERRI
 
 ## Controls by dimension
 
-- CONVERTED: 152
+- CONVERTED: 153
 - absolute-mm: 2
 - angle: 38
 - count: 1
@@ -32,6 +32,7 @@ classifier is heuristic; rows it cannot decide are pinned in the script's OVERRI
 | ratio | src/app/Application_Dialogs.cpp | `if (ImGui::SliderFloat(materializr::tr("Ambient"), &m_lightAmbient, 0.0f, 1.0f, "%.2f")) {` |
 | ratio | src/app/Application_Dialogs.cpp | `if (ImGui::SliderFloat(materializr::tr("Default STL accuracy"), &m_stlImportAccuracy,` |
 | angle | src/app/Application_Dialogs.cpp | `materializr::inputNumber("##deg", &m_multiRotate[i], 0.0f, 0.0f, "%.3f");` |
+| CONVERTED | src/app/Application_Dialogs.cpp | `materializr::lengthField("##mv", &m_multiMove[i]);` |
 | percent | src/app/Application_Dialogs.cpp | `if (materializr::inputNumber("##pct", &m_scalePct[i], 0.0f, 0.0f, "%.1f")) {` |
 | CONVERTED | src/app/Application_Dialogs.cpp | `(void)materializr::parseLength(m_scaleMmEdit[i].buf,` |
 | CONVERTED | src/app/Application_Dialogs.cpp | `if (materializr::parseLength(m_sketchPatternDistanceBuf, newDist) &&` |
@@ -262,7 +263,7 @@ classifier is heuristic; rows it cannot decide are pinned in the script's OVERRI
 
 - CONVERTED: 1
 - allowed-by-hand: 92
-- comment: 281
+- comment: 282
 - diagnostic: 11
 - identifier/other: 9
 
@@ -368,6 +369,7 @@ classifier is heuristic; rows it cannot decide are pinned in the script's OVERRI
 | comment | src/app/Application.h | `// Metres are the unit this serves least well: a 300 mm view makes every` |
 | comment | src/app/Application.h | `// Sketch grid step in mm. This is the BASE the user chose (a display` |
 | comment | src/app/Application.h | `// sketch mm, so the tag keeps its grab point instead of snapping its centre` |
+| comment | src/app/Application.h | `// fields persist (user axes, Z up, mm) and Apply moves by field - applied.` |
 | comment | src/app/Application.h | `// Scale popup unit mode. Percent is the multi-body-safe default; mm only` |
 | comment | src/app/Application.h | `// mm-mode text buffer + focus state per user axis (X, Y, Z in Z-up` |
 | comment | src/app/Application.h | `float  m_threadClearance = 0.0f; // radial fit gap for printed threads (mm)` |

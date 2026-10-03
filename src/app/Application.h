@@ -261,6 +261,7 @@ private:
     void renderMirrorPopup();
     void renderUpdatePopup();
     void renderRotatePanel();
+    void renderMovePanel();
     void renderScalePanel();
     void handleToolAction(int action);
     void handleShortcuts();
@@ -1369,7 +1370,24 @@ private:
     // gizmo's own commit path then runs (so history, link detaching and sketch
     // handling are identical to a mouse drag - minus the 15 deg / 45 deg snap).
     float m_multiRotate[3] = {0.0f, 0.0f, 0.0f};
+    // Typed degrees already applied this session (the fields persist until the
+    // tool closes, so Apply rotates by field - applied). Revert pops m_rotateSteps.
+    float m_multiRotateApplied[3] = {0.0f, 0.0f, 0.0f};
+    struct TypedRotateStep { int before; int after; float delta[3]; };
+    std::vector<TypedRotateStep> m_rotateSteps;
+    bool m_rotatePending = false;   // an Apply is draining through the commit path
+    int  m_rotatePendingBefore = -1;
+    float m_rotatePendingDelta[3] = {0.0f, 0.0f, 0.0f};
     std::vector<std::pair<int, float>> m_typedRotateQueue; // (world axis 0..2, degrees)
+    // Move type-in panel (renderMovePanel): same session model as the Rotate one -
+    // fields persist (user axes, Z up, mm) and Apply moves by field - applied.
+    float m_multiMove[3] = {0.0f, 0.0f, 0.0f};
+    float m_multiMoveApplied[3] = {0.0f, 0.0f, 0.0f};
+    std::vector<TypedRotateStep> m_moveSteps;
+    std::vector<glm::vec3> m_typedMoveQueue;   // WORLD-space deltas
+    bool m_movePending = false;
+    int  m_movePendingBefore = -1;
+    float m_movePendingDelta[3] = {0.0f, 0.0f, 0.0f};
     bool m_gizmoAngleExact = false; // committing a typed angle: bypass drag snapping
     // Accumulated delta from drag start (translate only). Used so snap-to-grid
     // can snap the absolute position rather than each per-frame increment.

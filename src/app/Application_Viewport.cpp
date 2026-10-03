@@ -3531,7 +3531,7 @@ void Application::renderViewport() {
         }
         // A queued typed rotation (Rotate panel -> Apply) is serviced by the gizmo
         // code in this block even though the cursor is on the panel, not the viewport.
-        if (viewportHovered || !m_typedRotateQueue.empty()) {
+        if (viewportHovered || !m_typedRotateQueue.empty() || !m_typedMoveQueue.empty()) {
             ImGuiIO& io = ImGui::GetIO();
             // Multi-select toggle = the touch stand-in for holding Ctrl. Force
             // io.KeyCtrl on for this hovered-viewport scope so every selection
@@ -4081,7 +4081,9 @@ void Application::renderViewport() {
                     // as a mouse drag (link detaching, undo and replay come for free).
                     const bool typedRotate = !m_typedRotateQueue.empty() && !m_gizmoDragging &&
                                              m_gizmo->getMode() == GizmoMode::Rotate;
-                    if ((gResult.activeAxis != GizmoAxis::None || typedRotate) && !m_gizmoDragging) {
+                    const bool typedMove = !m_typedMoveQueue.empty() && !m_gizmoDragging &&
+                                           m_gizmo->getMode() == GizmoMode::Translate;
+                    if ((gResult.activeAxis != GizmoAxis::None || typedRotate || typedMove) && !m_gizmoDragging) {
                         m_gizmoDragOriginals.clear();
                         m_sketchGizmoDragSketches.clear();
                         m_planeGizmoDrag.clear();
@@ -4241,6 +4243,17 @@ void Application::renderViewport() {
                     }
 
                     bool typedRotateCommit = false;
+                    if (typedMove) {
+                        const glm::vec3 mv = m_typedMoveQueue.front();
+                        m_typedMoveQueue.erase(m_typedMoveQueue.begin());
+                        if (m_gizmoDragging) {
+                            m_gizmoTotalDelta = mv;
+                            m_gizmoAngleExact = true;   // typed: bypass grid snapping
+                            typedRotateCommit = true;
+                        } else {
+                            m_typedMoveQueue.clear(); // nothing draggable selected
+                        }
+                    }
                     if (typedRotate) {
                         auto [axisIdx, deg] = m_typedRotateQueue.front();
                         m_typedRotateQueue.erase(m_typedRotateQueue.begin());
@@ -4285,7 +4298,7 @@ void Application::renderViewport() {
                             if (gResult.mode == GizmoMode::Translate) {
                                 m_gizmoTotalDelta += gResult.delta;
                                 glm::vec3 d = m_gizmoTotalDelta;
-                                if (m_snapToGrid && m_sketchGridStep > 0.0f) {
+                                if (m_snapToGrid && !m_gizmoAngleExact && m_sketchGridStep > 0.0f) {
                                     // Absolute-position snap: the pivot lands on
                                     // grid intersections (matches sketch grid
                                     // behaviour). Snap ONLY the axes that moved -
@@ -4505,7 +4518,7 @@ void Application::renderViewport() {
 
                             glm::vec3 d = m_gizmoTotalDelta;
                             if (gm == GizmoMode::Translate &&
-                                m_snapToGrid && m_sketchGridStep > 0.0f) {
+                                m_snapToGrid && !m_gizmoAngleExact && m_sketchGridStep > 0.0f) {
                                 // Absolute snap - same rule as the live drag:
                                 // snap ONLY the axes that moved, so an
                                 // axis-constrained move doesn't drift the others
@@ -7257,6 +7270,7 @@ void Application::renderViewport() {
     // Scale gizmo side panel (X/Y/Z % + uniform + Apply), shown in Scale mode.
     renderScalePanel();
     renderRotatePanel();
+    renderMovePanel();
 
     // Sketch mode indicator
     if (m_inSketchMode) {

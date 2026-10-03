@@ -101,6 +101,7 @@ src/app/Application.h: // 40 mm and this never engages, so the common case does 
 src/app/Application.h: // Metres are the unit this serves least well: a 300 mm view makes every
 src/app/Application.h: // Sketch grid step in mm. This is the BASE the user chose (a display
 src/app/Application.h: // sketch mm, so the tag keeps its grab point instead of snapping its centre
+src/app/Application.h: // fields persist (user axes, Z up, mm) and Apply moves by field - applied.
 src/app/Application.h: // Scale popup unit mode. Percent is the multi-body-safe default; mm only
 src/app/Application.h: // mm-mode text buffer + focus state per user axis (X, Y, Z in Z-up
 src/app/Application.h: float  m_threadClearance = 0.0f; // radial fit gap for printed threads (mm)

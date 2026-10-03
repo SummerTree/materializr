@@ -860,10 +860,35 @@ void Application::renderUpdatePopup() {
 // it queues one rotation per non-zero axis and the viewport's gizmo commit path
 // runs them, so undo / replay / sketch-link handling match a mouse drag.
 void Application::renderRotatePanel() {
-    if (m_inSketchMode || !m_gizmo || m_gizmo->getMode() != GizmoMode::Rotate) return;
+    // Typed degrees live as long as the tool does: leaving Rotate (or losing the
+    // selection) ends the session.
+    auto endSession = [&] {
+        for (int i = 0; i < 3; ++i) m_multiRotate[i] = m_multiRotateApplied[i] = 0.0f;
+        m_rotateSteps.clear();
+        m_rotatePending = false;
+    };
+    if (m_inSketchMode || !m_gizmo || m_gizmo->getMode() != GizmoMode::Rotate) {
+        endSession();
+        return;
+    }
     const bool isPlane = m_selection->primaryType() == SelectionType::Plane;
     if (!m_selection->hasSelectedBodies() && !m_selection->hasSelectedSketches() &&
-        !m_selection->hasSelectedSketchRegions() && !isPlane) return;
+        !m_selection->hasSelectedSketchRegions() && !isPlane) {
+        endSession();
+        return;
+    }
+
+    // An Apply has fully drained once the queue is empty and the gizmo commit is
+    // done; whatever it pushed onto history becomes one Revert step.
+    if (m_rotatePending && m_typedRotateQueue.empty() && !m_gizmoDragging) {
+        m_rotatePending = false;
+        const int after = m_history->currentStep();
+        if (after > m_rotatePendingBefore) {
+            TypedRotateStep st{m_rotatePendingBefore, after, {0, 0, 0}};
+            for (int i = 0; i < 3; ++i) st.delta[i] = m_rotatePendingDelta[i];
+            m_rotateSteps.push_back(st);
+        }
+    }
 
     ImGui::SetNextWindowPos(ImVec2(ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - 250,
                                     ImGui::GetWindowPos().y + 50));
@@ -880,9 +905,9 @@ void Application::renderRotatePanel() {
     // the same remap the Scale panel and the gizmo's own readout use.
     const char* axisLabels[3] = {"X", "Y", "Z"};
     const ImVec4 axisColors[3] = {
-        ImVec4(1.00f, 0.35f, 0.35f, 1.0f),
-        ImVec4(0.35f, 1.00f, 0.35f, 1.0f),
-        ImVec4(0.40f, 0.55f, 1.00f, 1.0f),
+        ImVec4(1.00f, 0.35f, 0.35f, 1.0f),   // user X = world X: red gizmo axis
+        ImVec4(0.40f, 0.55f, 1.00f, 1.0f),   // user Y = world Z: blue gizmo axis
+        ImVec4(0.35f, 1.00f, 0.35f, 1.0f),   // user Z = world Y: green gizmo axis
     };
     for (int i = 0; i < 3; ++i) {
         ImGui::PushID(i);
@@ -895,23 +920,158 @@ void Application::renderRotatePanel() {
     }
 
     ImGui::Spacing();
-    const bool anyNonZero = std::abs(m_multiRotate[0]) > 1e-3f ||
-                            std::abs(m_multiRotate[1]) > 1e-3f ||
-                            std::abs(m_multiRotate[2]) > 1e-3f;
-    const bool busy = m_gizmoDragging || !m_typedRotateQueue.empty();
+    // Fields persist; Apply rotates by whatever the field has gained since the
+    // last Apply, so editing 30 -> 45 turns the part another 15.
+    float pending[3];
+    bool anyNonZero = false;
+    for (int i = 0; i < 3; ++i) {
+        pending[i] = m_multiRotate[i] - m_multiRotateApplied[i];
+        anyNonZero |= std::abs(pending[i]) > 1e-3f;
+    }
+    const bool busy = m_gizmoDragging || !m_typedRotateQueue.empty() || m_rotatePending;
     ImGui::BeginDisabled(!anyNonZero || busy);
-    if (ImGui::Button(materializr::tr("Apply"), materializr::uiSz(95, 0))) {
+    if (ImGui::Button(materializr::tr("Apply"), materializr::uiSz(70, 0))) {
         const int userToWorld[3] = {0, 2, 1};
-        for (int i = 0; i < 3; ++i)
-            if (std::abs(m_multiRotate[i]) > 1e-3f)
-                m_typedRotateQueue.push_back({userToWorld[i], m_multiRotate[i]});
-        m_multiRotate[0] = m_multiRotate[1] = m_multiRotate[2] = 0.0f;
+        m_rotatePendingBefore = m_history->currentStep();
+        for (int i = 0; i < 3; ++i) {
+            m_rotatePendingDelta[i] = 0.0f;
+            if (std::abs(pending[i]) > 1e-3f) {
+                m_typedRotateQueue.push_back({userToWorld[i], pending[i]});
+                m_rotatePendingDelta[i] = pending[i];
+                m_multiRotateApplied[i] = m_multiRotate[i];
+            }
+        }
+        m_rotatePending = true;
         m_wakeFrames = std::max(m_wakeFrames, 5); // render-on-demand: let the commit run
     }
     ImGui::EndDisabled();
     ImGui::SameLine();
-    if (ImGui::Button(materializr::tr("Reset"), materializr::uiSz(95, 0)))
-        m_multiRotate[0] = m_multiRotate[1] = m_multiRotate[2] = 0.0f;
+    // Revert = undo of this panel's last Apply; greyed unless that Apply is still
+    // the latest thing in history.
+    const bool canRevert = !busy && !m_rotateSteps.empty() &&
+                           m_rotateSteps.back().after == m_history->currentStep() &&
+                           !anyInteractivePreviewActive();
+    ImGui::BeginDisabled(!canRevert);
+    if (ImGui::Button(materializr::tr("Undo"), materializr::uiSz(70, 0))) {
+        const TypedRotateStep st = m_rotateSteps.back();
+        m_rotateSteps.pop_back();
+        for (int n = st.after - st.before; n > 0 && m_history->canUndo(); --n)
+            undoWithCascade();
+        for (int i = 0; i < 3; ++i) {
+            m_multiRotate[i]        -= st.delta[i];
+            m_multiRotateApplied[i] -= st.delta[i];
+        }
+        m_wakeFrames = std::max(m_wakeFrames, 5);
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (ImGui::Button(materializr::tr("Close"), materializr::uiSz(70, 0))) {
+        endSession();
+        m_gizmo->setMode(GizmoMode::Translate);
+    }
+    ImGui::End();
+}
+
+// Move type-in panel: the Translate-gizmo twin of renderRotatePanel. Fields are
+// per user axis (Z up) in the current length unit and persist until the tool is
+// left; Apply moves by (field - already applied) through the gizmo's commit path
+// (history, link detaching and sketch handling match a mouse drag, minus grid
+// snapping). Undo reverts the last Apply while it is still the latest step.
+// Standalone sketches keep their own panel (renderSketchMovePanel).
+void Application::renderMovePanel() {
+    auto endSession = [&] {
+        for (int i = 0; i < 3; ++i) m_multiMove[i] = m_multiMoveApplied[i] = 0.0f;
+        m_moveSteps.clear();
+        m_movePending = false;
+    };
+    const bool isPlane = m_selection && m_selection->primaryType() == SelectionType::Plane;
+    if (m_inSketchMode || !m_gizmo || m_gizmo->getMode() != GizmoMode::Translate ||
+        m_selection->navigationOnly() ||
+        !(m_selection->hasSelectedBodies() || isPlane)) {
+        endSession();
+        return;
+    }
+
+    if (m_movePending && m_typedMoveQueue.empty() && !m_gizmoDragging) {
+        m_movePending = false;
+        const int after = m_history->currentStep();
+        if (after > m_movePendingBefore) {
+            TypedRotateStep st{m_movePendingBefore, after, {0, 0, 0}};
+            for (int i = 0; i < 3; ++i) st.delta[i] = m_movePendingDelta[i];
+            m_moveSteps.push_back(st);
+        }
+    }
+
+    ImGui::SetNextWindowPos(ImVec2(ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - 250,
+                                    ImGui::GetWindowPos().y + 50));
+    ImGui::SetNextWindowSize(uiSz(230, 0));
+    ImGui::Begin("##MovePanel", nullptr,
+        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
+        ImGuiWindowFlags_AlwaysAutoResize);
+
+    ImGui::TextColored(materializr::accentText(), "%s", materializr::tr("Move"));
+    ImGui::Separator();
+
+    // User axes (Z up): user X = world X, user Y = world Z, user Z = world Y.
+    const char* axisLabels[3] = {"X", "Y", "Z"};
+    const ImVec4 axisColors[3] = {
+        ImVec4(1.00f, 0.35f, 0.35f, 1.0f),   // user X = world X: red gizmo axis
+        ImVec4(0.40f, 0.55f, 1.00f, 1.0f),   // user Y = world Z: blue gizmo axis
+        ImVec4(0.35f, 1.00f, 0.35f, 1.0f),   // user Z = world Y: green gizmo axis
+    };
+    for (int i = 0; i < 3; ++i) {
+        ImGui::PushID(i);
+        ImGui::TextColored(axisColors[i], "%s", axisLabels[i]);
+        ImGui::SameLine(28);
+        ImGui::SetNextItemWidth(95.0f);
+        materializr::lengthField("##mv", &m_multiMove[i]);
+        ImGui::SameLine(); ImGui::TextUnformatted(materializr::unitSuffix());
+        ImGui::PopID();
+    }
+
+    ImGui::Spacing();
+    float pending[3];
+    bool anyNonZero = false;
+    for (int i = 0; i < 3; ++i) {
+        pending[i] = m_multiMove[i] - m_multiMoveApplied[i];
+        anyNonZero |= std::abs(pending[i]) > 1e-4f;
+    }
+    const bool busy = m_gizmoDragging || !m_typedMoveQueue.empty() || m_movePending;
+    ImGui::BeginDisabled(!anyNonZero || busy);
+    if (ImGui::Button(materializr::tr("Apply"), materializr::uiSz(70, 0))) {
+        m_movePendingBefore = m_history->currentStep();
+        for (int i = 0; i < 3; ++i) {
+            m_movePendingDelta[i] = pending[i];
+            m_multiMoveApplied[i] = m_multiMove[i];
+        }
+        m_typedMoveQueue.push_back(glm::vec3(pending[0], pending[2], pending[1]));
+        m_movePending = true;
+        m_wakeFrames = std::max(m_wakeFrames, 5); // render-on-demand: let the commit run
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    const bool canRevert = !busy && !m_moveSteps.empty() &&
+                           m_moveSteps.back().after == m_history->currentStep() &&
+                           !anyInteractivePreviewActive();
+    ImGui::BeginDisabled(!canRevert);
+    if (ImGui::Button(materializr::tr("Undo"), materializr::uiSz(70, 0))) {
+        const TypedRotateStep st = m_moveSteps.back();
+        m_moveSteps.pop_back();
+        for (int n = st.after - st.before; n > 0 && m_history->canUndo(); --n)
+            undoWithCascade();
+        for (int i = 0; i < 3; ++i) {
+            m_multiMove[i]        -= st.delta[i];
+            m_multiMoveApplied[i] -= st.delta[i];
+        }
+        m_wakeFrames = std::max(m_wakeFrames, 5);
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (ImGui::Button(materializr::tr("Close"), materializr::uiSz(70, 0))) {
+        endSession();
+        m_selection->setNavigationOnly(true);   // hide the gizmo, keep the selection
+    }
     ImGui::End();
 }
 
@@ -998,9 +1158,9 @@ void Application::renderScalePanel() {
     // (mm mode) so the body keeps proportional in both modes.
     const char* axisLabels[3] = {"X", "Y", "Z"};
     const ImVec4 axisColors[3] = {
-        ImVec4(1.00f, 0.35f, 0.35f, 1.0f),
-        ImVec4(0.35f, 1.00f, 0.35f, 1.0f),
-        ImVec4(0.40f, 0.55f, 1.00f, 1.0f),
+        ImVec4(1.00f, 0.35f, 0.35f, 1.0f),   // user X = world X: red gizmo axis
+        ImVec4(0.40f, 0.55f, 1.00f, 1.0f),   // user Y = world Z: blue gizmo axis
+        ImVec4(0.35f, 1.00f, 0.35f, 1.0f),   // user Z = world Y: green gizmo axis
     };
 
     if (!mm) {
@@ -2962,9 +3122,9 @@ void Application::renderSketchMovePanel() {
     // m_sketchMove keeps the value live without needing an Enter-press.
     const char* axisLabels[3] = { "X", "Y", "Z" };
     const ImVec4 axisColors[3] = {
-        ImVec4(1.00f, 0.35f, 0.35f, 1.0f),
-        ImVec4(0.35f, 1.00f, 0.35f, 1.0f),
-        ImVec4(0.40f, 0.55f, 1.00f, 1.0f),
+        ImVec4(1.00f, 0.35f, 0.35f, 1.0f),   // user X = world X: red gizmo axis
+        ImVec4(0.40f, 0.55f, 1.00f, 1.0f),   // user Y = world Z: blue gizmo axis
+        ImVec4(0.35f, 1.00f, 0.35f, 1.0f),   // user Z = world Y: green gizmo axis
     };
     for (int i = 0; i < 3; ++i) {
         ImGui::PushID(i);
