@@ -61,6 +61,13 @@ template <class T> void fmtArg(const T&) {
 // size. Long translated sentences are never cut. Quantities arrive already
 // formatted (fmtLength / fmtArea / fmtVec3) so catalogue keys carry only %s and
 // %d - never a unit.
+//
+// The format is a runtime-translated string BY DESIGN, so -Wformat-security
+// (an error on the Android build, via -Werror=format-security) is silenced for
+// this one function: the catalogue keys are ours, not user input.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-security"
+#pragma GCC diagnostic ignored "-Wformat-nonliteral"
 template <class... A>
 inline std::string trFormat(const char* fmt, const A&... a) {
     const char* f = tr(fmt);
@@ -71,6 +78,7 @@ inline std::string trFormat(const char* fmt, const A&... a) {
     out.resize(static_cast<size_t>(n));
     return out;
 }
+#pragma GCC diagnostic pop
 
 // Reseed a controller's own text buffer from its millimetre member, unless
 // that field is being edited RIGHT NOW. Decided before the item is submitted,
