@@ -6335,7 +6335,7 @@ void Application::renderViewport() {
                             // Surface a refused pick instead of letting the
                             // click look like it simply missed the geometry.
                             if (const char* why = m_sketchTool->consumeDimRejection())
-                                showToast(why, 2.5);
+                                showToast(materializr::tr(why), 2.5);
                         }
                     } else if (materializr::touchMode()) {
                         // A held circle awaiting its ✗/✓ bubble: drawing the

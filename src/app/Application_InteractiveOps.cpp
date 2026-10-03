@@ -64,6 +64,7 @@
 #include <BRepGProp_Face.hxx>
 #include <BRepGProp.hxx>
 #include "../i18n.h"
+#include "../ui/LengthField.h"   // trFormat
 #include <GProp_GProps.hxx>
 #include <Bnd_Box.hxx>
 #include <Geom_CylindricalSurface.hxx>
@@ -925,9 +926,9 @@ void Application::beginLoft() {
     } else if (m_loftSections.size() >= 2) {
         // Plain section loft; open sketches (if any) don't participate.
         if (!m_loftRails.empty())
-            showToast(std::to_string(m_loftRails.size()) +
-                      " open sketch(es) ignored - rails need exactly ONE "
-                      "closed base profile.");
+            showToast(materializr::trFormat(
+                "%d open sketch(es) ignored - rails need exactly ONE closed base profile.",
+                static_cast<int>(m_loftRails.size())));
         m_loftRails.clear();
     } else {
         const bool tooManyRails =
@@ -937,15 +938,15 @@ void Application::beginLoft() {
         m_loftSections.clear();
         m_loftRails.clear();
         showToast(tooManyRails
-            ? "Guided loft takes at most two rail curves - deselect the "
-              "extras."
-            : "Selected " + std::to_string(nClosed) + " closed profile(s) + " +
-              std::to_string(nOpen) + " open curve(s). Loft needs 2+ closed "
-              "profiles (sections), or exactly 1 closed + 1-2 open (rails).");
+            ? std::string(materializr::tr("Guided loft takes at most two rail curves - "
+                                          "deselect the extras."))
+            : materializr::trFormat("Selected %d closed profile(s) + %d open curve(s). "
+                                    "Loft needs 2+ closed profiles (sections), or exactly "
+                                    "1 closed + 1-2 open (rails).", nClosed, nOpen));
         return;
     }
     if (unusable > 0)
-        showToast(std::to_string(unusable) + " empty sketch(es) skipped.");
+        showToast(materializr::trFormat("%d empty sketch(es) skipped.", static_cast<int>(unusable)));
 
     m_loftSolid = true;
     m_loftRuled = false;
@@ -980,8 +981,8 @@ void Application::updateLoft() {
         for (const LoftRail& r : m_loftRails) held->addRail(r.wire);
         held->setSolid(m_loftSolid);
         if (!m_loftPreview.apply(*m_document))
-            showToast("Guided loft failed - rails must rise away from the "
-                      "base profile's plane.");
+            showToast(materializr::tr("Guided loft failed - rails must rise away from the "
+                                      "base profile's plane."));
         return;
     }
 
@@ -1119,7 +1120,7 @@ void Application::relinkSketch(bool isBody, int id) {
         }
     if (changed) {
         markDirty();
-        showToast("Sketch re-linked - editing it will drive the body again.");
+        showToast(materializr::tr("Sketch re-linked - editing it will drive the body again."));
     }
 }
 
@@ -1200,8 +1201,8 @@ void Application::cascadeFromSketchEdit(int sketchId) {
             // A body IS driven by this sketch, but its profile couldn't be
             // re-derived from the new geometry - tell the user instead of
             // silently leaving the sketch changed and the body stale.
-            showToast("Updated the sketch, but the body built from it couldn't "
-                      "rebuild from the new shape - the model is unchanged.");
+            showToast(materializr::tr("Updated the sketch, but the body built from it couldn't "
+                                      "rebuild from the new shape - the model is unchanged."));
         }
         // matched == 0: nothing in the model is built from this sketch (e.g.
         // editing a freshly-duplicated sketch before it's extruded). That's the
@@ -1262,30 +1263,28 @@ void Application::cascadeFromSketchEdit(int sketchId) {
     std::fprintf(stderr, "[Cascade] sketchId=%d replay from step %d: %s\n",
                  sketchId, earliest, ok ? "applied" : "reverted");
     if (!ok) {
-        std::string culprit;
-        if (m_history->lastEditFailStep() >= 0) {
-            if (const Operation* op =
-                    m_history->getStep(m_history->lastEditFailStep()))
-                culprit = " (step " +
-                          std::to_string(m_history->lastEditFailStep() + 1) +
-                          ": " + op->description() + ")";
-        }
-        showToast("Couldn't update the model for that sketch change - a "
-                  "downstream feature" + culprit + " couldn't follow it, so "
-                  "the model was left unchanged.");
+        const Operation* culprit = m_history->lastEditFailStep() >= 0
+            ? m_history->getStep(m_history->lastEditFailStep()) : nullptr;
+        showToast(culprit
+            ? materializr::trFormat("Couldn't update the model for that sketch change - a "
+                                    "downstream feature (step %d: %s) couldn't follow it, so "
+                                    "the model was left unchanged.",
+                                    m_history->lastEditFailStep() + 1, culprit->description())
+            : std::string(materializr::tr("Couldn't update the model for that sketch change - a "
+                                          "downstream feature couldn't follow it, so "
+                                          "the model was left unchanged.")));
     } else if (!disabledSteps.empty()) {
         std::string names;
         for (size_t i = 0; i < disabledSteps.size(); ++i) {
             const Operation* op = m_history->getStep(disabledSteps[i]);
-            names += (i ? ", " : "") + std::string("step ") +
-                     std::to_string(disabledSteps[i] + 1) +
+            names += (i ? ", " : "") +
+                     materializr::trFormat("step %d", static_cast<int>(disabledSteps[i] + 1)) +
                      (op ? " (" + op->description() + ")" : "");
         }
-        showToast("Model updated - but " + names +
-                  " couldn't follow the change and was DISABLED. Its edge/face "
-                  "picks no longer exist on the new shape - delete "
-                  "it and re-apply the feature (re-enabling would retry the "
-                  "old picks).", 9.0);
+        showToast(materializr::trFormat(
+            "Model updated - but %s couldn't follow the change and was DISABLED. Its "
+            "edge/face picks no longer exist on the new shape - delete it and re-apply "
+            "the feature (re-enabling would retry the old picks).", names), 9.0);
     }
 
     // Partial remesh: mark only bodies whose shape changed, plus any that were
@@ -1355,8 +1354,8 @@ void Application::beginBoundaryFill() {
     }
     if (m_bfillProfiles.size() < 2) {
         m_bfillProfiles.clear();
-        showToast("Boundary Fill needs at least two sketches with a closed "
-                  "region (e.g. top + front + side silhouettes).");
+        showToast(materializr::tr("Boundary Fill needs at least two sketches with a closed "
+                                  "region (e.g. top + front + side silhouettes)."));
         return;
     }
 
@@ -1381,8 +1380,8 @@ void Application::updateBoundaryFill() {
     for (const BFillProfile& p : m_bfillProfiles)
         op->addProfile(p.outer, p.holes, p.plane);
     if (!m_bfillPreview.apply(*m_document))
-        showToast("Boundary Fill: the silhouettes don't enclose a common "
-                  "volume - make sure they overlap in space.");
+        showToast(materializr::tr("Boundary Fill: the silhouettes don't enclose a common "
+                                  "volume - make sure they overlap in space."));
 }
 
 void Application::commitBoundaryFill() {
@@ -1440,8 +1439,8 @@ void Application::beginPatch() {
     }
 
     if (m_patchEdges.empty()) {
-        showToast("Patch needs the edges around the opening - Ctrl-click each "
-                  "one, then click Patch.");
+        showToast(materializr::tr("Patch needs the edges around the opening - Ctrl-click each "
+                                  "one, then click Patch."));
         return;
     }
     // Edges spanning two bodies: keep them, drop the heal target. The fit still
@@ -1485,8 +1484,8 @@ void Application::updatePatch() {
     op->setSolver(s);
 
     if (!m_patchPreview.apply(*m_document))
-        showToast("Patch: no surface fits these edges. They need to form one "
-                  "closed ring around the opening.");
+        showToast(materializr::tr("Patch: no surface fits these edges. They need to form one "
+                                  "closed ring around the opening."));
 }
 
 void Application::commitPatch() {
@@ -1520,8 +1519,8 @@ void Application::beginSew() {
         if (!dup) ids.push_back(e.bodyId);
     }
     if (ids.empty()) {
-        showToast("Sew needs the surfaces selected - pick the bodies to stitch "
-                  "together, then click Sew.");
+        showToast(materializr::tr("Sew needs the surfaces selected - pick the bodies to stitch "
+                                  "together, then click Sew."));
         return;
     }
 
@@ -1529,8 +1528,8 @@ void Application::beginSew() {
     op->setBodies(ids);
     SewOp* raw = op.get();
     if (!m_history->pushOperation(std::move(op), *m_document)) {
-        showToast("Sew: those surfaces wouldn't join - they may not touch "
-                  "anywhere, or there was nothing to stitch.");
+        showToast(materializr::tr("Sew: those surfaces wouldn't join - they may not touch "
+                                  "anywhere, or there was nothing to stitch."));
         return;
     }
 
@@ -1538,12 +1537,11 @@ void Application::beginSew() {
     // different outcomes and the second one is actionable - the edge count is
     // how many gaps are left to patch.
     if (raw->madeSolid()) {
-        showToast("Sewed " + std::to_string(raw->facesSewn()) +
-                  " faces into a solid.");
+        showToast(materializr::trFormat("Sewed %d faces into a solid.", raw->facesSewn()));
     } else {
-        showToast("Sewed " + std::to_string(raw->facesSewn()) + " faces, but " +
-                  std::to_string(raw->freeEdgesLeft()) +
-                  " edge(s) are still open - it isn't a solid yet.");
+        showToast(materializr::trFormat(
+            "Sewed %d faces, but %d edge(s) are still open - it isn't a solid yet.",
+            raw->facesSewn(), raw->freeEdgesLeft()));
     }
     // The consumed bodies are gone; a selection naming them would resolve to
     // nothing.
@@ -2662,8 +2660,8 @@ void Application::pollThreadRecuts() {
             // New geometry can't take the thread - suspend the step with the
             // standard explainer banner instead of silently no-opping.
             m_history->suspendStep(stepIdx);
-            showToast("Thread couldn't re-cut on the new geometry - "
-                      "check the Thread step.");
+            showToast(materializr::tr("Thread couldn't re-cut on the new geometry - "
+                                      "check the Thread step."));
         } else {
             std::fprintf(stderr, "[Thread] recut landed - applying to body "
                                  "%d\n", p.bodyId);
@@ -2695,8 +2693,8 @@ void Application::cancelThreadRecuts() {
         m_threadZombies.push_back(std::move(p.fut));
     }
     m_threadRecuts.clear();
-    showToast("Thread re-cut cancelled - the Thread step is "
-              "suspended; re-enable it in History to re-cut.");
+    showToast(materializr::tr("Thread re-cut cancelled - the Thread step is "
+                              "suspended; re-enable it in History to re-cut."));
 }
 
 void Application::flushThreadRecuts() {

@@ -1275,8 +1275,8 @@ void MoveFaceController::beginMoveFace(const IopContext& ctx, FaceXform kind) {
             // move. Square-hole walls are planar too and still reach the
             // whole-hole slide above, because for them buildVoid SUCCEEDS.
             if (pocket && !faceIsPlanar(wall)) {
-                ctx.toast("Only simple through-holes can be moved for now "
-                          "- not pockets, countersunk, or stepped holes.");
+                ctx.toast(materializr::tr("Only simple through-holes can be moved for now "
+                                          "- not pockets, countersunk, or stepped holes."));
                 return;
             }
         }
@@ -1318,7 +1318,7 @@ void MoveFaceController::beginMoveFace(const IopContext& ctx, FaceXform kind) {
         Handle(Geom_Surface) surf = BRep_Tool::Surface(m_st.moveFaceFace);
         if (surf.IsNull() || !surf->IsKind(STANDARD_TYPE(Geom_Plane))) {
             std::fprintf(stderr, "[MoveFace] declined: select a FLAT face\n");
-            ctx.toast("Move Face needs a flat face - pick a planar face.");
+            ctx.toast(materializr::tr("Move Face needs a flat face - pick a planar face."));
             return;
         }
     }
@@ -1480,8 +1480,8 @@ void MoveFaceController::beginMoveFace(const IopContext& ctx, FaceXform kind) {
     // commit reflows beneath the Shell and lands correctly. Say so up front
     // instead of looking broken.
     if (ctx.history.isBodyShelled(m_st.moveFaceBodyId))
-        ctx.toast("Hollow body: the preview stays put - the change "
-                  "applies when you release (re-shelled automatically).");
+        ctx.toast(materializr::tr("Hollow body: the preview stays put - the change "
+                                  "applies when you release (re-shelled automatically)."));
 
     m_st.moveFaceActive = true;
     setActive(true);

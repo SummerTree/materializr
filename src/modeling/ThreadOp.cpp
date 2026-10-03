@@ -2131,8 +2131,9 @@ void ThreadOp::renderProperties() {
     ImGui::PopStyleColor();
     // Cross-section profile. Standard is the fast, shipped V-thread; the rest
     // are the maker/printing set (clean but slower - a boolean cut per turn).
-    const char* kProfiles[] = {"Standard (V)", "Trapezoidal (ACME)",
-                               "Square", "Buttress", "Rounded (print)"};
+    const char* kProfiles[] = {materializr::tr("Standard (V)"), materializr::tr("Trapezoidal (ACME)"),
+                               materializr::tr("Square"), materializr::tr("Buttress"),
+                               materializr::tr("Rounded (print)")};
     int prof = static_cast<int>(m_profile);
     if (ImGui::Combo(materializr::tr("Profile"), &prof, kProfiles, IM_ARRAYSIZE(kProfiles)))
         m_profile = static_cast<ThreadProfile>(prof);

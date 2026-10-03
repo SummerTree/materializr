@@ -74,10 +74,13 @@ void runChainedBoolean(materializr::PluginContext& ctx,
         // no selection change, nothing at all. Subtract has always reported its
         // failures here; Union and Intersect run the same path and said nothing.
         ctx.events().publish(materializr::ToastEvent{
-            std::string(mode == BooleanMode::Union ? "Union" : "Intersect") +
-            " couldn't make a valid solid from these bodies - they "
-            "may not overlap, share a coincident face, or the geometry is too "
-            "degenerate.", 5.0});
+            materializr::tr(mode == BooleanMode::Union
+                ? "Union couldn't make a valid solid from these bodies - they "
+                  "may not overlap, share a coincident face, or the geometry is too "
+                  "degenerate."
+                : "Intersect couldn't make a valid solid from these bodies - they "
+                  "may not overlap, share a coincident face, or the geometry is too "
+                  "degenerate."), 5.0});
     }
 }
 
@@ -112,9 +115,9 @@ void runSubtractMulti(materializr::PluginContext& ctx,
     else {
         std::fprintf(stderr, "Subtract failed\n");
         ctx.events().publish(materializr::ToastEvent{
-            "Subtract couldn't make a valid solid from these bodies - "
-            "they may not overlap, share a coincident face, or the geometry is "
-            "too degenerate.", 5.0});
+            materializr::tr("Subtract couldn't make a valid solid from these bodies - "
+                            "they may not overlap, share a coincident face, or the geometry is "
+                            "too degenerate."), 5.0});
     }
 }
 

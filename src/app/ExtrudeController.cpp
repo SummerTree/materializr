@@ -115,8 +115,8 @@ bool ExtrudeController::beginExtrude(const IopContext& ctx,
         Handle(Geom_Surface) s = BRep_Tool::Surface(TopoDS::Face(profile));
         if (s.IsNull() || !s->IsKind(STANDARD_TYPE(Geom_Plane))) {
             if (ctx.toast)
-                ctx.toast("Can't extrude a curved face - extrude "
-                          "works on flat faces only.");
+                ctx.toast(materializr::tr("Can't extrude a curved face - extrude "
+                                          "works on flat faces only."));
             return false;
         }
     }
@@ -224,8 +224,8 @@ void ExtrudeController::commit(const IopContext& ctx) {
             const std::vector<int> targets = resolveAllCutTargets(ctx);
             if (targets.empty()) {
                 if (ctx.toast)
-                    ctx.toast("Subtract: this profile doesn't reach any body - "
-                              "nothing to cut. Extrude it further, or drag the other way.");
+                    ctx.toast(materializr::tr("Subtract: this profile doesn't reach any body - "
+                                              "nothing to cut. Extrude it further, or drag the other way."));
                 return;
             }
             commitCutAll(ctx, targets);
@@ -234,8 +234,8 @@ void ExtrudeController::commit(const IopContext& ctx) {
         const int target = resolveCutTarget(ctx);
         if (target < 0) {
             if (ctx.toast)
-                ctx.toast("Subtract: this profile doesn't reach any body - "
-                          "nothing to cut. Extrude it further, or drag the other way.");
+                ctx.toast(materializr::tr("Subtract: this profile doesn't reach any body - "
+                                          "nothing to cut. Extrude it further, or drag the other way."));
             return;
         }
         m_targetBody = target;
@@ -280,12 +280,9 @@ void ExtrudeController::commitCutAll(const IopContext& ctx,
     // op that can't produce a valid solid, so that body is simply unchanged,
     // and the ones that worked still landed.
     if (done < static_cast<int>(targets.size()) && ctx.toast) {
-        char msg[160];
-        std::snprintf(msg, sizeof(msg),
-                      "Cut %d of %zu bodies - the rest couldn't make a "
-                      "valid solid and were left alone.",
-                      done, targets.size());
-        ctx.toast(msg);
+        ctx.toast(materializr::trFormat("Cut %d of %d bodies - the rest couldn't make a "
+                                        "valid solid and were left alone.",
+                                        done, static_cast<int>(targets.size())).c_str());
     }
     ctx.selection.clear();
     teardown();

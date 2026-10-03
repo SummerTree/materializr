@@ -235,9 +235,9 @@ classifier is heuristic; rows it cannot decide are pinned in the script's OVERRI
 | unitless | src/modeling/TransformOp.cpp | `materializr::inputNumber(materializr::tr("Axis Z"), &m_az, 0.1, 1.0, "%g");` |
 | angle | src/modeling/TransformOp.cpp | `materializr::inputNumber(materializr::tr("Angle (deg)"), &m_angle, 1.0, 15.0, "%.1f");` |
 | ratio | src/modeling/TransformOp.cpp | `materializr::inputNumber(materializr::tr("Scale Factor"), &m_scale, 0.1, 0.5, "%g");` |
-| CONVERTED | src/plugins/MatePlugin.cpp | `if (materializr::lengthField("Offset", &offset)) {` |
-| angle | src/plugins/MatePlugin.cpp | `if (materializr::inputNumber("Angle (deg)", &angleDeg)) {` |
-| angle | src/plugins/MatePlugin.cpp | `materializr::inputNumber("Angle (deg)", &angleDeg);` |
+| CONVERTED | src/plugins/MatePlugin.cpp | `if (materializr::lengthField(materializr::tr("Offset"), &offset)) {` |
+| angle | src/plugins/MatePlugin.cpp | `if (materializr::inputNumber(materializr::tr("Angle (deg)"), &angleDeg)) {` |
+| angle | src/plugins/MatePlugin.cpp | `materializr::inputNumber(materializr::tr("Angle (deg)"), &angleDeg);` |
 | CONVERTED | src/plugins/PushPullPlugin.cpp | `(void)materializr::parseLength(m_inputBuf, m_distance);` |
 | CONVERTED | src/plugins/PushPullPlugin.cpp | `if (materializr::parseLength(m_inputBuf, parsed) &&` |
 | CONVERTED | src/plugins/PushPullPlugin.cpp | `if (materializr::lengthStepperRow("ppStep", &m_distance,` |

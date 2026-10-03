@@ -71,6 +71,7 @@ inline void resetFpuForOcct() {
 #include "ui/AboutDialog.h"
 #include "ui/WelcomeScreen.h"
 #include "ui/LandingPage.h"
+#include "ui/LengthField.h"   // trFormat
 #include "app/ProjectSession.h"
 #include "ui_layout_bridge.h"
 #include <fstream>
@@ -432,8 +433,8 @@ Application::Application(bool safeMode, float uiScaleOverride)
     // If no system file-dialog helper exists, Open/Save/Export would otherwise
     // do nothing at all - surface that instead of failing silently.
     FileDialogs::setUnavailableNotifier([this]() {
-        showToast("No file-dialog program found - install 'zenity' "
-                  "(GNOME) or 'kdialog' (KDE) to Open / Save / Export.", 8.0);
+        showToast(materializr::tr("No file-dialog program found - install 'zenity' "
+                                  "(GNOME) or 'kdialog' (KDE) to Open / Save / Export."), 8.0);
     });
 
     initImGui();
@@ -616,7 +617,7 @@ bool Application::focusExistingProject(const std::string& ref) {
     if (!switchToSession(idx)) return false;   // refused (mid-sketch) - it toasted
     if (dropScratch && m_sessions.size() > 1) closeSession(scratchIdx);
     if (m_landingPage) m_landingPage->setVisible(false);
-    showToast("That project is already open - switched to its tab.");
+    showToast(materializr::tr("That project is already open - switched to its tab."));
     return true;
 }
 
@@ -690,11 +691,11 @@ bool Application::switchToSession(size_t idx) {
     // committing or dropping it. A thread re-cut owns its body until it
     // lands; blocking on it here would freeze the switch for seconds.
     if (m_inSketchMode) {
-        showToast("Finish or cancel the sketch before switching tabs.");
+        showToast(materializr::tr("Finish or cancel the sketch before switching tabs."));
         return false;
     }
     if (!m_threadRecuts.empty()) {
-        showToast("Wait for the thread re-cut to finish before switching tabs.");
+        showToast(materializr::tr("Wait for the thread re-cut to finish before switching tabs."));
         return false;
     }
     cancelAllInteractivePreviews();
@@ -1786,8 +1787,8 @@ void Application::loadAppSettings() {
                 // then restore the URI as the live identity.
                 std::string tmp = materializr::mobileOpenUri(p);
                 if (tmp.empty()) {
-                    showToast("Couldn't reopen the last project - access may "
-                              "have been revoked.");
+                    showToast(materializr::tr("Couldn't reopen the last project - access may "
+                                              "have been revoked."));
                     return;
                 }
                 const bool viaFallback = materializr::mobileLastOpenWasFallback();
@@ -1800,8 +1801,8 @@ void Application::loadAppSettings() {
                     std::string nm = materializr::mobileLastDocName();
                     if (!nm.empty()) m_currentProjectName = nm;
                     if (viaFallback)
-                        showToast("Opened a local backup - the original is "
-                                  "gone. Save to keep it.");
+                        showToast(materializr::tr("Opened a local backup - the original is "
+                                                  "gone. Save to keep it."));
                 }
                 return;
             }
@@ -1966,9 +1967,9 @@ void Application::restoreSessionTabs(const std::vector<std::string>& paths,
             closeSession(0);
     }
     if (failed > 0)
-        showToast(failed == 1 ? "1 project from your last session is missing."
-                              : "Some projects from your last session are "
-                                "missing.");
+        showToast(materializr::tr(failed == 1 ? "1 project from your last session is missing."
+                                              : "Some projects from your last session are "
+                                                "missing."));
     // Everything failed: don't strand the user in an empty tab.
     if (opened.empty()) showLandingPage(/*fromStartup=*/false);
     // The per-project loads above each persisted settings MID-restore, so the
@@ -2496,7 +2497,8 @@ void Application::handleToolAction(int action) {
                         materializr::AirfoilProfile prof;
                         std::string err;
                         if (!materializr::AirfoilImport::load(path, prof, &err)) {
-                            showToast(std::string("Not an airfoil file: ") + err);
+                            showToast(materializr::trFormat("Not an airfoil file: %s",
+                                                            materializr::tr(err.c_str())));
                             return;
                         }
                         // A published section is typically 60-200 points per
@@ -2932,11 +2934,11 @@ void Application::handleToolAction(int action) {
                             break;
                         default: break;   // NotSameSurface and friends: the tolerance text below is right
                     }
-                    showToast(attempted == 0
+                    showToast(materializr::tr(attempted == 0
                         ? "Pick two or more faces on the SAME body to merge them."
                         : (msg ? msg
                                : "Couldn't merge those - they aren't close enough "
-                                 "to one surface, or the merge wouldn't hold together."));
+                                 "to one surface, or the merge wouldn't hold together.")));
                 }
             } else {
                 const std::vector<int> bodies = materializr::selectedBodyIds(*m_selection);
@@ -2950,8 +2952,8 @@ void Application::handleToolAction(int action) {
                 // the user at the face-picking route rather than implying the
                 // part is as merged as it can get.
                 if (merged == 0)
-                    showToast("Nothing exactly coplanar left to merge - pick "
-                              "the faces either side of a seam and try again.");
+                    showToast(materializr::tr("Nothing exactly coplanar left to merge - pick "
+                                              "the faces either side of a seam and try again."));
             }
             // The picked faces are gone - they were replaced by the face they
             // merged into. Holding on to them would leave the highlight drawing
@@ -4026,14 +4028,14 @@ void Application::saveProjectQuick() {
             markSaved();
             saveAppSettings();
             cacheProjectThumbnail(m_currentProjectPath, thumb);
-            showToast("Saved " + projectDisplayName());
+            showToast(materializr::trFormat("Saved %s", projectDisplayName()));
         } else if (!result.success) {
             std::fprintf(stderr, "Save failed: %s\n", result.errorMessage.c_str());
-            showToast("Save failed - see log");
+            showToast(materializr::tr("Save failed - see log"));
         } else {
             // The grant was revoked or the file is gone: fall back to Save As
             // so the work still lands somewhere the user picks.
-            showToast("Couldn't write the original file - choose where to save");
+            showToast(materializr::tr("Couldn't write the original file - choose where to save"));
             saveProject();
         }
         std::remove(tmp.c_str());
@@ -4373,14 +4375,16 @@ void Application::rebuildHistoryFromProject(const ProjectHistory& hist,
     // - phantom initialState bodies in it are save-tracking artifacts, not a
     // true format downgrade, so we must not call it "older format".
     if (nonEditable > 0 && savedByVersion.empty()) {
-        const int n        = frozenBodies > 0 ? frozenBodies : bakedBodySteps;
-        const char* what   = frozenBodies > 0 ? "body(ies)" : "feature(s)";
-        std::string msg =
-            "This project was saved in an older format: " + std::to_string(n) + " " +
-            what + " are frozen and can't be edited by value. The shapes are intact "
-            "- to change a baked round/chamfer, select its face and use "
-            "Remove Feature to restore the sharp edge, then redo it. New saves "
-            "won't have this.";
+        const int n = frozenBodies > 0 ? frozenBodies : bakedBodySteps;
+        const std::string msg = materializr::trFormat(frozenBodies > 0
+            ? "This project was saved in an older format: %d body(ies) are frozen "
+              "and can't be edited by value. The shapes are intact - to change a "
+              "baked round/chamfer, select its face and use Remove Feature to "
+              "restore the sharp edge, then redo it. New saves won't have this."
+            : "This project was saved in an older format: %d feature(s) are frozen "
+              "and can't be edited by value. The shapes are intact - to change a "
+              "baked round/chamfer, select its face and use Remove Feature to "
+              "restore the sharp edge, then redo it. New saves won't have this.", n);
         showToast(msg, 9.0);
     }
 }
@@ -4675,7 +4679,7 @@ void Application::openRecentProject(const AppSettings::RecentProject& r) {
         // ref is a persisted SAF content:// URI - resolve to a temp file, no picker.
         std::string tmp = materializr::mobileOpenUri(ref);
         if (tmp.empty()) {
-            showToast("Couldn't open \"" + name + "\" - access may have been revoked.");
+            showToast(materializr::trFormat("Couldn't open \"%s\" - access may have been revoked.", name));
             removeRecentProject(ref);
             return;
         }
@@ -4699,8 +4703,8 @@ void Application::openRecentProject(const AppSettings::RecentProject& r) {
             if (viaFallback) {
                 m_currentProjectPath.clear();   // Save → picker, not overwrite
                 m_currentProjectName = name;
-                showToast("Opened a local backup of \"" + name +
-                          "\" - the original is gone. Save to keep it.");
+                showToast(materializr::trFormat(
+                    "Opened a local backup of \"%s\" - the original is gone. Save to keep it.", name));
             } else {
                 // Track the DOCUMENT as the project identity so quick-save
                 // writes back to the real file (loadProjectAt stored the
@@ -4711,11 +4715,11 @@ void Application::openRecentProject(const AppSettings::RecentProject& r) {
             saveAppSettings();            // lastProjectPath -> the real ref
 #endif
         }
-        else { showToast("Failed to open \"" + name + "\"."); removeRecentProject(ref); }
+        else { showToast(materializr::trFormat("Failed to open \"%s\".", name)); removeRecentProject(ref); }
 #else
         if (loadProjectAt(ref)) addRecentProject(ref, name);  // bump to front
         else {
-            showToast("Couldn't open \"" + name + "\" - the file may have moved or been deleted.");
+            showToast(materializr::trFormat("Couldn't open \"%s\" - the file may have moved or been deleted.", name));
             removeRecentProject(ref);
         }
 #endif
@@ -5015,7 +5019,7 @@ void Application::queueHeavyImport(std::string message, std::function<bool()> im
             return ids;
         };
         if (!importOk && newIdsNow().empty()) {
-            showToast("Import failed.", 6.0);
+            showToast(materializr::tr("Import failed."), 6.0);
             return;
         }
         markDirty();
@@ -5044,12 +5048,12 @@ void Application::queueHeavyImport(std::string message, std::function<bool()> im
             // cancel - previously Cancel here did nothing observable.
             for (int id : newIdsNow()) m_document->removeBody(id);
             m_meshesDirty = false;
-            showToast("Import cancelled.", 4.0);
+            showToast(materializr::tr("Import cancelled."), 4.0);
             return;
         }
         if (!importOk) {
-            showToast("Import failed partway through - kept the bodies "
-                      "added before the error.", 6.0);
+            showToast(materializr::tr("Import failed partway through - kept the bodies "
+                                      "added before the error."), 6.0);
         }
         rebuildMeshes();
         m_meshesDirty = false;
@@ -5223,7 +5227,7 @@ void Application::exportBodiesAs(const std::vector<int>& bodyIds,
     for (const auto& f : PluginRegistry::instance().ioFormats()) {
         if (f.name == formatName && f.exportDocFn) { fmt = &f; break; }
     }
-    if (!fmt) { showToast("Can't export to " + formatName + "."); return; }
+    if (!fmt) { showToast(materializr::trFormat("Can't export to %s.", formatName)); return; }
 
     // A scratch document holding BAKED copies of the chosen bodies, at their
     // real positions - that's what makes a print-in-place assembly come out
@@ -5238,7 +5242,7 @@ void Application::exportBodiesAs(const std::vector<int>& bodyIds,
         scratch->setBodyColor(nid, m_document->getBodyColor(id));
     }
     if (scratch->getAllBodyIds().empty()) {
-        showToast("Nothing to export - those bodies have no geometry.");
+        showToast(materializr::tr("Nothing to export - those bodies have no geometry."));
         return;
     }
 
@@ -5393,7 +5397,7 @@ void Application::combineSketches(const std::vector<int>& ids) {
         coplanar.push_back(ids[i]);
     }
     if (coplanar.empty()) {
-        showToast("Combine needs sketches that share a plane.");
+        showToast(materializr::tr("Combine needs sketches that share a plane."));
         return;
     }
 
@@ -5435,8 +5439,8 @@ void Application::duplicateSketch(int sketchId) {
         markDirty();
         std::fprintf(stdout, "Duplicated sketch %d -> %d\n",
                      sketchId, raw->newSketchId());
-        showToast("Duplicated \"" + base + "\" - edit the copy freely "
-                  "(e.g. resize holes); the original is untouched.");
+        showToast(materializr::trFormat("Duplicated \"%s\" - edit the copy freely "
+                                        "(e.g. resize holes); the original is untouched.", base));
     }
 }
 
@@ -5556,8 +5560,8 @@ void Application::enterSketchOnFace(const TopoDS_Face& face, int sourceBodyId) {
             }
         }
         if (!planar) {
-            showToast("Can't sketch on a curved face - use Add "
-                      "Plane\xE2\x80\xA6 to place a construction plane.");
+            showToast(materializr::tr("Can't sketch on a curved face - use Add "
+                                      "Plane\xE2\x80\xA6 to place a construction plane."));
             return;
         }
     }
@@ -7293,7 +7297,7 @@ void Application::restoreSketchDraftNow() {
         // keep the draft rather than restore it into the wrong project - it
         // will be offered again next launch.
         if (madeTab) closeSession(target);
-        showToast("Couldn't reopen the unfinished sketch's tab; it's still saved.");
+        showToast(materializr::tr("Couldn't reopen the unfinished sketch's tab; it's still saved."));
         return;
     }
 
@@ -7544,12 +7548,11 @@ void Application::restoreProjectRecoveryNow() {
     materializr::clearProjectRecoveryCandidate();  // whatever is left of it
     saveAppSettings();                             // fix lastProjectPath off the sidecar
     if (restored > 1)
-        showToast("Recovered " + std::to_string(restored) + " projects.");
+        showToast(materializr::trFormat("Recovered %d projects.", restored));
     else if (restored == 1 && firstLandedInNewTab)
-        showToast("Recovered unsaved work into a new tab.");
+        showToast(materializr::tr("Recovered unsaved work into a new tab."));
     if (failed > 0)
-        showToast(std::to_string(failed) + " recovered project(s) "
-                  "couldn't be reopened.");
+        showToast(materializr::trFormat("%d recovered project(s) couldn't be reopened.", failed));
 }
 
 void Application::run() {
@@ -8332,7 +8335,7 @@ void Application::run() {
                 m_supporter = true;
                 saveAppSettings();
                 m_welcomeScreen->setVisible(false);
-                showToast("Thank you for supporting Materializr!", 6.0);
+                showToast(materializr::tr("Thank you for supporting Materializr!"), 6.0);
             }
 #endif
             renderUpdatePopup();
@@ -8521,7 +8524,7 @@ void Application::run() {
             std::fprintf(stderr, "[Recovered] thrown from:\n%s", trace.c_str());
         // SHORT on purpose: the first version ran past what a tablet toast
         // shows, so the part that mattered (save a copy) was the part cut off.
-        showToast("A step was skipped after an error - save a copy.", 6.0);
+        showToast(materializr::tr("A step was skipped after an error - save a copy."), 6.0);
         // Previews/tools may be half-applied; drop the ones that hold geometry
         // so the next frame draws from the document rather than a dead handle.
         m_meshesDirty = true;

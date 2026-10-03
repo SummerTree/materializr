@@ -525,7 +525,7 @@ void Toolbar::renderPluginButtons(int contextMask) {
         if (!((1 << static_cast<int>(c.context)) & contextMask)) continue;
         if (c.section != lastSection) {
             if (!lastSection.empty()) ImGui::Separator();
-            ImGui::TextColored(materializr::accentText(), "%s", c.section.c_str());
+            ImGui::TextColored(materializr::accentText(), "%s", materializr::tr(c.section.c_str()));
             ImGui::Separator();
             lastSection = c.section;
         }

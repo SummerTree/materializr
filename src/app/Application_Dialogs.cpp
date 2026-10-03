@@ -596,7 +596,7 @@ void Application::renderSettings() {
                 }
 
 #if !defined(MZ_MOBILE)
-                if (ImGui::BeginTabItem("AI Assistant")) {
+                if (ImGui::BeginTabItem(materializr::tr("AI Assistant###AI Assistant"))) {
                     static char anthropicKeyBuf[256] = {};
                     static char anthropicModelBuf[128] = {};
                     static char openAiKeyBuf[256] = {};
@@ -623,41 +623,41 @@ void Application::renderSettings() {
                     }
 
                     int providerIdx = m_aiSettings.provider == materializr::AiProvider::Anthropic ? 0 : 1;
-                    const char* providerNames[] = {"Anthropic", "OpenAI-compatible (OpenAI/Ollama/LM Studio)"};
-                    if (ImGui::Combo("Provider", &providerIdx, providerNames, 2)) {
+                    const char* providerNames[] = {"Anthropic", materializr::tr("OpenAI-compatible (OpenAI/Ollama/LM Studio)")};
+                    if (ImGui::Combo(materializr::tr("Provider"), &providerIdx, providerNames, 2)) {
                         m_aiSettings.provider = providerIdx == 0 ? materializr::AiProvider::Anthropic
                                                                   : materializr::AiProvider::OpenAiCompatible;
                         changed = true;
                     }
 
                     if (m_aiSettings.provider == materializr::AiProvider::Anthropic) {
-                        if (ImGui::InputText("API Key", anthropicKeyBuf, sizeof(anthropicKeyBuf),
+                        if (ImGui::InputText(materializr::tr("API Key"), anthropicKeyBuf, sizeof(anthropicKeyBuf),
                                              ImGuiInputTextFlags_Password)) {
                             m_aiSettings.anthropicApiKey = anthropicKeyBuf;
                             changed = true;
                         }
-                        if (ImGui::InputText("Model", anthropicModelBuf, sizeof(anthropicModelBuf))) {
+                        if (ImGui::InputText(materializr::tr("Model"), anthropicModelBuf, sizeof(anthropicModelBuf))) {
                             m_aiSettings.anthropicModel = anthropicModelBuf;
                             changed = true;
                         }
                     } else {
-                        if (ImGui::InputText("API Key", openAiKeyBuf, sizeof(openAiKeyBuf),
+                        if (ImGui::InputText(materializr::tr("API Key"), openAiKeyBuf, sizeof(openAiKeyBuf),
                                              ImGuiInputTextFlags_Password)) {
                             m_aiSettings.openAiApiKey = openAiKeyBuf;
                             changed = true;
                         }
-                        if (ImGui::InputText("Base URL", openAiUrlBuf, sizeof(openAiUrlBuf))) {
+                        if (ImGui::InputText(materializr::tr("Base URL"), openAiUrlBuf, sizeof(openAiUrlBuf))) {
                             m_aiSettings.openAiBaseUrl = openAiUrlBuf;
                             changed = true;
                         }
-                        if (ImGui::InputText("Model", openAiModelBuf, sizeof(openAiModelBuf))) {
+                        if (ImGui::InputText(materializr::tr("Model"), openAiModelBuf, sizeof(openAiModelBuf))) {
                             m_aiSettings.openAiModel = openAiModelBuf;
                             changed = true;
                         }
                     }
-                    ImGui::TextWrapped(
+                    ImGui::TextWrapped("%s", materializr::tr(
                         "Point the base URL at http://localhost:11434/v1 for Ollama, or "
-                        "LM Studio's local server address, to run without any cloud key.");
+                        "LM Studio's local server address, to run without any cloud key."));
 
                     // Test Connection: fires one minimal, tool-free request against
                     // the current in-memory settings (auto-persisted the same frame
@@ -674,19 +674,20 @@ void Application::renderSettings() {
                         try {
                             materializr::ai::LlmTurnResult r = testFuture.get();
                             testResultIsError = !r.ok;
-                            testResultText = r.ok ? "Connection OK." : ("Failed: " + r.error);
+                            testResultText = r.ok ? std::string(materializr::tr("Connection OK."))
+                                                   : materializr::trFormat("Failed: %s", r.error);
                         } catch (const std::exception& e) {
                             testResultIsError = true;
-                            testResultText = std::string("Failed: ") + e.what();
+                            testResultText = materializr::trFormat("Failed: %s", e.what());
                         }
                     }
                     ImGui::BeginDisabled(testBusy);
-                    if (ImGui::Button("Test Connection")) {
+                    if (ImGui::Button(materializr::tr("Test Connection"))) {
                         testResultText.clear();
                         testFuture = materializr::ai::testConnection(m_aiSettings);
                     }
                     ImGui::EndDisabled();
-                    if (testBusy) { ImGui::SameLine(); ImGui::TextDisabled("Testing..."); }
+                    if (testBusy) { ImGui::SameLine(); ImGui::TextDisabled("%s", materializr::tr("Testing...")); }
                     if (!testResultText.empty()) {
                         ImGui::TextColored(testResultIsError ? ImVec4(1.0f, 0.4f, 0.4f, 1.0f)
                                                              : ImVec4(0.4f, 1.0f, 0.4f, 1.0f),
@@ -970,10 +971,11 @@ void Application::renderScalePanel() {
     // Sharing one call left "%s" with nothing to consume it - undefined
     // behaviour, and the compiler said so (-Wformat-insufficient-args).
     if (mm)
-        ImGui::TextColored(materializr::accentText(), "Scale (target %s)",
+        ImGui::TextColored(materializr::accentText(), materializr::trf("Scale (target %s)"),
                            materializr::unitSuffix());
     else
-        ImGui::TextColored(materializr::accentText(), "Scale (%% of current)");
+        ImGui::TextColored(materializr::accentText(), "%s",
+                           materializr::trFormat("Scale (%% of current)").c_str());
     ImGui::Separator();
 
     // Unit toggle. mm disabled when multi-body so we don't mislead - there's
@@ -1688,8 +1690,9 @@ void Application::renderThreadPanel() {
     // are the maker/printing set - clean, but a boolean cut per turn, so a long
     // thread is slow (the progress bar on Apply shows it working).
     {
-        const char* kProfiles[] = {"Standard (V)", "Trapezoidal (ACME)",
-                                   "Square", "Buttress", "Rounded (print)"};
+        const char* kProfiles[] = {materializr::tr("Standard (V)"), materializr::tr("Trapezoidal (ACME)"),
+                                   materializr::tr("Square"), materializr::tr("Buttress"),
+                                   materializr::tr("Rounded (print)")};
         ImGui::SetNextItemWidth(uiSz(180, 0).x);
         ImGui::Combo(materializr::tr("Profile"), &m_threadProfile, kProfiles,
                      IM_ARRAYSIZE(kProfiles));
@@ -1941,7 +1944,7 @@ bool Application::loadRefImageFile(const std::string& path, RefImageEntry& out,
     if (path.empty()) return false;
     std::ifstream f(path, std::ios::binary);
     if (!f) {
-        showToast("Could not open the image file.");
+        showToast(materializr::tr("Could not open the image file."));
         return false;
     }
     std::vector<unsigned char> bytes((std::istreambuf_iterator<char>(f)),
@@ -1951,8 +1954,8 @@ bool Application::loadRefImageFile(const std::string& path, RefImageEntry& out,
         // probeImageSize also refuses images that are readable but too large to
         // decode safely, so the message has to cover both - "not readable" alone
         // is simply untrue for a valid 30000x30000 photo.
-        showToast("Could not use this image - it must be a PNG / JPEG / BMP "
-                  "no larger than 16384 x 16384.");
+        showToast(materializr::tr("Could not use this image - it must be a PNG / JPEG / BMP "
+                  "no larger than 16384 x 16384."));
         return false;
     }
     baseName = std::filesystem::path(path).stem().string();
@@ -1981,9 +1984,9 @@ void Application::attachRefImageToPlane(int planeId) {
             const bool replacing = m_document->getRefImage(planeId) != nullptr;
             m_document->setRefImage(planeId, std::move(e));
             showToast(replacing
-                          ? "Reference image replaced."
-                          : "Reference image attached - set its real size with "
-                            "Calibrate, then sketch over it.",
+                          ? materializr::tr("Reference image replaced.")
+                          : materializr::tr("Reference image attached - set its real size with "
+                                            "Calibrate, then sketch over it."),
                       6.0);
             m_meshesDirty = true;
             markDirty();   // not a history op; see beginRefImageImport
@@ -2017,8 +2020,8 @@ void Application::beginRefImageImport() {
                 se.planeId = planeId;
                 m_selection->select(se);
             }
-            showToast("Reference image imported - set its real size with "
-                      "Calibrate, then sketch over it.", 6.0);
+            showToast(materializr::tr("Reference image imported - set its real size with "
+                                      "Calibrate, then sketch over it."), 6.0);
             m_meshesDirty = true;
             // Reference images aren't a history op, so they don't move the
             // history step - mark the non-history dirty flag so crash-recovery
@@ -2517,7 +2520,7 @@ void Application::renderRefImageCalibrationPopup(int planeId) {
             m_refImgPreviewPlane = planeId;
         } else {
             m_refImgCalibPlane = -1;
-            showToast("Could not decode the image for calibration.");
+            showToast(materializr::tr("Could not decode the image for calibration."));
             return;
         }
     }
@@ -2667,7 +2670,7 @@ void Application::renderRefImageCalibrationPopup(int planeId) {
             double mmPerPx = static_cast<double>(distMM) / pxDist;
             m_document->setRefImageWidthMM(planeId, img->pixW * mmPerPx);
             markDirty();
-            showToast("Image calibrated to real size.");
+            showToast(materializr::tr("Image calibrated to real size."));
         }
         m_refImgCalibPlane = -1;
     }
@@ -2768,7 +2771,8 @@ void Application::renderPatchPanel() {
     ImGui::Separator();
 
     bool dirty = false;
-    const char* contLabels[] = {"Position (C0)", "Tangent (G1)", "Curvature (G2)"};
+    const char* contLabels[] = {materializr::tr("Position (C0)"), materializr::tr("Tangent (G1)"),
+                                materializr::tr("Curvature (G2)")};
     ImGui::SetNextItemWidth(uiSz(170, 0).x);
     if (ImGui::Combo(materializr::tr("Continuity"), &m_patchParams.continuity,
                      contLabels, 3))
@@ -5056,7 +5060,7 @@ void Application::renderOffsetToolPanel() {
             int corner = (m_sketchTool->getOffsetCorners() ==
                           materializr::OffsetCorners::Round) ? 0 : 1;
             ImGui::SetNextItemWidth(120.0f);
-            const char* items[] = { "Round corners", "Sharp corners" };
+            const char* items[] = { materializr::tr("Round corners"), materializr::tr("Sharp corners") };
             if (ImGui::Combo("##offsetCorners", &corner, items, 2))
                 m_sketchTool->setOffsetCorners(corner == 0
                     ? materializr::OffsetCorners::Round
@@ -5259,15 +5263,19 @@ void Application::commitStlImport() {
                 e.bodyId = ids.back();
                 m_selection->select(e);
             }
-            std::string msg = "Imported STL - " +
-                              std::to_string(result.faceCount) + " faces";
-            if (result.trianglesAfter > 0 && result.trianglesAfter < result.trianglesBefore)
-                msg += " (simplified " + std::to_string(result.trianglesBefore) +
-                       " \xE2\x86\x92 " + std::to_string(result.trianglesAfter) + " triangles)";
-            msg += ". Pick a flat face \xE2\x86\x92 Sketch on Face to trace it.";
+            const int faces = static_cast<int>(result.faceCount);
+            const std::string msg =
+                (result.trianglesAfter > 0 && result.trianglesAfter < result.trianglesBefore)
+                    ? materializr::trFormat("Imported STL - %d faces (simplified %d \xE2\x86\x92 %d triangles). "
+                                            "Pick a flat face \xE2\x86\x92 Sketch on Face to trace it.",
+                                            faces, static_cast<int>(result.trianglesBefore),
+                                            static_cast<int>(result.trianglesAfter))
+                    : materializr::trFormat("Imported STL - %d faces. "
+                                            "Pick a flat face \xE2\x86\x92 Sketch on Face to trace it.",
+                                            faces);
             showToast(msg, 9.0);
         } else {
-            showToast("STL import failed: " + result.errorMessage, 6.0);
+            showToast(materializr::trFormat("STL import failed: %s", result.errorMessage), 6.0);
         }
     });
 }
@@ -5715,12 +5723,12 @@ void Application::beginUnfoldDialog() {
             for (const auto& e : m_selection->getSelection())
                 if (e.type == SelectionType::Body && e.bodyId >= 0) { bodyId = e.bodyId; break; }
         if (bodyId < 0) {
-            showToast("Select a body, or pick the faces of one panel, to unfold.");
+            showToast(materializr::tr("Select a body, or pick the faces of one panel, to unfold."));
             return;
         }
         TopoDS_Shape shape;
         try { shape = m_document->getBody(bodyId); } catch (...) {}
-        if (shape.IsNull()) { showToast("Select a body to unfold."); return; }
+        if (shape.IsNull()) { showToast(materializr::tr("Select a body to unfold.")); return; }
         for (TopExp_Explorer ex(shape, TopAbs_FACE); ex.More(); ex.Next())
             faces.push_back(TopoDS::Face(ex.Current()));
     }
@@ -5743,7 +5751,8 @@ void Application::beginUnfoldDialog() {
     recomputeUnfold();
     if (!m_unfoldPattern || !m_unfoldPattern->ok) {
         const std::string w = m_unfoldPattern ? m_unfoldPattern->warning : std::string();
-        showToast("Couldn't unfold that: " + (w.empty() ? std::string("nothing to flatten.") : w));
+        showToast(materializr::trFormat("Couldn't unfold that: %s",
+                                         materializr::tr(w.empty() ? "nothing to flatten." : w.c_str())));
         m_unfoldSourceFaces.clear();
         return;
     }
@@ -5803,7 +5812,8 @@ void Application::renderUnfoldDialog() {
     };
 
     // Rigidity (not a specific material) drives how folds are processed.
-    const char* rigs[] = {"Pliable", "Semi-rigid", "Rigid"};
+    const char* rigs[] = {materializr::tr("Pliable"), materializr::tr("Semi-rigid"),
+                          materializr::tr("Rigid")};
     int ri = static_cast<int>(m_unfoldRigidity);
     ImGui::SetNextItemWidth(140.0f);
     if (ImGui::Combo(materializr::tr("Material"), &ri, rigs, 3)) {
@@ -6265,7 +6275,7 @@ void Application::exportRecentProjectAs(const std::string& ref,
     if (ref.rfind("content:", 0) == 0) {
         path = materializr::mobileOpenUri(ref);
         if (path.empty()) {
-            showToast("Couldn't read \"" + name + "\" - access may have been revoked.");
+            showToast(materializr::trFormat("Couldn't read \"%s\" - access may have been revoked.", name));
             return;
         }
     }
@@ -6275,11 +6285,11 @@ void Application::exportRecentProjectAs(const std::string& ref,
     auto doc = std::make_shared<Document>();
     auto res = ProjectIO::load(path, *doc);
     if (!res.success) {
-        showToast("Couldn't read \"" + name + "\" for export.");
+        showToast(materializr::trFormat("Couldn't read \"%s\" for export.", name));
         return;
     }
     if (doc->getAllBodyIds().empty()) {
-        showToast("\"" + name + "\" has no bodies to export.");
+        showToast(materializr::trFormat("\"%s\" has no bodies to export.", name));
         return;
     }
     // Default filename = the project's name minus its extension, with the
@@ -6297,9 +6307,9 @@ void Application::exportRecentProjectAs(const std::string& ref,
                 std::string out = p;
                 if (std::filesystem::path(out).extension() != ".stl") out += ".stl";
                 auto r = StlExport::exportFile(out, *doc);
-                showToast(r.success ? "Exported " +
-                              std::filesystem::path(out).filename().string()
-                                    : "Export failed - see log");
+                showToast(r.success ? materializr::trFormat("Exported %s",
+                                          std::filesystem::path(out).filename().string())
+                                    : std::string(materializr::tr("Export failed - see log")));
                 if (!r.success)
                     std::fprintf(stderr, "Export failed: %s\n",
                                  r.errorMessage.c_str());
@@ -6313,9 +6323,9 @@ void Application::exportRecentProjectAs(const std::string& ref,
                 std::string ext = std::filesystem::path(out).extension().string();
                 if (ext != ".step" && ext != ".stp") out += ".step";
                 auto r = StepIO::exportFile(out, *doc);
-                showToast(r.success ? "Exported " +
-                              std::filesystem::path(out).filename().string()
-                                    : "Export failed - see log");
+                showToast(r.success ? materializr::trFormat("Exported %s",
+                                          std::filesystem::path(out).filename().string())
+                                    : std::string(materializr::tr("Export failed - see log")));
                 if (!r.success)
                     std::fprintf(stderr, "Export failed: %s\n",
                                  r.errorMessage.c_str());
@@ -6348,7 +6358,7 @@ void Application::openPartsPicker(const std::string& ref,
     if (ref.rfind("content:", 0) == 0) {
         path = materializr::mobileOpenUri(ref);
         if (path.empty()) {
-            showToast("Couldn't read \"" + name + "\" - access may have been revoked.");
+            showToast(materializr::trFormat("Couldn't read \"%s\" - access may have been revoked.", name));
             return;
         }
     }
@@ -6356,7 +6366,7 @@ void Application::openPartsPicker(const std::string& ref,
     auto doc = std::make_shared<Document>();
     auto res = ProjectIO::load(path, *doc);
     if (!res.success) {
-        showToast("Couldn't read \"" + name + "\".");
+        showToast(materializr::trFormat("Couldn't read \"%s\".", name));
         return;
     }
     m_partsPickerBodies.clear();
@@ -6366,7 +6376,7 @@ void Application::openPartsPicker(const std::string& ref,
     for (int id : doc->getAllSketchIds())
         m_partsPickerSketches.emplace_back(id, true);
     if (m_partsPickerBodies.empty() && m_partsPickerSketches.empty()) {
-        showToast("\"" + name + "\" has no parts to import.");
+        showToast(materializr::trFormat("\"%s\" has no parts to import.", name));
         return;
     }
     m_partsPickerDoc = std::move(doc);
@@ -6445,7 +6455,7 @@ void Application::renderPartsPickerDialog() {
             if (isDirty()) {
                 // Clearing the workspace under an async save-prompt would
                 // race it; make the user resolve the open project first.
-                showToast("Save or close the open project first.");
+                showToast(materializr::tr("Save or close the open project first."));
                 proceed = false;
             } else {
                 doCloseProject();
@@ -6485,8 +6495,10 @@ void Application::renderPartsPickerDialog() {
             // imported parts can fill the screen or sit out of view.
             handleViewCubeAction(static_cast<int>(ViewCubeAction::FrontTopRight));
             if (m_landingPage) m_landingPage->setVisible(false);
-            showToast("Imported " + std::to_string(n) +
-                      (n == 1 ? " part from " : " parts from ") + m_partsPickerSource);
+            showToast(n == 1
+                ? materializr::trFormat("Imported 1 part from %s", m_partsPickerSource)
+                : materializr::trFormat("Imported %d parts from %s", static_cast<int>(n),
+                                        m_partsPickerSource));
             m_partsPickerOpen = false;
         }
     }
@@ -6512,7 +6524,7 @@ void Application::exportBodiesToNewProject(const std::vector<int>& bodyIds) {
                          m_document->getBodyColor(id)});
     }
     if (parts.empty()) {
-        showToast("Those bodies have no geometry.");
+        showToast(materializr::tr("Those bodies have no geometry."));
         return;
     }
     // A NEW TAB rather than a save dialog (Steve, 2026-07-29): the parts land
@@ -6537,9 +6549,9 @@ void Application::exportBodiesToNewProject(const std::vector<int>& bodyIds) {
     // sits wherever the source project left it.
     handleViewCubeAction(static_cast<int>(ViewCubeAction::FrontTopRight));
     showToast(parts.size() == 1
-                  ? "Opened in a new tab - unsaved."
-                  : std::to_string(parts.size()) +
-                        " parts opened in a new tab - unsaved.");
+                  ? std::string(materializr::tr("Opened in a new tab - unsaved."))
+                  : materializr::trFormat("%d parts opened in a new tab - unsaved.",
+                                          static_cast<int>(parts.size())));
 }
 
 void Application::sendBodiesToTab(const std::vector<int>& bodyIds, size_t tabIndex) {
@@ -6558,7 +6570,7 @@ void Application::sendBodiesToTab(const std::vector<int>& bodyIds, size_t tabInd
                          m_document->getBodyColor(id)});
     }
     if (parts.empty()) {
-        showToast("Those bodies have no geometry.");
+        showToast(materializr::tr("Those bodies have no geometry."));
         return;
     }
     const std::string destLabel = sessionDisplayLabel(tabIndex);
@@ -6583,10 +6595,10 @@ void Application::sendBodiesToTab(const std::vector<int>& bodyIds, size_t tabInd
             m_selection->addToSelection(SelectionEntry{SelectionType::Body, nid});
     }
     frameSelection();
-    showToast((parts.size() == 1
-                   ? std::string("Sent to ")
-                   : std::to_string(parts.size()) + " parts sent to ") +
-              destLabel + " - drag to place.");
+    showToast(parts.size() == 1
+                  ? materializr::trFormat("Sent to %s - drag to place.", destLabel)
+                  : materializr::trFormat("%d parts sent to %s - drag to place.",
+                                          static_cast<int>(parts.size()), destLabel));
 }
 
 namespace {
@@ -6631,7 +6643,7 @@ void Application::exportSketchesToNewProject(const std::vector<int>& sketchIds) 
         parts.push_back({copy, m_document->getSketchName(id)});
     }
     if (parts.empty()) {
-        showToast("Those sketches have no geometry.");
+        showToast(materializr::tr("Those sketches have no geometry."));
         return;
     }
     // A NEW TAB rather than a save dialog - same reasoning as
@@ -6655,9 +6667,9 @@ void Application::exportSketchesToNewProject(const std::vector<int>& sketchIds) 
         m_viewport->getCamera().zoomToFit(mn, mx);
     }
     showToast(parts.size() == 1
-                  ? "Opened in a new tab - unsaved."
-                  : std::to_string(parts.size()) +
-                        " sketches opened in a new tab - unsaved.");
+                  ? std::string(materializr::tr("Opened in a new tab - unsaved."))
+                  : materializr::trFormat("%d sketches opened in a new tab - unsaved.",
+                                          static_cast<int>(parts.size())));
 }
 
 void Application::sendSketchesToTab(const std::vector<int>& sketchIds, size_t tabIndex) {
@@ -6678,7 +6690,7 @@ void Application::sendSketchesToTab(const std::vector<int>& sketchIds, size_t ta
         parts.push_back({copy, m_document->getSketchName(id)});
     }
     if (parts.empty()) {
-        showToast("Those sketches have no geometry.");
+        showToast(materializr::tr("Those sketches have no geometry."));
         return;
     }
     const std::string destLabel = sessionDisplayLabel(tabIndex);
@@ -6708,10 +6720,10 @@ void Application::sendSketchesToTab(const std::vector<int>& sketchIds, size_t ta
         if (mn == mx) { mn -= glm::vec3(5.0f); mx += glm::vec3(5.0f); }
         m_viewport->getCamera().zoomToFit(mn, mx);
     }
-    showToast((parts.size() == 1
-                   ? std::string("Sent to ")
-                   : std::to_string(parts.size()) + " sketches sent to ") +
-              destLabel + ".");
+    showToast(parts.size() == 1
+                  ? materializr::trFormat("Sent to %s.", destLabel)
+                  : materializr::trFormat("%d sketches sent to %s.",
+                                          static_cast<int>(parts.size()), destLabel));
 }
 
 void Application::renderLandingPage() {

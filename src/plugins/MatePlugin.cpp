@@ -7,6 +7,7 @@
 #include "../modeling/FaceAnchor.h"
 #include "../ui/NumField.h"
 #include "../ui/LengthField.h"
+#include "../i18n.h"
 
 #include <imgui.h>
 #include <BRepAdaptor_Surface.hxx>
@@ -51,7 +52,7 @@ std::string g_mateConfirmText;
 
 std::string bodyLabel(materializr::PluginContext& ctx, int id) {
     std::string name = ctx.document().getBodyName(id);
-    return name.empty() ? ("Body " + std::to_string(id)) : name;
+    return name.empty() ? materializr::trFormat("Body %d", id) : name;
 }
 
 // The two bodies a mate would join, in selection order: the first pick is the
@@ -164,12 +165,11 @@ void createMate(materializr::PluginContext& ctx) {
     // existing Fasten mate).
     for (const auto& m : doc.getMates()) {
         if (m.suppressed || m.bodyB != moveBody) continue;
-        g_mateConfirmText = bodyLabel(ctx, moveBody) +
-            " already has a mate (to " + bodyLabel(ctx, m.bodyA) +
-            ") - a body can only be placed by one. Edit or delete that mate "
-            "in the Mates section below first, or pick the bodies in the "
-            "other order if you meant to mate " + bodyLabel(ctx, refBody) +
-            " to it instead.";
+        g_mateConfirmText = materializr::trFormat(
+            "%s already has a mate (to %s) - a body can only be placed by one. "
+            "Edit or delete that mate in the Mates section below first, or pick "
+            "the bodies in the other order if you meant to mate %s to it instead.",
+            bodyLabel(ctx, moveBody), bodyLabel(ctx, m.bodyA), bodyLabel(ctx, refBody));
         g_mateConfirmOpenRequested = true;
         return;
     }
@@ -222,14 +222,16 @@ void createMate(materializr::PluginContext& ctx) {
     std::string ref = bodyLabel(ctx, refBody);
     std::string mv  = bodyLabel(ctx, moveBody);
     if (m.type == MateType::Fasten) {
-        g_mateConfirmText = mv + " is now mated to " + ref +
-            " (Fasten). It's holding its current position - nothing moved. "
-            "Open the Mates section below to set an offset, or pick faces on "
-            "both bodies first for a Planar / Concentric mate that aligns them.";
+        g_mateConfirmText = materializr::trFormat(
+            "%s is now mated to %s (Fasten). It's holding its current position - "
+            "nothing moved. Open the Mates section below to set an offset, or pick "
+            "faces on both bodies first for a Planar / Concentric mate that aligns them.",
+            mv, ref);
     } else {
-        g_mateConfirmText = mv + " is now mated to " + ref + " (" +
-            typeName(m.type) + "), aligned to the picked faces. Adjust "
-            "offset, roll or Flip in the Mates section below.";
+        g_mateConfirmText = materializr::trFormat(
+            "%s is now mated to %s (%s), aligned to the picked faces. Adjust "
+            "offset, roll or Flip in the Mates section below.",
+            mv, ref, materializr::tr(typeName(m.type)));
     }
     g_mateConfirmOpenRequested = true;
 }
@@ -239,14 +241,14 @@ bool renderPanel(materializr::PluginContext& ctx) {
     auto& mates = doc.getMutableMates();
     if (mates.empty()) return false;
 
-    ImGui::TextUnformatted("Mates");
+    ImGui::TextUnformatted(materializr::tr("Mates"));
 
     // The solver's Result used to be discarded everywhere, so a cycle or an
     // over-constraint produced an assembly that simply stopped moving with no
     // explanation anywhere in the app.
     if (!doc.mateSolveError().empty()) {
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.45f, 0.35f, 1.0f));
-        ImGui::TextWrapped("Mates not applied: %s", doc.mateSolveError().c_str());
+        ImGui::TextWrapped(materializr::trf("Mates not applied: %s"), doc.mateSolveError().c_str());
         ImGui::PopStyleColor();
     }
     ImGui::Separator();
@@ -259,11 +261,11 @@ bool renderPanel(materializr::PluginContext& ctx) {
             // A lost face reference is not a crash and not a silent drop; say
             // so where the user is already looking.
             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.45f, 0.35f, 1.0f));
-            ImGui::Text("%s (reference lost)", typeName(m.type));
+            ImGui::Text(materializr::trf("%s (reference lost)"), materializr::tr(typeName(m.type)));
             ImGui::PopStyleColor();
         } else {
-            ImGui::Text("%s: body %d -> body %d", typeName(m.type),
-                        m.bodyA, m.bodyB);
+            ImGui::Text(materializr::trf("%s: body %d -> body %d"),
+                        materializr::tr(typeName(m.type)), m.bodyA, m.bodyB);
         }
 
         bool dirty = false;
@@ -280,25 +282,26 @@ bool renderPanel(materializr::PluginContext& ctx) {
         const bool anchored =
             m.broken || (!m.anchorsA.empty() && !m.anchorsB.empty());
         int typeIdx = static_cast<int>(m.type);
-        const char* kinds[] = {"Fasten", "Concentric", "Planar"};
+        const char* kinds[] = {materializr::tr("Fasten"), materializr::tr("Concentric"),
+                               materializr::tr("Planar")};
         if (anchored) {
-            if (ImGui::Combo("Type", &typeIdx, kinds, 3)) {
+            if (ImGui::Combo(materializr::tr("Type"), &typeIdx, kinds, 3)) {
                 m.type = static_cast<MateType>(typeIdx);
                 dirty = true;
             }
         } else {
             ImGui::BeginDisabled();
-            ImGui::Combo("Type", &typeIdx, kinds, 3);
+            ImGui::Combo(materializr::tr("Type"), &typeIdx, kinds, 3);
             ImGui::EndDisabled();
             if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
+                ImGui::SetTooltip("%s", materializr::tr(
                     "Only Fasten is available: these bodies have no "
                     "sketch-derived faces to align to. Primitive and imported "
-                    "bodies cannot carry face references.");
+                    "bodies cannot carry face references."));
         }
 
         double offset = m.offset;
-        if (materializr::lengthField("Offset", &offset)) {
+        if (materializr::lengthField(materializr::tr("Offset"), &offset)) {
             m.offset = offset;
             dirty = true;
         }
@@ -320,30 +323,30 @@ bool renderPanel(materializr::PluginContext& ctx) {
         const bool hasRealAnchors = !m.anchorsA.empty() && !m.anchorsB.empty();
         if (hasRealAnchors) {
             double angleDeg = m.angle * 180.0 / M_PI;
-            if (materializr::inputNumber("Angle (deg)", &angleDeg)) {
+            if (materializr::inputNumber(materializr::tr("Angle (deg)"), &angleDeg)) {
                 m.angle = angleDeg * M_PI / 180.0;
                 dirty = true;
             }
-            if (ImGui::Checkbox("Flip", &m.flipped)) dirty = true;
+            if (ImGui::Checkbox(materializr::tr("Flip"), &m.flipped)) dirty = true;
         } else {
             double angleDeg = 0.0;
             ImGui::BeginDisabled();
-            materializr::inputNumber("Angle (deg)", &angleDeg);
+            materializr::inputNumber(materializr::tr("Angle (deg)"), &angleDeg);
             bool flip = false;
-            ImGui::Checkbox("Flip", &flip);
+            ImGui::Checkbox(materializr::tr("Flip"), &flip);
             ImGui::EndDisabled();
             if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
+                ImGui::SetTooltip("%s", materializr::tr(
                     "Only available with anchored faces: a rotation or flip "
                     "recaptured from this body's current (already-rotated) "
                     "position, instead of a real face's orientation, would "
-                    "silently compound on the next solve.");
+                    "silently compound on the next solve."));
         }
         ImGui::SameLine();
-        if (ImGui::Checkbox("Suppress", &m.suppressed)) dirty = true;
+        if (ImGui::Checkbox(materializr::tr("Suppress"), &m.suppressed)) dirty = true;
 
         ImGui::SameLine();
-        if (ImGui::Button("Delete")) toDelete = m.id;
+        if (ImGui::Button(materializr::tr("Delete"))) toDelete = m.id;
 
         ImGui::Separator();
         ImGui::PopID();
@@ -382,17 +385,16 @@ REGISTER_PLUGIN(Mate, [](materializr::PluginContext& ctx) {
     confirm.name = "MateConfirm";
     confirm.render = [](materializr::PluginContext&) {
         if (g_mateConfirmOpenRequested) {
-            ImGui::OpenPopup("Mate##mateConfirm");
+            ImGui::OpenPopup("###mateConfirm");   // same id as "Mate###mateConfirm"
             g_mateConfirmOpenRequested = false;
         }
         ImVec2 center = ImGui::GetMainViewport()->GetCenter();
         ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-        if (ImGui::BeginPopupModal("Mate##mateConfirm", nullptr,
+        if (ImGui::BeginPopupModal(materializr::tr("Mate###mateConfirm"), nullptr,
                                    ImGuiWindowFlags_AlwaysAutoResize)) {
             ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + 320.0f);
-            // Body names are baked in, so this can't route through tr() like a
-            // static string - a translated catalogue lookup on this exact
-            // concatenation would never hit.
+            // Translated when composed (trFormat in createMate): the body
+            // names are baked in, so a lookup on the finished text never hits.
             ImGui::TextUnformatted(g_mateConfirmText.c_str());
             ImGui::PopTextWrapPos();
             ImGui::Separator();

@@ -201,8 +201,8 @@ int PushPullController::onBegin(const IopContext& ctx) {
 
     // A rounded/fillet face was picked - tell the user why it was ignored (#28).
     if (curvedFaceSkipped && ctx.toast)
-        ctx.toast("Push/Pull works on flat faces - not curved or "
-                  "fillet faces.");
+        ctx.toast(materializr::tr("Push/Pull works on flat faces - not curved or "
+                                  "fillet faces."));
     if (m_st.targets.empty()) {
         if (!curvedFaceSkipped)
             std::fprintf(stderr,

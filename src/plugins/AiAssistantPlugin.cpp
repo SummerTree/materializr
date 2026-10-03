@@ -4,6 +4,8 @@
 #include "../ai/AnthropicClient.h"
 #include "../ai/OpenAiCompatibleClient.h"
 #include "../io/Settings.h"
+#include "../i18n.h"
+#include "../ui/LengthField.h"
 
 #include <imgui.h>
 #include <memory>
@@ -70,14 +72,14 @@ void renderOverlay(materializr::PluginContext& ctx) {
     session.poll(ctx);
 
     if (!g_overlayOpen) return;
-    if (!ImGui::Begin("AI Assistant", &g_overlayOpen)) { ImGui::End(); return; }
+    if (!ImGui::Begin(materializr::tr("AI Assistant###AI Assistant"), &g_overlayOpen)) { ImGui::End(); return; }
 
     // Disabled while busy: clearing out from under an in-flight turn would
     // let that turn's result land right after the clear and silently
     // resurrect the old conversation - see AiSessionController::clear()'s
     // doc comment. Cancel first if a clear is wanted mid-turn.
     ImGui::BeginDisabled(session.isBusy());
-    if (ImGui::SmallButton("Clear Chat")) session.clear();
+    if (ImGui::SmallButton(materializr::tr("Clear Chat"))) session.clear();
     ImGui::EndDisabled();
 
     ImGui::BeginChild("AiScrollback", ImVec2(0, -60), true);
@@ -89,7 +91,7 @@ void renderOverlay(materializr::PluginContext& ctx) {
                 // actually went to the model, worth making visually distinct
                 // from its own replies/tool output at a glance, but low-alpha
                 // so it stays a background cue, not another loud UI color.
-                const std::string text = "You: " + line.text;
+                const std::string text = materializr::trFormat("You: %s", line.text);
                 const float wrapWidth = ImGui::GetContentRegionAvail().x;
                 const ImVec2 textSize =
                     ImGui::CalcTextSize(text.c_str(), nullptr, false, wrapWidth);
@@ -103,7 +105,7 @@ void renderOverlay(materializr::PluginContext& ctx) {
                 ImGui::TextWrapped("%s", text.c_str());
                 break;
             }
-            case Kind::Assistant:   ImGui::TextWrapped("AI: %s", line.text.c_str()); break;
+            case Kind::Assistant:   ImGui::TextWrapped(materializr::trf("AI: %s"), line.text.c_str()); break;
             case Kind::ToolSummary: ImGui::TextWrapped("%s", line.text.c_str()); break;
             case Kind::Error:
                 ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.4f, 0.4f, 1.0f));
@@ -119,7 +121,7 @@ void renderOverlay(materializr::PluginContext& ctx) {
         // wedged - a ticking counter is visibly alive either way, and the
         // Stop button next to Send below means never having to wait out a
         // timeout to find out.
-        ImGui::TextDisabled("Thinking... %.0fs", session.elapsedSeconds());
+        ImGui::TextDisabled(materializr::trf("Thinking... %.0fs"), session.elapsedSeconds());
         // The actual point of streaming: show WHY it's taking a while (or
         // whether it's spiralling) instead of leaving the elapsed counter as
         // the only signal. Only OpenAiCompatibleClient streams today (see
@@ -141,7 +143,7 @@ void renderOverlay(materializr::PluginContext& ctx) {
 
     if (!hasApiKeyConfigured(ai)) {
         ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f),
-                           "Set up your API key in Settings -> AI Assistant.");
+                           "%s", materializr::tr("Set up your API key in Settings -> AI Assistant."));
     } else {
         const bool busy = session.isBusy();
         ImGui::BeginDisabled(busy);
@@ -158,9 +160,9 @@ void renderOverlay(materializr::PluginContext& ctx) {
             // Stop takes over Send's own spot while a turn is in flight -
             // the standard chat-UI swap, so cancelling a stuck/slow turn
             // doesn't mean hunting for a button buried in the scrollback.
-            if (ImGui::Button("Stop")) session.cancel();
+            if (ImGui::Button(materializr::tr("Stop"))) session.cancel();
         } else {
-            const bool sendClicked = ImGui::Button("Send");
+            const bool sendClicked = ImGui::Button(materializr::tr("Send"));
             if ((enterPressed || sendClicked) && inputBuf[0] != '\0') {
                 session.submitPrompt(inputBuf);
                 inputBuf[0] = '\0';

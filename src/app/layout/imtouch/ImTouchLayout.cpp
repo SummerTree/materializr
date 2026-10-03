@@ -1292,8 +1292,8 @@ void Application::renderImTouchLayout() {
                                 m_historyPanel->setEditingStep(-1);
                             ImGui::CloseCurrentPopup();
                         } else {
-                            showToast(
-                                "Can't delete: a later operation depends on it.");
+                            showToast(materializr::tr(
+                                "Can't delete: a later operation depends on it."));
                         }
                     }
                     ImGui::EndDisabled();

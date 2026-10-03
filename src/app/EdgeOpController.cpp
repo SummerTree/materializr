@@ -502,12 +502,13 @@ void EdgeOpController::commit(const IopContext& ctx) {
                               m_twoDist ? m_origValue2 : -1.0f);
             refreshAllEdgeOpFaces(ctx.history, ctx.doc);
             if (ctx.toast)
-                ctx.toast(std::string(isFillet ? "This fillet" : "This chamfer")
-                              .append(" can't be rebuilt on the current body "
-                                      "- its edges reference geometry "
-                                      "that a later feature changed. Left as-is; "
-                                      "delete it and re-apply the feature on the "
-                                      "updated body.").c_str());
+                ctx.toast(materializr::tr(isFillet
+                    ? "This fillet can't be rebuilt on the current body - its edges "
+                      "reference geometry that a later feature changed. Left as-is; "
+                      "delete it and re-apply the feature on the updated body."
+                    : "This chamfer can't be rebuilt on the current body - its edges "
+                      "reference geometry that a later feature changed. Left as-is; "
+                      "delete it and re-apply the feature on the updated body."));
             finish(ctx);
             return;
         }
@@ -537,10 +538,10 @@ void EdgeOpController::commit(const IopContext& ctx) {
             const double atol = 1e-6 * std::max(1.0, std::fabs(m_prePickedArea));
             if (std::fabs(volAfter  - m_prePickedVol)  <= vtol &&
                 std::fabs(areaAfter - m_prePickedArea) <= atol && ctx.toast) {
-                ctx.toast("This fillet/chamfer is baked into the model "
-                          "- the geometry you clicked has no editable "
-                          "operation behind it. Re-apply it to make it "
-                          "adjustable.");
+                ctx.toast(materializr::tr("This fillet/chamfer is baked into the model "
+                                          "- the geometry you clicked has no editable "
+                                          "operation behind it. Re-apply it to make it "
+                                          "adjustable."));
             }
         }
         std::fprintf(stdout, "%s edited to %.1f mm\n",
@@ -558,10 +559,11 @@ void EdgeOpController::commit(const IopContext& ctx) {
             std::fprintf(stdout, "%s %.1f mm committed\n",
                          isFillet ? "Fillet" : "Chamfer", value);
         } else if (toast) {
-            toast(std::string(isFillet ? "Fillet" : "Chamfer")
-                      .append(" couldn't be built on those edges - the "
-                              "result wasn't valid geometry. Try a smaller size "
-                              "or fewer edges.").c_str());
+            toast(materializr::tr(isFillet
+                ? "Fillet couldn't be built on those edges - the result wasn't "
+                  "valid geometry. Try a smaller size or fewer edges."
+                : "Chamfer couldn't be built on those edges - the result wasn't "
+                  "valid geometry. Try a smaller size or fewer edges."));
         }
     };
     // Pushed inline: see InteractiveOpController::commit's LiveOp branch for
