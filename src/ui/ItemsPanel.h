@@ -108,6 +108,7 @@ public:
     }
     // Called when the user picks "Duplicate Sketch" - makes an independent copy.
     // Routes to Application::duplicateSketch.
+    void setDeleteSketchCallback(std::function<void(int)> cb) { m_deleteSketch = std::move(cb); }
     void setDuplicateSketchCallback(std::function<void(int)> cb) { m_duplicateSketch = std::move(cb); }
     // Called when the user picks "Combine sketches" - merges the selected
     // coplanar sketches into the first. Routes to Application::combineSketches.
@@ -146,6 +147,7 @@ private:
     std::function<void(const std::vector<int>&)> m_exportSketchToProject;
     std::function<void(const std::vector<int>&, size_t)> m_sendSketchToTab;
     std::function<void(int)> m_duplicateSketch;
+    std::function<void(int)> m_deleteSketch;
     std::function<void(const std::vector<int>&)> m_combineSketches;
     std::function<void(int)> m_meshTrace;
     std::function<void(int)> m_rotatePlane;

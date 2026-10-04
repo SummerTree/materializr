@@ -95,6 +95,7 @@ inline void resetFpuForOcct() {
 #include "modeling/PushPullOp.h"
 #include "modeling/CombineSketchesOp.h"
 #include "modeling/DuplicateSketchOp.h"
+#include "modeling/DeleteSketchOp.h"
 #include "modeling/TransformOp.h"
 #include "core/Units.h"
 #include "core/LengthEdit.h"
@@ -392,6 +393,7 @@ Application::Application(bool safeMode, float uiScaleOverride)
     m_itemsPanel->setEditSketchCallback([this](int sketchId) { editSketch(sketchId); });
     m_itemsPanel->setExportSketchSvgCallback([this](int sketchId) { exportSketchAsSvg(sketchId); });
     m_itemsPanel->setExportSketchDxfCallback([this](int sketchId) { exportSketchAsDxf(sketchId); });
+    m_itemsPanel->setDeleteSketchCallback([this](int sketchId) { deleteSketch(sketchId); });
     m_itemsPanel->setDuplicateSketchCallback([this](int sketchId) { duplicateSketch(sketchId); });
     m_itemsPanel->setExportSketchToProjectCallback(
         [this](const std::vector<int>& ids) { exportSketchesToNewProject(ids); });
@@ -3486,10 +3488,7 @@ void Application::handleShortcuts() {
                 op->setBodyId(bodyId);
                 m_history->pushOperation(std::move(op), *m_document);
             }
-            for (int sketchId : sketchesToDelete) {
-                m_document->removeSketch(sketchId);
-                markDirty();
-            }
+            for (int sketchId : sketchesToDelete) deleteSketch(sketchId);
             m_selection->clear();
             m_hoveredBodyId = -1;
         }
@@ -5443,6 +5442,16 @@ void Application::duplicateSketch(int sketchId) {
                      sketchId, raw->newSketchId());
         showToast(materializr::trFormat("Duplicated \"%s\" - edit the copy freely "
                                         "(e.g. resize holes); the original is untouched.", base));
+    }
+}
+
+void Application::deleteSketch(int sketchId) {
+    if (!m_document || !m_history) return;
+    auto op = std::make_unique<DeleteSketchOp>();
+    op->setSketchId(sketchId);
+    if (m_history->pushOperation(std::move(op), *m_document)) {
+        if (m_selection) m_selection->clear();
+        markDirty();
     }
 }
 

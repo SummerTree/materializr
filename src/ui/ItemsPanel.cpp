@@ -515,7 +515,8 @@ bool ItemsPanel::renderContent() {
                         beginRename();
                     }
                     if (ImGui::MenuItem(materializr::tr("Delete"), nullptr, false, !isBeingDrawn)) {
-                        m_document->removeSketch(id);
+                        if (m_deleteSketch) m_deleteSketch(id);
+                        else m_document->removeSketch(id);
                         if (m_selection) m_selection->clear();
                         m_renamingId = -1;
                         deleted = true;

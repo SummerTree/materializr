@@ -668,7 +668,7 @@ classifier is heuristic; rows it cannot decide are pinned in the script's OVERRI
 ## `Operation::description()` captions
 
 - CONVERTED: 17
-- no-length: 23
+- no-length: 24
 - stored-string: 3
 
 | verdict | file | class |
@@ -685,6 +685,7 @@ classifier is heuristic; rows it cannot decide are pinned in the script's OVERRI
 | CONVERTED | src/modeling/CopyOp.cpp | `CopyOp` |
 | no-length | src/modeling/DefeatureOp.cpp | `DefeatureOp` |
 | no-length | src/modeling/DeleteOp.cpp | `DeleteOp` |
+| no-length | src/modeling/DeleteSketchOp.cpp | `DeleteSketchOp` |
 | no-length | src/modeling/DuplicateSketchOp.cpp | `DuplicateSketchOp` |
 | CONVERTED | src/modeling/ExtrudeOp.cpp | `ExtrudeOp` |
 | CONVERTED | src/modeling/FaceTweakOp.cpp | `FaceTweakOp` |

@@ -561,8 +561,7 @@ void Application::renderImTouchLayout() {
                                 startRename(1000000 + id,
                                             m_document->getSketchName(id));
                             if (ImGui::MenuItem(materializr::tr("Delete"), nullptr, false, !isBeingDrawn)) {
-                                m_document->removeSketch(id);
-                                if (m_selection) m_selection->clear();
+                                deleteSketch(id);
                                 sgone = true;
                             }
                             ImGui::EndPopup();

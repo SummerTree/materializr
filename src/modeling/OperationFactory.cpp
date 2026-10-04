@@ -22,6 +22,7 @@
 #include "MoveFaceOp.h"
 #include "CombineSketchesOp.h"
 #include "DuplicateSketchOp.h"
+#include "DeleteSketchOp.h"
 #include "RevolveOp.h"
 #include "ConstructionPlaneOp.h"
 #include "ConstructionAxisOp.h"
@@ -118,6 +119,9 @@ std::unique_ptr<Operation> create(const std::string& typeId) {
     // Sketch duplication: the copy is saved in the project's sketch list and
     // reloads on its own; this step binds to it for cross-session undo/redo.
     if (typeId == "duplicate_sketch") return std::make_unique<DuplicateSketchOp>();
+    // Sketch deletion: the sketch is gone from the saved list, so this reloads
+    // as an inert step (rehydrateFromReload declines).
+    if (typeId == "delete_sketch") return std::make_unique<DeleteSketchOp>();
 
     return nullptr;
 }

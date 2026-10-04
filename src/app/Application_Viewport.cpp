@@ -7264,9 +7264,7 @@ void Application::renderViewport() {
             }
             ImGui::Separator();
             if (ImGui::MenuItem(materializr::tr("Delete"))) {
-                if (m_document) m_document->removeSketch(sid);
-                if (m_selection) m_selection->clear();
-                markDirty();
+                deleteSketch(sid);
                 m_contextMenuSketchId = -1;
             }
             ImGui::EndMenu();

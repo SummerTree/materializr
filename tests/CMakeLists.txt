@@ -44,6 +44,7 @@ add_library(materializr_core STATIC
     ${CMAKE_SOURCE_DIR}/src/modeling/SketchOffset.cpp
     ${CMAKE_SOURCE_DIR}/src/modeling/SketchEditOp.cpp
     ${CMAKE_SOURCE_DIR}/src/modeling/DuplicateSketchOp.cpp
+    ${CMAKE_SOURCE_DIR}/src/modeling/DeleteSketchOp.cpp
     ${CMAKE_SOURCE_DIR}/src/modeling/MoveHoleOp.cpp
     ${CMAKE_SOURCE_DIR}/src/modeling/SketchSolver.cpp
     ${CMAKE_SOURCE_DIR}/src/modeling/Mate.cpp
@@ -568,6 +569,11 @@ add_test(NAME test_pushpull_through COMMAND test_pushpull_through)
 add_executable(test_duplicate_sketch test_duplicate_sketch.cpp)
 target_link_libraries(test_duplicate_sketch PRIVATE materializr_core gtest gtest_main)
 add_test(NAME test_duplicate_sketch COMMAND test_duplicate_sketch)
+
+# test_delete_sketch - sketch deletion goes through History and is undoable
+add_executable(test_delete_sketch test_delete_sketch.cpp)
+target_link_libraries(test_delete_sketch PRIVATE materializr_core gtest gtest_main)
+add_test(NAME test_delete_sketch COMMAND test_delete_sketch)
 
 # test_stl_import - STL triangle soup sews into a clean 6-face solid (parked feature)
 add_executable(test_stl_import test_stl_import.cpp)
