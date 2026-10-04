@@ -1,7 +1,7 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.12.0.schema.json
 
 PackageIdentifier: Materializr.Materializr
-PackageVersion: 1.6.4
+PackageVersion: 1.7.2
 PackageLocale: en-US
 Publisher: Materializr
 PublisherUrl: https://github.com/materializr-cad
@@ -33,20 +33,23 @@ Tags:
 - opencascade
 - svg
 ReleaseNotes: |-
-  Materializr 1.6.4
+  Materializr 1.7.2
   Added
-  - Repair tools grouped in one place: Patch (fit a surface across picked edges, optionally tangent or curvature-continuous), Sew (join loose surfaces into a solid and report how many edges are still open), Merge Faces, and Remove Feature (formerly "Repair Geometry" - the old name promised a general fixer and only ever deleted a face and healed the gap)
-  - Move Face > Rotate can rebuild only the faces that touch the moved one instead of shearing the whole body, so a bore keeps its axis
-  - Aerofoil import: Selig and Lednicer coordinate files become sketch splines, placed by leading edge, quarter chord or centre
-  - Offset a sketch chain at a fixed distance, including splines
-  - Corner guides in sketching (bisector and smooth tangent at a vertex)
-  - Reference images attach to any construction plane from the plane dialog, with live preview, stepper offset and absolute X/Y/Z rotation
+  - Move type-in panel: type an exact X / Y / Z offset for the Translate gizmo in your display unit
+  - The Rotate type-in panel now appears for any body, sketch or sketch plus body, with persistent fields and an Undo for the last Apply
+  - Optional measurements on selection in sketches (Settings > Sketch): lengths, diameters, radii, arc sweep and a running total
+  Changed
+  - History and Lay Flat report axes Z-up, matching the ViewCube
+  - Interface translations grew from 1192 to 1436 strings in all five languages
   Fixed
-  - Opening a large project on a modest machine no longer stops answering the desktop: a 52-step project went from 24.4s to 14.6s, with the longest unresponsive stretch down from 24.5s to 1.4s
-  - Orbit and pan could stay dead for the rest of the session after tilting a face and switching projects
-  - Recovered in-progress sketches return to the tab they were drawn in; two running copies no longer overwrite each other's draft
-  - A malformed length in a shared project file could hang the loader and grow without bound; every length-prefixed field is now bounded and over-budget input is refused
-  - A startup failure with no usable OpenGL driver now reports the reason instead of exiting silently (exit 0xE06D7363 on Windows)
-ReleaseNotesUrl: https://github.com/materializr-cad/materializr/releases/tag/v1.6.4
+  - Long traced outlines (a single spline with hundreds of control points) no longer freeze Extrude, orbit clicks or project load
+  - A committed sketch is recovered after a crash
+  - Much faster meshing of extruded and boolean-trimmed walls: STL export of a lettering-heavy part went from 82 s to 0.1 s
+  - A valid union is no longer refused with "an operand was lost" on bodies with large B-spline faces
+  - Error toasts raised after a long operation stay on screen
+  - Sketch inference follows edges past the first point of a chain, and snap ranges follow the visible grid
+  - ViewCube phantom click, a duplicate Lathe button, and swapped Y/Z panel colours
+  Also rolls up 1.7.0 (Assembly Mates, AI Assistant, display units) and 1.7.1 (Items panel drag-and-drop), which were not submitted to winget.
+ReleaseNotesUrl: https://github.com/materializr-cad/materializr/releases/tag/v1.7.2
 ManifestType: defaultLocale
 ManifestVersion: 1.12.0
