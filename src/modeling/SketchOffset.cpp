@@ -15,6 +15,7 @@ namespace materializr {
 namespace {
 
 constexpr float kTwoPi = 2.0f * static_cast<float>(M_PI);
+constexpr float kTangentTol = 2e-3f;   // |sin| of the turn still "tangent"
 
 float wrap2Pi(float a) {
     while (a < 0.0f)     a += kTwoPi;
@@ -630,7 +631,10 @@ OffsetResult offsetChain(const OffsetChain& ch, float d, OffsetCorners corners) 
         const float dot   = glm::dot(tin, tout);
 
         // Tangent join: the offsets already meet, nothing to bridge.
-        if (std::abs(cross) < 1e-6f && dot > 0.0f) continue;
+        // The tolerance is loose on purpose: a fillet drawn to a pointer sits a
+        // few 1e-4 rad off true tangent, and treating that as a corner inserts
+        // a spurious round-join arc at every line/arc junction.
+        if (std::abs(cross) < kTangentTol && dot > 0.0f) continue;
 
         const bool opening = (cross * d) > 0.0f;
         // A full reversal (cusp) has no miter - it meets at infinity - so it is

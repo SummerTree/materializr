@@ -420,6 +420,47 @@ TEST(SketchOffsetGeom, TangentJoinInsertsNoCorner) {
     }
 }
 
+// Regression (pot2bug.mzr): hand-drawn fillets are a hair off true tangent.
+// That used to read as a real corner, so a round-join arc of radius |d| and
+// ~3e-4 rad sweep was inserted at every line/fillet junction. Committed, its
+// two ends weld to one point - a degenerate arc that reads as a full circle.
+TEST(SketchOffsetGeom, NearlyTangentFilletsInsertNoJoinCircles) {
+    Sketch sk;
+    // The outline from pot2bug.mzr, coordinates verbatim: a 110 mm frame with
+    // R3 fillets whose centres/ends are ~1e-3 off true tangent.
+    int p10 = sk.addPoint({105.0f, 108.0f}), p11 = sk.addPoint({108.0f, 105.0f});
+    int c12 = sk.addPoint({105.001f, 105.001f});
+    int p14 = sk.addPoint({1.0f, 108.0f}),   p15 = sk.addPoint({-2.0f, 105.0f});
+    int c16 = sk.addPoint({0.999764f, 105.001f});
+    int p18 = sk.addPoint({-2.0f, 1.0f}),    p19 = sk.addPoint({1.0f, -2.0f});
+    int c20 = sk.addPoint({1.0f, 1.0f});
+    int p22 = sk.addPoint({108.0f, 1.0f}),   p23 = sk.addPoint({105.0f, -2.0f});
+    int c24 = sk.addPoint({105.001f, 0.999767f});
+    sk.addLine(p10, p14); sk.addLine(p15, p18);
+    sk.addLine(p22, p11); sk.addLine(p19, p23);
+    sk.addArc(c12, p11, p10, 2.99948);
+    sk.addArc(c16, p14, p15, 2.99946);
+    sk.addArc(c20, p18, p19, 3.0);
+    sk.addArc(c24, p23, p22, 2.99922);
+
+    OffsetChain ch = walkOffsetChain(sk, {50.0f, 108.0f}, 0.5f);
+    ASSERT_TRUE(ch.valid());
+    ASSERT_EQ(ch.segs.size(), 8u);
+
+    for (float d : {2.0f, -2.0f}) {
+        OffsetResult res = offsetChain(ch, d, OffsetCorners::Round);
+        ASSERT_TRUE(res.valid) << "d=" << d;
+        // 4 lines + 4 fillet arcs, nothing else.
+        EXPECT_EQ(res.segs.size(), 8u) << "d=" << d;
+        for (const auto& s : res.segs) {
+            if (s.kind != OffsetSeg::Kind::Arc) continue;
+            EXPECT_GT(std::abs(s.sweep), 1.0f)
+                << "sliver join arc, r=" << s.r << " d=" << d;
+        }
+        expectOnOffset(res, ch, d, 5e-3f);
+    }
+}
+
 TEST(SketchOffsetGeom, ArcSweepingMoreThanHalfATurnSurvives) {
     Sketch sk;
     // 270-degree arc: CCW from (5,0) round to (0,-5).
