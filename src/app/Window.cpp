@@ -283,6 +283,12 @@ bool Window::isForeground() const {
     return (f & SDL_WINDOW_INPUT_FOCUS) != 0;
 }
 
+std::vector<std::string> Window::takeDroppedFiles() {
+    std::vector<std::string> out;
+    out.swap(m_droppedFiles);
+    return out;
+}
+
 int Window::pollEvents(int waitMs) {
     if (waitMs > 0) SDL_WaitEventTimeout(nullptr, waitMs);
     // 0 = nothing, 1 = trivial (motion / expose), 2 = significant (click / key / scroll …)
@@ -344,6 +350,13 @@ int Window::pollEvents(int waitMs) {
         switch (e.type) {
             case SDL_QUIT:
                 m_shouldClose = true;
+                break;
+            case SDL_DROPFILE:
+                // SDL hands over an SDL_malloc'd path that we own.
+                if (e.drop.file) {
+                    m_droppedFiles.emplace_back(e.drop.file);
+                    SDL_free(e.drop.file);
+                }
                 break;
             case SDL_WINDOWEVENT:
                 if (e.window.event == SDL_WINDOWEVENT_CLOSE &&

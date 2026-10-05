@@ -4730,57 +4730,70 @@ void Application::openRecentProject(const AppSettings::RecentProject& r) {
 void Application::loadProject() {
     FileDialogs::openFile("Open Project",
         {{"Materializr Project", "*.mzr *.materializr"}, {"All Files", "*"}},
-        [this](const std::string& path) {
-            if (path.empty()) return;
-            // Picking a file that is already open in another tab focuses it
-            // instead of making a second one. Checked here, after the picker,
-            // because that is the first moment the file is known.
-            //
-            // Compare on the same IDENTITY a tab stores. On mobile that is the
-            // SAF content:// URI, not `path` - the picker hands back a cache
-            // temp it copied the document into, and a fresh temp per open would
-            // never match anything. The URI is already readable here: the
-            // poll that produced `path` only fires once the Java side has
-            // opened the document and recorded it.
-            std::string ident = path;
+        [this](const std::string& path) { openProjectPath(path); });
+}
+
+void Application::openProjectPath(const std::string& path) {
+    if (path.empty()) return;
+    // Picking a file that is already open in another tab focuses it
+    // instead of making a second one. Checked here, after the picker,
+    // because that is the first moment the file is known.
+    //
+    // Compare on the same IDENTITY a tab stores. On mobile that is the
+    // SAF content:// URI, not `path` - the picker hands back a cache
+    // temp it copied the document into, and a fresh temp per open would
+    // never match anything. The URI is already readable here: the
+    // poll that produced `path` only fires once the Java side has
+    // opened the document and recorded it.
+    std::string ident = path;
 #if defined(MZ_MOBILE)
-            {
-                const std::string uri = materializr::mobileLastDocUri();
-                if (!uri.empty()) ident = uri;
-            }
+    {
+        const std::string uri = materializr::mobileLastDocUri();
+        if (!uri.empty()) ident = uri;
+    }
 #endif
-            if (focusExistingProject(ident)) return;
-            // Guard unsaved changes (the picked path is captured for after the
-            // save prompt resolves), then load + record in Open Recent.
-            guardedOpen([this, path]() {
-                if (!loadProjectAt(path)) return;
-                // Record with a *persistable* ref: the SAF content:// URI on
-                // Android (the `path` is a throwaway temp there), the real path
-                // on desktop.
-                std::string ref, name;
+    if (focusExistingProject(ident)) return;
+    // Guard unsaved changes (the picked path is captured for after the
+    // save prompt resolves), then load + record in Open Recent.
+    guardedOpen([this, path]() {
+        if (!loadProjectAt(path)) return;
+        // Record with a *persistable* ref: the SAF content:// URI on
+        // Android (the `path` is a throwaway temp there), the real path
+        // on desktop.
+        std::string ref, name;
 #if defined(MZ_MOBILE)
-                ref  = materializr::mobileLastDocUri();
-                name = materializr::mobileLastDocName();
-                if (ref.empty()) ref = path; // fallback (non-persistable provider)
+        ref  = materializr::mobileLastDocUri();
+        name = materializr::mobileLastDocName();
+        if (ref.empty()) ref = path; // fallback (non-persistable provider)
 #if defined(__ANDROID__)
-                // Same identity adoption as Open Recent: quick-save must reach
-                // the picked document, not the cache temp it was read from.
-                if (ref.rfind("content:", 0) == 0) {
-                    m_currentProjectPath = ref;
-                    m_currentProjectName =
-                        name.empty()
-                            ? std::filesystem::path(path).filename().string()
-                            : name;
-                    saveAppSettings();
-                }
+        // Same identity adoption as Open Recent: quick-save must reach
+        // the picked document, not the cache temp it was read from.
+        if (ref.rfind("content:", 0) == 0) {
+            m_currentProjectPath = ref;
+            m_currentProjectName =
+                name.empty()
+                    ? std::filesystem::path(path).filename().string()
+                    : name;
+            saveAppSettings();
+        }
 #endif
 #else
-                ref = path;
+        ref = path;
 #endif
-                if (name.empty()) name = std::filesystem::path(path).filename().string();
-                addRecentProject(ref, name);
-            });
-        });
+        if (name.empty()) name = std::filesystem::path(path).filename().string();
+        addRecentProject(ref, name);
+    });
+}
+
+void Application::openProjectInNewTab(const std::string& path) {
+    if (path.empty()) return;
+    // One project, one tab - and check BEFORE creating a tab, so an
+    // already-open project never leaves an empty one behind.
+    if (focusExistingProject(path)) return;
+    // A fresh untouched workspace is the natural landing spot; otherwise a
+    // new tab (a refused switch, e.g. mid-sketch, has already toasted).
+    if (!activeSessionIsScratch() && !openNewTab()) return;
+    openProjectPath(path);
 }
 
 void Application::closeProject() {
@@ -7764,6 +7777,13 @@ void Application::run() {
         else if (!launchGrace && m_wakeFrames == 0 && !hasActiveWork())
             waitMs = kIdleFloorMs;
         int eventLevel = m_window->pollEvents(waitMs);
+        {
+            // Files dropped on the window. Drained only here (not in the
+            // nested progress-window pumps, which also call pollEvents) so an
+            // import never starts from inside another import's frame pump.
+            auto dropped = m_window->takeDroppedFiles();
+            if (!dropped.empty()) handleDroppedFiles(dropped);
+        }
         // Start of this iteration's frame budget - read by the frame-rate cap
         // at the bottom of the loop (measured after the event wait so the
         // idle floor's own sleep doesn't count against the budget).

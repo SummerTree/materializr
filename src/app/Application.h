@@ -512,6 +512,17 @@ private:
     void exportSketchesToNewProject(const std::vector<int>& sketchIds);
     void sendSketchesToTab(const std::vector<int>& sketchIds, size_t tabIndex);
     void loadProject();         // File dialog → loadProjectAt
+    // The post-picker half of loadProject(): focus-if-open, unsaved-changes
+    // guard, load, Open Recent. Also what a dropped .mzr runs.
+    void openProjectPath(const std::string& path);
+    // Open `path` in its OWN tab, leaving the current project untouched (so no
+    // unsaved-changes prompt). Focuses the tab instead if already open; loads
+    // into the active tab when that is an untouched empty workspace. A dropped
+    // project file takes this route.
+    void openProjectInNewTab(const std::string& path);
+    // Files dropped on the window (desktop): route each by extension to the
+    // same import path its menu entry uses.
+    void handleDroppedFiles(const std::vector<std::string>& paths);
     // Load a project file directly by path. Used by loadProject() and by the
     // "auto-open last project on launch" path.
     bool loadProjectAt(const std::string& path);
@@ -1856,6 +1867,7 @@ private:
     // like any plane. The panel (shown while an image-hosting plane is
     // selected) drives opacity / physical width / the ruler-calibration popup.
     void beginRefImageImport();
+    void importRefImageAt(const std::string& path);   // no dialog; also the drop path
     void renderRefImagePanel();
     void renderRefImageControls(int planeId);          // opacity / size / Calibrate
     void renderRefImageCalibrationPopup(int planeId);  // the two-click ruler popup

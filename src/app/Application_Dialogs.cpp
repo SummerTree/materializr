@@ -2164,38 +2164,40 @@ void Application::beginRefImageImport() {
     materializr::FileDialogs::openFile(
         "Import Reference Image",
         {{"Images", "*.png *.jpg *.jpeg *.bmp *.PNG *.JPG *.JPEG *.BMP"}},
-        [this](const std::string& path) {
-            if (!m_document) return;
-            RefImageEntry e;
-            std::string base;
-            if (!loadRefImageFile(path, e, base)) return;
-            // Host plane: the GROUND plane at the origin - where a top-down
-            // "photo with a ruler" naturally lives; move/rotate it with the
-            // gizmo like any construction plane afterwards. The world is Y-up
-            // internally (the user-facing "XY" sketch plane is normal +Y -
-            // same pose as Sketch on XY), so normal (0,0,1) would be a wall.
-            // For any OTHER pose, build the plane first and attach the image
-            // to it from the plane's properties.
-            int planeId = m_document->addPlane(
-                gp_Pln(gp_Ax3(gp_Pnt(0, 0, 0), gp_Dir(0, 1, 0),
-                              gp_Dir(1, 0, 0))),
-                "Image: " + base);
-            m_document->setRefImage(planeId, std::move(e));
-            if (m_selection) {
-                SelectionEntry se;
-                se.type = SelectionType::Plane;
-                se.planeId = planeId;
-                m_selection->select(se);
-            }
-            showToast(materializr::tr("Reference image imported - set its real size with "
-                                      "Calibrate, then sketch over it."), 6.0);
-            m_meshesDirty = true;
-            // Reference images aren't a history op, so they don't move the
-            // history step - mark the non-history dirty flag so crash-recovery
-            // re-snapshots (else a recovered project loses the image; the
-            // blob lives in the doc, but the sidecar was never rewritten).
-            markDirty();
-        });
+        [this](const std::string& path) { importRefImageAt(path); });
+}
+
+void Application::importRefImageAt(const std::string& path) {
+    if (!m_document) return;
+    RefImageEntry e;
+    std::string base;
+    if (!loadRefImageFile(path, e, base)) return;
+    // Host plane: the GROUND plane at the origin - where a top-down
+    // "photo with a ruler" naturally lives; move/rotate it with the
+    // gizmo like any construction plane afterwards. The world is Y-up
+    // internally (the user-facing "XY" sketch plane is normal +Y -
+    // same pose as Sketch on XY), so normal (0,0,1) would be a wall.
+    // For any OTHER pose, build the plane first and attach the image
+    // to it from the plane's properties.
+    int planeId = m_document->addPlane(
+        gp_Pln(gp_Ax3(gp_Pnt(0, 0, 0), gp_Dir(0, 1, 0),
+                      gp_Dir(1, 0, 0))),
+        "Image: " + base);
+    m_document->setRefImage(planeId, std::move(e));
+    if (m_selection) {
+        SelectionEntry se;
+        se.type = SelectionType::Plane;
+        se.planeId = planeId;
+        m_selection->select(se);
+    }
+    showToast(materializr::tr("Reference image imported - set its real size with "
+                              "Calibrate, then sketch over it."), 6.0);
+    m_meshesDirty = true;
+    // Reference images aren't a history op, so they don't move the
+    // history step - mark the non-history dirty flag so crash-recovery
+    // re-snapshots (else a recovered project loses the image; the
+    // blob lives in the doc, but the sidecar was never rewritten).
+    markDirty();
 }
 
 // ─── Mesh trace (sketch on 3 planes through an imported STL) ────────────────

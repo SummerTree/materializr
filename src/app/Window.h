@@ -72,6 +72,10 @@ public:
     // the latch says the keyboard is already up.
     void updateTextInput(bool wantTextInput, bool retapPulse = false);
 
+    // Files dropped onto the window (SDL_DROPFILE), oldest first. Drains the
+    // queue. Desktop only in practice - mobile never produces drop events.
+    std::vector<std::string> takeDroppedFiles();
+
     SDL_Window* handle() const { return m_window; }
     void* glContext() const { return m_glContext; }   // SDL_GLContext (opaque)
     int width() const { return m_width; }
@@ -128,6 +132,7 @@ public:
 
 private:
     SDL_Window* m_window = nullptr;
+    std::vector<std::string> m_droppedFiles;
     float m_uiScaleOverride = 0.0f;  // desktop UI-scale pref (Linux); 0 = default
     void* m_glContext = nullptr;
     bool m_shouldClose = false;

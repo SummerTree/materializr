@@ -44,6 +44,13 @@
 #include "modeling/SewOp.h"
 #include "modeling/ConstructionPlaneOp.h"
 #include "io/FileDialogs.h"
+#include "modeling/SvgImport.h"
+#include "plugin/PluginRegistry.h"
+#include "plugin/PluginContext.h"
+#include "i18n.h"
+#include <algorithm>
+#include <cctype>
+#include <filesystem>
 #include "modeling/ConstructionAxisOp.h"
 #include <Geom_Plane.hxx>
 #include <Geom_BSplineSurface.hxx>
@@ -2703,6 +2710,87 @@ void Application::flushThreadRecuts() {
     while (!m_threadRecuts.empty()) {
         m_threadRecuts.front().fut.wait();
         pollThreadRecuts();
+    }
+}
+
+// ─── Drag-and-drop import (desktop) ─────────────────────────────────────────
+//
+// Each dropped file is routed by extension to the same path its menu entry
+// uses: projects open automatically in their own tab (never replacing the
+// current one; pulling parts out of a project stays a deliberate File >
+// Import > From Project), STL through its options dialog, images as reference images, and
+// everything else through the plugin IOFormat registry - importFn with a
+// non-empty path skips the picker. Imports are additive, like File > Import.
+void Application::handleDroppedFiles(const std::vector<std::string>& paths) {
+    if (paths.empty()) return;
+
+    // A modal dialog or live preview owns the document right now; importing
+    // underneath it is how the single-flight preview rules get violated.
+    if (anyInteractivePreviewActive() || m_stlDialogActive) {
+        showToast(materializr::tr("Finish or cancel the current operation before dropping files."));
+        return;
+    }
+
+    int imported = 0, skipped = 0;
+    std::string firstSkipped;
+    for (const std::string& path : paths) {
+        std::string ext = std::filesystem::path(path).extension().string();
+        if (!ext.empty() && ext.front() == '.') ext.erase(0, 1);
+        std::transform(ext.begin(), ext.end(), ext.begin(),
+                       [](unsigned char c) { return (char)std::tolower(c); });
+
+        // Sketch mode: an SVG arms the sketch tool's placement mode (same as
+        // the toolbar's Import SVG); anything else would add bodies under an
+        // open sketch, so decline it.
+        if (m_inSketchMode) {
+            if (ext == "svg" && m_sketchTool) {
+                materializr::SvgPaths svg;
+                if (materializr::SvgImport::load(path, svg)) {
+                    m_sketchTool->setSvgPaths(std::move(svg));
+                    seedUprightPlacementAngle();
+                    m_sketchTool->setMode(SketchToolMode::Svg);
+                    ++imported;
+                } else {
+                    ++skipped;
+                    if (firstSkipped.empty()) firstSkipped = path;
+                }
+            } else {
+                showToast(materializr::tr("Finish the sketch before dropping files (only SVG can be dropped into a sketch)."));
+                return;
+            }
+            continue;
+        }
+
+        if (ext == "mzr" || ext == "materializr") {
+            openProjectInNewTab(path);
+            ++imported;
+        } else if (ext == "png" || ext == "jpg" || ext == "jpeg" || ext == "bmp") {
+            importRefImageAt(path);
+            ++imported;
+        } else if (ext == "stl") {
+            beginStlImportDialog();
+            m_stlDialogPath = path;   // dialog opens pre-filled; accuracy still the user's call
+            ++imported;
+        } else {
+            const IOFormatContribution* fmt = nullptr;
+            for (const auto& f : PluginRegistry::instance().ioFormats()) {
+                if (!f.canImport || !f.importFn) continue;
+                if (std::find(f.extensions.begin(), f.extensions.end(), ext) != f.extensions.end()) {
+                    fmt = &f; break;
+                }
+            }
+            if (fmt && m_pluginContext) {
+                fmt->importFn(*m_pluginContext, path);
+                ++imported;
+            } else {
+                ++skipped;
+                if (firstSkipped.empty()) firstSkipped = path;
+            }
+        }
+    }
+    if (skipped > 0) {
+        showToast(materializr::trFormat("Can't import %s - unsupported file type.",
+                      std::filesystem::path(firstSkipped).filename().string()));
     }
 }
 

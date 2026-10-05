@@ -7,21 +7,23 @@
 // OCCT-based tools (exact geometry, no tessellation, no STEP translation).
 REGISTER_PLUGIN(BrepIO, [](materializr::PluginContext& ctx) {
     ctx.registerIOFormat({"BREP", {"brep"}, true, true,
-        [](materializr::PluginContext& ctx, const std::string&) {
-            materializr::FileDialogs::openFile("Import BREP",
-                {{"BREP Files", "*.brep *.BREP"}},
-                [&ctx](const std::string& path) {
-                    if (path.empty()) return;
-                    // A large multi-body BREP assembly is exactly as prone
-                    // to the main-thread freeze STEP/IGES import had -
-                    // queueHeavyImport runs it deferred, under the same
-                    // pool+pump mesh path project load uses, instead of
-                    // freezing the window on the next full mesh rebuild.
-                    // Mirrors StepIOPlugin.cpp/IgesIOPlugin.cpp's identical fix.
-                    ctx.queueHeavyImport("Importing BREP\xE2\x80\xA6", [&ctx, path]() {
-                        return materializr::BrepIO::import(path, ctx.document()).success;
-                    });
+        [](materializr::PluginContext& ctx, const std::string& given) {
+            // `given` non-empty = drag-and-drop: import that file, no dialog.
+            auto run = [&ctx](const std::string& path) {
+                if (path.empty()) return;
+                // A large multi-body BREP assembly is exactly as prone
+                // to the main-thread freeze STEP/IGES import had -
+                // queueHeavyImport runs it deferred, under the same
+                // pool+pump mesh path project load uses, instead of
+                // freezing the window on the next full mesh rebuild.
+                // Mirrors StepIOPlugin.cpp/IgesIOPlugin.cpp's identical fix.
+                ctx.queueHeavyImport("Importing BREP\xE2\x80\xA6", [&ctx, path]() {
+                    return materializr::BrepIO::import(path, ctx.document()).success;
                 });
+            };
+            if (!given.empty()) { run(given); return true; }
+            materializr::FileDialogs::openFile("Import BREP",
+                {{"BREP Files", "*.brep *.BREP"}}, run);
             return true;
         },
         [](materializr::PluginContext& ctx, const std::string&) {

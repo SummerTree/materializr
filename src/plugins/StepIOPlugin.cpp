@@ -6,19 +6,21 @@
 
 REGISTER_PLUGIN(StepIO, [](materializr::PluginContext& ctx) {
     ctx.registerIOFormat({"STEP", {"step", "stp"}, true, true,
-        [](materializr::PluginContext& ctx, const std::string&) {
-            materializr::FileDialogs::openFile("Import STEP",
-                {{"STEP Files", "*.step *.stp *.STEP *.STP"}},
-                [&ctx](const std::string& path) {
-                    if (path.empty()) return;
-                    // A large assembly's parse + tessellation can take seconds;
-                    // queueHeavyImport runs it deferred, under the same
-                    // pool+pump mesh path project load uses, instead of
-                    // freezing the window on the next full mesh rebuild.
-                    ctx.queueHeavyImport("Importing STEP\xE2\x80\xA6", [&ctx, path]() {
-                        return materializr::StepIO::import(path, ctx.document()).success;
-                    });
+        [](materializr::PluginContext& ctx, const std::string& given) {
+            // `given` non-empty = drag-and-drop: import that file, no dialog.
+            auto run = [&ctx](const std::string& path) {
+                if (path.empty()) return;
+                // A large assembly's parse + tessellation can take seconds;
+                // queueHeavyImport runs it deferred, under the same
+                // pool+pump mesh path project load uses, instead of
+                // freezing the window on the next full mesh rebuild.
+                ctx.queueHeavyImport("Importing STEP\xE2\x80\xA6", [&ctx, path]() {
+                    return materializr::StepIO::import(path, ctx.document()).success;
                 });
+            };
+            if (!given.empty()) { run(given); return true; }
+            materializr::FileDialogs::openFile("Import STEP",
+                {{"STEP Files", "*.step *.stp *.STEP *.STP"}}, run);
             return true;
         },
         [](materializr::PluginContext& ctx, const std::string&) {

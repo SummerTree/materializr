@@ -6,20 +6,22 @@
 
 REGISTER_PLUGIN(IgesIO, [](materializr::PluginContext& ctx) {
     ctx.registerIOFormat({"IGES", {"iges", "igs"}, true, true,
-        [](materializr::PluginContext& ctx, const std::string&) {
-            materializr::FileDialogs::openFile("Import IGES",
-                {{"IGES Files", "*.iges *.igs *.IGES *.IGS"}},
-                [&ctx](const std::string& path) {
-                    if (path.empty()) return;
-                    // A large assembly's parse + tessellation can take seconds;
-                    // queueHeavyImport runs it deferred, under the same
-                    // pool+pump mesh path project load uses, instead of
-                    // freezing the window on the next full mesh rebuild.
-                    // Mirrors StepIOPlugin.cpp's identical fix.
-                    ctx.queueHeavyImport("Importing IGES\xE2\x80\xA6", [&ctx, path]() {
-                        return materializr::IgesIO::import(path, ctx.document()).success;
-                    });
+        [](materializr::PluginContext& ctx, const std::string& given) {
+            // `given` non-empty = drag-and-drop: import that file, no dialog.
+            auto run = [&ctx](const std::string& path) {
+                if (path.empty()) return;
+                // A large assembly's parse + tessellation can take seconds;
+                // queueHeavyImport runs it deferred, under the same
+                // pool+pump mesh path project load uses, instead of
+                // freezing the window on the next full mesh rebuild.
+                // Mirrors StepIOPlugin.cpp's identical fix.
+                ctx.queueHeavyImport("Importing IGES\xE2\x80\xA6", [&ctx, path]() {
+                    return materializr::IgesIO::import(path, ctx.document()).success;
                 });
+            };
+            if (!given.empty()) { run(given); return true; }
+            materializr::FileDialogs::openFile("Import IGES",
+                {{"IGES Files", "*.iges *.igs *.IGES *.IGS"}}, run);
             return true;
         },
         [](materializr::PluginContext& ctx, const std::string&) {
