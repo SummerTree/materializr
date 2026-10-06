@@ -732,6 +732,7 @@ void PushPullController::renderPushPullPanel(const IopContext& ctx) {
     // the value field's content-avail width and ratchet the window wider.
     ImGui::SetNextWindowSizeConstraints(ImVec2(240.0f * s, 0.0f),
                                         ImVec2(240.0f * s, 100000.0f));
+    const ImVec2 hostPos = ImGui::GetWindowPos(), hostSize = ImGui::GetWindowSize();
     ImGui::Begin("##PushPullInput", nullptr,
         ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
         ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking |
@@ -759,10 +760,6 @@ void PushPullController::renderPushPullPanel(const IopContext& ctx) {
             materializr::formatLengthDigits(m_st.inputBuf, sizeof(m_st.inputBuf), m_st.distance);
             updatePushPull(ctx, /*applySnap=*/false);
         }
-        // touch: raise the keyboard on TAP, not on open (see the Extrude
-        // field, issue #22).
-        if (materializr::touchMode() && ImGui::IsItemClicked())
-            ImGui::SetKeyboardFocusHere(-1);
     } else {
         // The member is the truth; the buffer follows it unless being typed in.
         materializr::reseedLengthBufferIfIdle("##ppdist", m_st.inputBuf, sizeof(m_st.inputBuf), m_st.distance);
@@ -827,6 +824,7 @@ void PushPullController::renderPushPullPanel(const IopContext& ctx) {
         if (ImGui::Button(materializr::btnCancel(), ImVec2(110, 0)))
             doCancel = true;
     }
+    opDialogKeepOnScreen(hostPos, hostSize);
     ImGui::End();
     // Commit/cancel AFTER End() - they tear the controller's state down, and
     // the window has to be closed first. (The hand-written version called them

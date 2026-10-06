@@ -538,36 +538,29 @@ bool numberPad(const char* id, char* buf, size_t bufSize, float keyW,
 bool amountField(const char* id, const char* label, double* v,
                  const char* suffix, int decimals, bool allowSign,
                  double minV, double maxV, const ImVec2* padPos) {
-    const float s = uiScale();
-    bool changed = false;
-
+    (void)padPos;   // the pad unfolds in place; there is no anchor to pass
     ImGui::PushID(id);
     if (label && *label) {
         if (suffix && *suffix) ImGui::Text("%s (%s)", label, suffix);
         else                   ImGui::TextUnformatted(label);
     }
-
-    // Native keyboard field (tap to focus) - replaces the in-app number pad on
-    // the face-op panels (push/pull, extrude, fillet, chamfer). FIXED item
-    // width so the field can't grow off-screen as digits are typed; the text
-    // scrolls inside it instead.
+    // The in-app pad, like every other im-touch numeric field. This used to be
+    // a native-keyboard InputDouble that reported a change PER KEYSTROKE: a
+    // leading "0" became an exact zero-distance live op, the system keyboard
+    // and the pad alternated depending on which op you were in, and the IME
+    // didn't reliably select-all to replace the old value. The pad commits on
+    // Enter only, replaces the opening value on the first key, and has AC.
     char fmt[8];
     std::snprintf(fmt, sizeof(fmt), "%%.%df", decimals < 0 ? 0 : decimals);
-    ImGui::SetNextItemWidth(
-        std::max(ImGui::GetContentRegionAvail().x, numberPadWidth(40.0f * s)));
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(10.0f * s, 10.0f * s));
     double nv = *v;
-    if (ImGui::InputDouble("##amt", &nv, 0.0, 0.0, fmt,
-                           ImGuiInputTextFlags_CharsDecimal |
-                           ImGuiInputTextFlags_AutoSelectAll)) {
+    bool changed = false;
+    if (numberField("##amt", nullptr, &nv, fmt)) {
         if (!allowSign && nv < 0.0) nv = 0.0;
         if (minV < maxV) nv = nv < minV ? minV : (nv > maxV ? maxV : nv);
         *v = nv;
         changed = true;
     }
-    ImGui::PopStyleVar();
     ImGui::PopID();
-    (void)padPos;   // pad-anchor no longer used (native keyboard)
     return changed;
 }
 
@@ -581,7 +574,9 @@ bool numberField(const char* id, const char* label, double* v, const char* fmt,
     // ONE unfolded field: opening a second collapses the first, which keeps
     // the panel from growing by a pad per field. s_justOpened defers the
     // scroll-into-view by a frame, so it runs once the pad has a real height.
-    struct Entry { char buf[32]; };
+    // fresh: buf still holds the value the pad opened with, so the FIRST key
+    // replaces it (calculator-style) instead of appending to "10.00".
+    struct Entry { char buf[32]; bool fresh; };
     static std::map<ImGuiID, Entry> s_entries;
     static ImGuiID s_open = 0;
     static ImGuiID s_justOpened = 0;
@@ -650,8 +645,10 @@ bool numberField(const char* id, const char* label, double* v, const char* fmt,
             s_open = 0;               // tapping the open field folds it again
         } else {
             Entry e{};
-            if (!hintState)   // hint fields start EMPTY: nothing typed = keep
+            if (!hintState) {  // hint fields start EMPTY: nothing typed = keep
                 std::snprintf(e.buf, sizeof(e.buf), fmt ? fmt : "%g", *v);
+                e.fresh = true;
+            }
             s_entries[key] = e;
             s_open = key;
             s_justOpened = key;
@@ -676,9 +673,22 @@ bool numberField(const char* id, const char* label, double* v, const char* fmt,
         // allowSign=false: the pad's own sign key is a full-width row, and a
         // separate Enter row under it made the block taller than the panel had
         // room for. The three share one row instead.
-        numberPad("##pad", e.buf, sizeof(e.buf), keyW, keyH, /*allowSign=*/false);
+        char before[sizeof(e.buf)];
+        std::snprintf(before, sizeof(before), "%s", e.buf);
+        if (numberPad("##pad", e.buf, sizeof(e.buf), keyW, keyH, /*allowSign=*/false) &&
+            e.fresh) {
+            e.fresh = false;
+            if (std::strlen(e.buf) > std::strlen(before)) {
+                // A digit / dot: it replaces the opening value.
+                const char k = e.buf[std::strlen(e.buf) - 1];
+                if (k == '.') std::snprintf(e.buf, sizeof(e.buf), "0.");
+                else          std::snprintf(e.buf, sizeof(e.buf), "%c", k);
+            } else {
+                e.buf[0] = '\0';   // backspace on the opening value clears it
+            }
+        }
 
-        const float thirdW = (padW - 2.0f * gap) / 3.0f;
+        const float thirdW = (padW - 3.0f * gap) / 4.0f;
         ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.5f, 0.40f));
         if (ImGui::Button("+ / -", ImVec2(thirdW, keyH))) {
             const size_t len = std::strlen(e.buf);
@@ -688,6 +698,11 @@ bool numberField(const char* id, const char* label, double* v, const char* fmt,
                 std::memmove(e.buf + 1, e.buf, len + 1);
                 e.buf[0] = '-';
             }
+        }
+        ImGui::SameLine(0.0f, gap);
+        if (ImGui::Button("AC", ImVec2(thirdW, keyH))) {
+            e.buf[0] = '\0';           // clear everything typed so far
+            e.fresh = false;
         }
         ImGui::SameLine(0.0f, gap);
         if (ImGui::Button(MZ_ICON_CLOSE, ImVec2(thirdW, keyH))) {

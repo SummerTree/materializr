@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <glm/glm.hpp>
 #include <TopoDS_Shape.hxx>
 #include <TopoDS_Face.hxx>
@@ -157,7 +158,18 @@ private:
                          const glm::vec3& facePlaneNormal,
                          float screenX, float screenY, float vpW, float vpH,
                          const Camera& camera,
-                         TopoDS_Shape& nearestEdge, float& screenDist);
+                         TopoDS_Shape& nearestEdge, float& screenDist,
+                         const std::function<bool(const glm::vec3&)>& occluded = {});
+
+    // True when some visible body's surface lies between the camera and `p`
+    // (so an edge at `p` cannot be seen). The tangent-plane test in
+    // findNearestEdge only rejects edges behind the PICKED face; it misses an
+    // edge hidden behind a different, nearer face that sits in front of that
+    // plane (the back of a rib, a boss's far side), which is what stole taps
+    // on complex parts. `tolMm` absorbs the gap between an edge polyline and
+    // the face mesh it lies on.
+    bool pointOccluded(const glm::vec3& p, const Camera& camera,
+                       const Document& doc, float tolMm);
 };
 
 } // namespace materializr

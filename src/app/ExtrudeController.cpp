@@ -401,6 +401,7 @@ void ExtrudeController::renderExtrudePanel(const IopContext& ctx) {
     // the value field's content-avail width and ratchet the window wider.
     ImGui::SetNextWindowSizeConstraints(ImVec2(240.0f * s, 0.0f),
                                         ImVec2(240.0f * s, 100000.0f));
+    const ImVec2 hostPos = ImGui::GetWindowPos(), hostSize = ImGui::GetWindowSize();
     ImGui::Begin("##ExtrudeInput", nullptr,
         ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
         ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking |
@@ -427,12 +428,6 @@ void ExtrudeController::renderExtrudePanel(const IopContext& ctx) {
             materializr::formatLengthDigits(m_inputBuf, sizeof(m_inputBuf), m_distance);
             updateExtrude(ctx, /*applySnap=*/false);  // typed = exact
         }
-        // touch: raise the soft keyboard only when the field is TAPPED (not
-        // on open, which would cover the drag handle). ImGui's own
-        // click-activation doesn't focus the field in this transient overlay
-        // popup, so re-assert focus on the tap (issue #22).
-        if (materializr::touchMode() && ImGui::IsItemClicked())
-            ImGui::SetKeyboardFocusHere(-1);
     } else {
         // The member is the truth; the buffer follows it unless being typed in.
         materializr::reseedLengthBufferIfIdle("##dist", m_inputBuf, sizeof(m_inputBuf), m_distance);
@@ -496,6 +491,7 @@ void ExtrudeController::renderExtrudePanel(const IopContext& ctx) {
         if (ImGui::Button(materializr::btnCancel(), ImVec2(110, 0)))
             doCancel = true;
     }
+    opDialogKeepOnScreen(hostPos, hostSize);
     ImGui::End();
     // Commit/cancel AFTER End() - they tear the controller's state down, and
     // the window has to be closed first.

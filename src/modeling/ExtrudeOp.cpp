@@ -342,6 +342,12 @@ bool ExtrudeOp::execute(Document& doc) {
     if (m_profile.IsNull()) {
         return false;
     }
+    // A zero-length prism of a curved profile "succeeds" with a degenerate
+    // solid that then takes ~40 s to mesh (a typed leading "0" lands here).
+    // Refuse it cleanly, as a rectangular profile already does.
+    if (!(std::abs(m_distance) >= 1e-4)) {
+        return false;
+    }
 
     try {
         // Record WHICH regions this extrude uses (#53): one interior point

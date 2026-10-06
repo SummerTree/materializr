@@ -263,7 +263,7 @@ classifier is heuristic; rows it cannot decide are pinned in the script's OVERRI
 
 - CONVERTED: 1
 - allowed-by-hand: 92
-- comment: 282
+- comment: 283
 - diagnostic: 11
 - identifier/other: 9
 
@@ -654,6 +654,7 @@ classifier is heuristic; rows it cannot decide are pinned in the script's OVERRI
 | comment | src/viewport/GridScale.h | `// 100 mm view with nothing to show.` |
 | comment | src/viewport/GridScale.h | `// Framing a fixed count of DISPLAY units is right in spirit - 40 mm is a fine` |
 | comment | src/viewport/GridScale.h | `// shows a sensible number of cells, but a 1 ft base makes it 12192 mm on its` |
+| comment | src/viewport/Picker.cpp | `// Edge polyline vs. face mesh gap (Low quality chords reach 0.5 mm).` |
 | comment | src/viewport/Picker.cpp | `// plane is positive in front and negative behind. The 0.3 mm slack covers` |
 | comment | src/viewport/Picker.cpp | `// tessellation noise on curved silhouettes while rejecting any wall ≥ 0.3 mm` |
 | comment | src/viewport/Picker.cpp | `// is the renderer's (chords up to 0.5 mm at Low` |

@@ -383,6 +383,7 @@ src/viewport/GridScale.h: // the opposite end: a 1 ft grid in a view 100 mm acro
 src/viewport/GridScale.h: // 100 mm view with nothing to show.
 src/viewport/GridScale.h: // Framing a fixed count of DISPLAY units is right in spirit - 40 mm is a fine
 src/viewport/GridScale.h: // shows a sensible number of cells, but a 1 ft base makes it 12192 mm on its
+src/viewport/Picker.cpp: // Edge polyline vs. face mesh gap (Low quality chords reach 0.5 mm).
 src/viewport/Picker.cpp: // plane is positive in front and negative behind. The 0.3 mm slack covers
 src/viewport/Picker.cpp: // tessellation noise on curved silhouettes while rejecting any wall ≥ 0.3 mm
 src/viewport/Picker.cpp: // is the renderer's (chords up to 0.5 mm at Low

@@ -1,5 +1,6 @@
 #pragma once
 #include <imgui.h>
+#include <algorithm>
 
 namespace materializr {
 
@@ -29,6 +30,23 @@ inline void opDialogDragGrip(float s) {
     const float r = 1.5f * s, gap = 5.5f * s;
     for (int i = -1; i <= 1; ++i)
         dl->AddCircleFilled(ImVec2(cx + i * gap, cy), r, col);
+}
+
+// Keep a floating op dialog fully inside its host viewport window. The dialogs
+// open anchored beside the op's handle (often low on screen) and are placed
+// once (ImGuiCond_Appearing), so a pad that unfolds inside one - or any content
+// growth - would run off the bottom edge and be unreachable. Call just before
+// End(), with the host window's pos/size captured BEFORE Begin(). Moves the
+// window only when it overflows, so a deliberate drag is left alone.
+inline void opDialogKeepOnScreen(ImVec2 hostPos, ImVec2 hostSize) {
+    const ImVec2 p = ImGui::GetWindowPos();
+    const ImVec2 sz = ImGui::GetWindowSize();
+    const float margin = 8.0f;
+    const float overflow = (p.y + sz.y) - (hostPos.y + hostSize.y - margin);
+    if (overflow > 0.0f) {
+        const float y = std::max(hostPos.y + margin, p.y - overflow);
+        ImGui::SetWindowPos(ImVec2(p.x, y));
+    }
 }
 
 } // namespace materializr

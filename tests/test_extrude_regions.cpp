@@ -72,3 +72,32 @@ TEST(ExtrudeRegions, DrawExtrudeDrawMoreReplaysEachFromItsOwnRegions) {
         << "extrude 1 grabbed later-drawn regions on replay";
     EXPECT_NEAR(vol(doc.getBody(ids[1])), 72.0, 1e-6);
 }
+
+// A zero-length extrude of a CURVED profile used to "succeed" with a
+// degenerate solid that took ~40 s to mesh (a typed leading "0" on a phone
+// committed exactly 0). It must refuse, like a rectangular profile does.
+TEST(ExtrudeZeroDistance, RefusesInsteadOfBuildingADegenerateSolid) {
+    for (bool circle : {false, true}) {
+        Document doc;
+        auto sk = std::make_shared<Sketch>();
+        sk->setPlane(gp_Pln(gp_Ax3(gp_Pnt(0,0,0), gp_Dir(0,1,0), gp_Dir(1,0,0))));
+        if (circle) {
+            int c = sk->addPoint({0, 0});
+            sk->addCircle(c, 20.0f);
+        } else {
+            int a = sk->addPoint({-30,-20}), b = sk->addPoint({30,-20}),
+                c = sk->addPoint({30,20}),  d = sk->addPoint({-30,20});
+            sk->addLine(a,b); sk->addLine(b,c); sk->addLine(c,d); sk->addLine(d,a);
+        }
+        const int sid = doc.addSketch(sk, "S");
+        ExtrudeOp ex;
+        ex.setSketchSource(sid);
+        ASSERT_TRUE(ex.rebuildProfileFromSketch(doc));
+        ex.setMode(ExtrudeMode::NewBody);
+        ex.setDistance(0.0);
+        EXPECT_FALSE(ex.execute(doc)) << (circle ? "circle" : "rect");
+        EXPECT_TRUE(doc.getAllBodyIds().empty());
+        ex.setDistance(5.0);
+        EXPECT_TRUE(ex.execute(doc)) << (circle ? "circle" : "rect");
+    }
+}

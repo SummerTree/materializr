@@ -35,6 +35,14 @@ Picker::Picker() {}
 
 bool Picker::s_verbose = false;
 
+namespace {
+// Edge candidates farther than this from the cursor can never be promoted
+// (the app's widest radius is the 24 px touch one), so they skip the ray test.
+constexpr float kOcclusionCheckPx = 32.0f;
+// Edge polyline vs. face mesh gap (Low quality chords reach 0.5 mm).
+constexpr float kOcclusionTolMm = 0.6f;
+} // namespace
+
 void Picker::screenToRay(float sx, float sy, float vpW, float vpH,
                          const Camera& camera,
                          glm::vec3& rayOrigin, glm::vec3& rayDir)
@@ -334,7 +342,8 @@ void Picker::findNearestEdge(const TopoDS_Shape& shape, const glm::vec3& hitPt,
                              const glm::vec3& facePlaneNormal,
                              float screenX, float screenY, float vpW, float vpH,
                              const Camera& camera,
-                             TopoDS_Shape& nearestEdge, float& screenDist)
+                             TopoDS_Shape& nearestEdge, float& screenDist,
+                             const std::function<bool(const glm::vec3&)>& occluded)
 {
     glm::mat4 vp = camera.getProjectionMatrix() * camera.getViewMatrix();
     glm::vec2 mouse(screenX, screenY);
@@ -382,11 +391,48 @@ void Picker::findNearestEdge(const TopoDS_Shape& shape, const glm::vec3& hitPt,
                 glm::dot(wp - hitPt, planeN) < -planeTol) continue;
 
             if (d < screenDist) {
+                // Only a candidate that would WIN is ray-tested (a handful per
+                // pick), and only when close enough to be promoted at all.
+                if (occluded && d < kOcclusionCheckPx && occluded(wp)) continue;
                 screenDist = d;
                 nearestEdge = pl.edge;
             }
         }
     }
+}
+
+bool Picker::pointOccluded(const glm::vec3& p, const Camera& camera,
+                           const Document& doc, float tolMm)
+{
+    glm::vec3 origin, dir;
+    float limit;
+    if (camera.isOrthographic()) {
+        // Parallel rays: start well in front of the point along the view axis.
+        dir = glm::normalize(camera.getTarget() - camera.getPosition());
+        origin = p - dir * 1.0e5f;
+        limit = 1.0e5f;
+    } else {
+        origin = camera.getPosition();
+        glm::vec3 d = p - origin;
+        limit = glm::length(d);
+        if (limit < 1e-4f) return false;
+        dir = d / limit;
+    }
+    for (int id : doc.getAllBodyIds()) {
+        if (!doc.isBodyVisible(id)) continue;
+        const TopoDS_Shape& shape = doc.getBody(id);
+        if (shape.IsNull()) continue;
+        float t = 0.0f;
+        if (!rayIntersectsBBox(origin, dir, shape, t)) continue;
+        float best = std::numeric_limits<float>::max();
+        glm::vec3 hp(0.0f);
+        TopoDS_Shape hf;
+        const int idx = doc.isBodyMesh(id)
+            ? pickMeshBody(origin, dir, shape, best, hp, hf)
+            : findNearestFace(origin, dir, shape, best, hp, hf);
+        if (idx >= 0 && best < limit - tolMm) return true;
+    }
+    return false;
 }
 
 void Picker::gatherInputs(PickInputs& out, float sx, float sy, float vpW, float vpH,
@@ -610,7 +656,10 @@ PickResult Picker::pick(float screenX, float screenY,
             float edgeDist = 1e6f;
             findNearestEdge(shape, faceHitPt, facePlaneN, screenX, screenY,
                            viewportWidth, viewportHeight, camera,
-                           edgeShape, edgeDist);
+                           edgeShape, edgeDist,
+                           [&](const glm::vec3& wp) {
+                               return pointOccluded(wp, camera, doc, kOcclusionTolMm);
+                           });
             result.nearestEdge = edgeShape;
             result.edgeScreenDist = edgeDist;
 

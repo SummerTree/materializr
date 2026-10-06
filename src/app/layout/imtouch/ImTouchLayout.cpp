@@ -282,6 +282,11 @@ void Application::renderImTouchLayout() {
         if (touchui::iconButton("undo", MZ_ICON_UNDO, bh)) touchUndo();
         ImGui::EndDisabled();
         tip(materializr::tr("Undo (in a sketch: backs out the in-progress shape first)"));
+        ImGui::SameLine(0.0f, 8.0f * s);
+        ImGui::BeginDisabled(histLocked || !m_history->canRedo());
+        if (touchui::iconButton("redo", MZ_ICON_REDO, bh)) redoWithCascade();
+        ImGui::EndDisabled();
+        tip(materializr::tr("Redo"));
         if (materializr::touchMode()) {
             ImGui::SameLine(0.0f, 8.0f * s);
             if (touchui::iconButton("kb", MZ_ICON_KEYBOARD, bh))

@@ -18,6 +18,10 @@
 #include "core/MeshParams.h"
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeSphere.hxx>
+#include <BRepPrimAPI_MakeCylinder.hxx>
+#include <gp_Ax2.hxx>
+#include <BRep_Builder.hxx>
+#include <TopoDS_Compound.hxx>
 #include <BRep_Tool.hxx>
 #include <Bnd_Box.hxx>
 #include <Poly_Triangulation.hxx>
@@ -254,4 +258,46 @@ TEST(Picker, DocumentChangesRunThePickAgain) {
     doc.setPlaneVisible(pid, false);
     pick();
     EXPECT_FALSE(picker.lastPickWasCached());
+}
+
+// An edge hidden behind a NEARER face must not be picked, even though it lies
+// in front of the picked face's tangent plane (so the plane test passes it).
+// Wall at y=-40 is what the cursor is over; a rib stands in front of it but is
+// entirely hidden behind a tall cylinder, whose silhouette is not an edge. The
+// rib's vertical edges sit a few pixels inside that silhouette - the nearest
+// edges to a cursor just outside it, and invisible.
+TEST(Picker, EdgeHiddenBehindANearerFaceIsNotPicked) {
+    TopoDS_Shape wall = BRepPrimAPI_MakeBox(gp_Pnt(-100, -45, -10), 200.0, 5.0, 110.0).Shape();
+    TopoDS_Shape boss = BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1), gp_Dir(0, -1, 0)), 15.0, 60.0).Shape();
+    TopoDS_Shape rib  = BRepPrimAPI_MakeBox(gp_Pnt(-10, -25, 0), 20.0, 10.0, 60.0).Shape();
+    // ONE body (edges are only gathered from the body the ray hit).
+    BRep_Builder bb;
+    TopoDS_Compound part;
+    bb.MakeCompound(part);
+    bb.Add(part, wall); bb.Add(part, boss); bb.Add(part, rib);
+    meshLikeRendererLow(part);
+    Document doc;
+    const int wallId = doc.addBody(part, "part");
+
+    Camera cam;
+    cam.setAspect(kW / kH);
+    cam.setUp(glm::vec3(0, 0, 1));
+    cam.setPosition(glm::vec3(0, 200, 30));
+    cam.setTarget(glm::vec3(0, 0, 30));
+
+    // Screen position of the cylinder's silhouette at mid height, then 3 px out.
+    const glm::mat4 vp = cam.getProjectionMatrix() * cam.getViewMatrix();
+    const glm::vec4 c = vp * glm::vec4(15.0f, 0.0f, 30.0f, 1.0f);
+    const float sx = (c.x / c.w * 0.5f + 0.5f) * kW - 3.0f;
+    const float sy = (0.5f - c.y / c.w * 0.5f) * kH;
+
+    Picker picker;
+    PickResult r = picker.pick(sx, sy, kW, kH, cam, doc);
+    ASSERT_TRUE(r.hit);
+    ASSERT_EQ(r.bodyId, wallId);
+    if (!r.nearestEdge.IsNull()) {
+        for (TopExp_Explorer e(rib, TopAbs_EDGE); e.More(); e.Next())
+            EXPECT_FALSE(e.Current().IsSame(r.nearestEdge))
+                << "picked an edge of the rib hidden behind the boss";
+    }
 }
