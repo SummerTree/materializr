@@ -36,6 +36,10 @@
 #include <Geom2d_Line.hxx>
 #include <Geom2d_TrimmedCurve.hxx>
 #include <Poly_Triangle.hxx>
+#include <Poly_PolygonOnTriangulation.hxx>
+#include <TopExp.hxx>
+#include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
+#include <TopTools_ListOfShape.hxx>
 #include <cmath>
 #include <Geom_BSplineCurve.hxx>
 #include <Geom_Curve.hxx>
@@ -150,7 +154,8 @@ inline bool ruledWallOf(const TopoDS_Face& f, RuledWall& w) {
 }
 
 inline bool meshExtrusionWallStrip(const TopoDS_Face& f, double deflection,
-                                   double angularDeflection) {
+                                   double angularDeflection,
+                                   const std::vector<double>* uSamples = nullptr) {
     try {
         RuledWall w;
         if (!ruledWallOf(f, w)) return false;
@@ -165,28 +170,36 @@ inline bool meshExtrusionWallStrip(const TopoDS_Face& f, double deflection,
             // Not a plain full wall (a boolean trimmed it, or its boundary
             // pcurves are B-splines): see whether it is still a rectilinear
             // region in (u, v) before giving up to the slow meshers.
-            if (ln.IsNull()) return meshExtrusionWallTrimmed(f, deflection, angularDeflection);
+            if (ln.IsNull()) return uSamples ? false : meshExtrusionWallTrimmed(f, deflection, angularDeflection);
             const gp_Dir2d d = ln->Direction();
             if (std::abs(d.Y()) < 1e-9) ++alongU;
             else if (std::abs(d.X()) < 1e-9) ++alongV;
-            else return meshExtrusionWallTrimmed(f, deflection, angularDeflection);
+            else return uSamples ? false : meshExtrusionWallTrimmed(f, deflection, angularDeflection);
         }
         if (alongU != 2 || alongV != 2)
-            return meshExtrusionWallTrimmed(f, deflection, angularDeflection);
+            return uSamples ? false : meshExtrusionWallTrimmed(f, deflection, angularDeflection);
 
         double u0, u1, v0, v1;
         BRepTools::UVBounds(f, u0, u1, v0, v1);
         if (!(v1 > v0) || !(u1 > u0)) return false;
 
-        GCPnts_TangentialDeflection pts(*w.base, u0, u1, angularDeflection, deflection, 2);
-        const int n = pts.NbPoints();
+        // Directrix samples: its own deflection sampling, or (uSamples) the
+        // parameters BRepMesh gave the shared edges, so the strip's boundary
+        // vertices coincide with the neighbouring faces' instead of cracking.
+        std::vector<double> us;
+        if (uSamples) us = *uSamples;
+        else {
+            GCPnts_TangentialDeflection pts(*w.base, u0, u1, angularDeflection, deflection, 2);
+            for (int k = 1; k <= pts.NbPoints(); ++k) us.push_back(pts.Parameter(k));
+        }
+        const int n = static_cast<int>(us.size());
         if (n < 2) return false;
 
         // UV nodes too, so meshSag can check this mesh like any other.
         Handle(Poly_Triangulation) tri = new Poly_Triangulation(2 * n, 2 * (n - 1), Standard_True);
         for (int k = 0; k < n; ++k) {
-            const gp_Pnt c = pts.Value(k + 1);
-            const double u = pts.Parameter(k + 1);
+            const double u = us[k];
+            const gp_Pnt c = w.base->Value(u);
             tri->SetNode(k + 1, w.at(c, v0));
             tri->SetNode(n + k + 1, w.at(c, v1));
             tri->SetUVNode(k + 1, gp_Pnt2d(u, v0));
@@ -567,11 +580,66 @@ inline int premeshRuledWalls(const TopoDS_Shape& shape, double deflection,
     return n;
 }
 
+// After BRepMesh, re-strip every full ruled wall on the sample parameters that
+// BRepMesh gave its directrix edges (read off the neighbouring faces), so the
+// wall's top and bottom rims share vertices with the caps. Premeshing sampled
+// the directrix independently (115 points where the caps' edge had 221), and a
+// spline extrude exported with every one of its 668 edges open. Walls whose
+// two rims were discretized differently, or that have no meshed neighbour, are
+// left as premeshed.
+inline int alignRuledWallsToEdges(const TopoDS_Shape& shape, double deflection,
+                                  double angularDeflection) {
+    TopTools_IndexedDataMapOfShapeListOfShape edgeFaces;
+    TopExp::MapShapesAndAncestors(shape, TopAbs_EDGE, TopAbs_FACE, edgeFaces);
+    int redone = 0;
+    for (TopExp_Explorer fx(shape, TopAbs_FACE); fx.More(); fx.Next()) {
+        const TopoDS_Face f = TopoDS::Face(fx.Current());
+        RuledWall w;
+        if (!ruledWallOf(f, w)) continue;
+        TopLoc_Location fl;
+        if (BRep_Tool::Triangulation(f, fl).IsNull()) continue;
+        std::vector<std::vector<double>> rims;
+        for (TopExp_Explorer ex(f, TopAbs_EDGE); ex.More(); ex.Next()) {
+            const TopoDS_Edge e = TopoDS::Edge(ex.Current());
+            double a = 0.0, b = 0.0;
+            Handle(Geom2d_Curve) pc = BRep_Tool::CurveOnSurface(e, f, a, b);
+            if (pc.IsNull()) continue;
+            if (Handle(Geom2d_TrimmedCurve) t = Handle(Geom2d_TrimmedCurve)::DownCast(pc))
+                pc = t->BasisCurve();
+            Handle(Geom2d_Line) ln = Handle(Geom2d_Line)::DownCast(pc);
+            if (ln.IsNull() || std::abs(ln->Direction().Y()) >= 1e-9) continue;   // along v
+            std::vector<double> prm;
+            if (!edgeFaces.Contains(e)) continue;
+            for (const TopoDS_Shape& gs : edgeFaces.FindFromKey(e)) {
+                if (gs.IsSame(f)) continue;
+                TopLoc_Location gl;
+                Handle(Poly_Triangulation) gt = BRep_Tool::Triangulation(TopoDS::Face(gs), gl);
+                if (gt.IsNull()) continue;
+                Handle(Poly_PolygonOnTriangulation) po = BRep_Tool::PolygonOnTriangulation(e, gt, gl);
+                if (po.IsNull() || !po->HasParameters()) continue;
+                for (int i = 1; i <= po->NbNodes(); ++i) prm.push_back(po->Parameter(i));
+                break;
+            }
+            if (prm.size() < 2) { rims.clear(); break; }
+            std::sort(prm.begin(), prm.end());
+            rims.push_back(std::move(prm));
+        }
+        if (rims.size() != 2 || rims[0].size() != rims[1].size()) continue;
+        bool same = true;
+        for (std::size_t i = 0; i < rims[0].size() && same; ++i)
+            same = std::abs(rims[0][i] - rims[1][i]) < 1e-9;
+        if (!same) continue;
+        if (meshExtrusionWallStrip(f, deflection, angularDeflection, &rims[0])) ++redone;
+    }
+    return redone;
+}
+
 inline void meshWithFallback(const TopoDS_Shape& shape, double deflection,
                              double angularDeflection, bool inParallel)
 {
     premeshRuledWalls(shape, deflection, angularDeflection);
     BRepMesh_IncrementalMesh(shape, meshParams(deflection, angularDeflection, inParallel));
+    alignRuledWallsToEdges(shape, deflection, angularDeflection);
     for (TopExp_Explorer fx(shape, TopAbs_FACE); fx.More(); fx.Next()) {
         const TopoDS_Face& f = TopoDS::Face(fx.Current());
         TopLoc_Location loc;

@@ -26,6 +26,7 @@
 #include <TopLoc_Location.hxx>
 #include <algorithm>
 #include <array>
+#include <TopoDS_Iterator.hxx>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -210,12 +211,36 @@ StlExportResult StlExport::exportShape(const std::string& filePath, const TopoDS
     // repair) sew to a shell/compound rather than a solid, which is
     // fine here - only the triangulated faces matter for STL, not
     // solid-ness.
-    {
+    //
+    // Each solid is sewn on its own. Sewing a compound of bodies stitches
+    // two that merely TOUCH (a flange sitting on a bush, sharing a bore
+    // circle) into one edge used by four faces, which then cracks the mesh.
+    auto sewOne = [](const TopoDS_Shape& in) {
         BRepBuilderAPI_Sewing sewer(1e-3);
-        sewer.Add(shape);
+        sewer.Add(in);
         sewer.Perform();
         const TopoDS_Shape sewn = sewer.SewedShape();
-        if (!sewn.IsNull()) shape = sewn;
+        return sewn.IsNull() ? in : sewn;
+    };
+    bool allSolidChildren = shape.ShapeType() == TopAbs_COMPOUND;
+    if (allSolidChildren) {
+        int n = 0;
+        for (TopoDS_Iterator it(shape); it.More(); it.Next(), ++n) {
+            const TopAbs_ShapeEnum t = it.Value().ShapeType();
+            if (t != TopAbs_SOLID && t != TopAbs_COMPSOLID && t != TopAbs_COMPOUND)
+                allSolidChildren = false;
+        }
+        if (n < 2) allSolidChildren = false;
+    }
+    if (allSolidChildren) {
+        BRep_Builder cb;
+        TopoDS_Compound sewnAll;
+        cb.MakeCompound(sewnAll);
+        for (TopoDS_Iterator it(shape); it.More(); it.Next())
+            cb.Add(sewnAll, sewOne(it.Value()));
+        shape = sewnAll;
+    } else {
+        shape = sewOne(shape);
     }
 
     // A boolean/fillet/chamfer chain can also leave a genuinely
@@ -259,12 +284,21 @@ StlExportResult StlExport::exportShape(const std::string& filePath, const TopoDS
     struct T3 { int a, b, c; };
     std::vector<V3> verts;
     std::vector<T3> tris;
-    for (TopExp_Explorer ex(shape, TopAbs_FACE); ex.More(); ex.Next()) {
+    // Vertices are only welded within one solid: two bodies that touch
+    // (sharing a circle, say) must stay separate closed shells, not be
+    // stitched into edges used by four triangles.
+    std::vector<int> vertGroup;
+    std::vector<TopoDS_Shape> groups;
+    if (allSolidChildren) for (TopoDS_Iterator it(shape); it.More(); it.Next()) groups.push_back(it.Value());
+    else groups.push_back(shape);
+    for (int gi = 0; gi < (int)groups.size(); ++gi)
+    for (TopExp_Explorer ex(groups[gi], TopAbs_FACE); ex.More(); ex.Next()) {
         const TopoDS_Face f = TopoDS::Face(ex.Current());
         TopLoc_Location loc;
         Handle(Poly_Triangulation) t = BRep_Tool::Triangulation(f, loc);
         if (t.IsNull()) continue;
         const int base = (int)verts.size();
+        vertGroup.resize(base + t->NbNodes(), gi);
         const gp_Trsf& tr = loc.Transformation();
         for (int k = 1; k <= t->NbNodes(); ++k) {
             gp_Pnt p = t->Node(k); p.Transform(tr);
@@ -293,14 +327,32 @@ StlExportResult StlExport::exportShape(const std::string& filePath, const TopoDS
     }
     {   // weld at 1e-3 mm
         const double weld = 1e-3;
-        std::unordered_map<long long, int> grid;
+        // Keyed on the exact cell triple. A bare XOR-of-products hash used
+        // as the key itself merged DIFFERENT cells that merely collided
+        // (a chamfered bush: 1712 vertices welded to 863 where a closed
+        // 1890-triangle mesh needs ~947), folding the mesh into hundreds of
+        // non-manifold edges.
+        struct CellKey {
+            long long x, y, z;
+            int g;
+            bool operator==(const CellKey& o) const { return x == o.x && y == o.y && z == o.z && g == o.g; }
+        };
+        struct CellHash {
+            std::size_t operator()(const CellKey& k) const {
+                std::uint64_t h = static_cast<std::uint64_t>(k.x) * 0x9E3779B97F4A7C15ULL;
+                h ^= static_cast<std::uint64_t>(k.y) + 0x9E3779B97F4A7C15ULL + (h << 6) + (h >> 2);
+                h ^= static_cast<std::uint64_t>(k.z) + 0x9E3779B97F4A7C15ULL + (h << 6) + (h >> 2);
+                h ^= static_cast<std::uint64_t>(k.g) + 0x9E3779B97F4A7C15ULL + (h << 6) + (h >> 2);
+                return static_cast<std::size_t>(h);
+            }
+        };
+        std::unordered_map<CellKey, int, CellHash> grid;
+        grid.reserve(verts.size());
         std::vector<int> remap(verts.size());
         std::vector<V3> nv;
         auto cell = [&](double v) { return (long long)std::llround(v / weld); };
         for (std::size_t i = 0; i < verts.size(); ++i) {
-            const long long h = (cell(verts[i].x) * 73856093LL)
-                              ^ (cell(verts[i].y) * 19349663LL)
-                              ^ (cell(verts[i].z) * 83492791LL);
+            const CellKey h{cell(verts[i].x), cell(verts[i].y), cell(verts[i].z), vertGroup[i]};
             auto it = grid.find(h);
             if (it == grid.end()) { grid[h] = (int)nv.size();
                                     remap[i] = (int)nv.size(); nv.push_back(verts[i]); }
