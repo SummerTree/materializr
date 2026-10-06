@@ -128,7 +128,7 @@ bool ExtrudeController::beginExtrude(const IopContext& ctx,
 }
 
 int ExtrudeController::onBegin(const IopContext& ctx) {
-    m_distance = 5.0f;
+    m_distance = m_dragRaw = m_dragAppliedDist = 5.0f;
     materializr::formatLengthDigits(m_inputBuf, sizeof(m_inputBuf), m_distance);
     m_inputFocus = true;
 
@@ -308,6 +308,14 @@ std::unique_ptr<Operation> ExtrudeController::buildCommitOp(const IopContext& ct
     return op;
 }
 
+// Feed a drag delta into the distance. The raw accumulator is re-seeded from
+// m_distance whenever something else (typing, steppers, begin) changed it.
+void ExtrudeController::dragBy(float delta) {
+    if (m_distance != m_dragAppliedDist) m_dragRaw = m_distance;
+    m_dragRaw += delta;
+    m_distance = m_dragRaw;   // snapped (if enabled) in updateExtrude
+}
+
 void ExtrudeController::updateExtrude(const IopContext& ctx, bool applySnap) {
     if (!active()) return;
     if (!std::isfinite(m_distance)) { m_distance = 0.0f; return; }
@@ -348,9 +356,10 @@ void ExtrudeController::onViewportInput(const IopViewport& vp,
     else if (draggingHandle() && !vp.down) setDraggingHandle(false);
 
     if (vp.dragging) {
-        m_distance += vp.dragAlongAxis(m_origin, m_normal, vp.mouseDelta);
-        materializr::formatLengthDigits(m_inputBuf, sizeof(m_inputBuf), m_distance);
+        dragBy(vp.dragAlongAxis(m_origin, m_normal, vp.mouseDelta));
         updateExtrude(ctx);
+        m_dragAppliedDist = m_distance;
+        materializr::formatLengthDigits(m_inputBuf, sizeof(m_inputBuf), m_distance);
     }
     // Trackpad-mode click-move-click, same model as Push/Pull: with Left
     // now free to orbit during the op, a whole-viewport drag surface needs
@@ -362,9 +371,10 @@ void ExtrudeController::onViewportInput(const IopViewport& vp,
         if (vp.released && !m_stickyPressWasDrag) m_sticky = !m_sticky;
     }
     if (m_sticky && (vp.mouseDelta.x != 0.0f || vp.mouseDelta.y != 0.0f)) {
-        m_distance += vp.dragAlongAxis(m_origin, m_normal, vp.mouseDelta);
-        materializr::formatLengthDigits(m_inputBuf, sizeof(m_inputBuf), m_distance);
+        dragBy(vp.dragAlongAxis(m_origin, m_normal, vp.mouseDelta));
         updateExtrude(ctx);
+        m_dragAppliedDist = m_distance;
+        materializr::formatLengthDigits(m_inputBuf, sizeof(m_inputBuf), m_distance);
     }
 }
 

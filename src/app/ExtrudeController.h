@@ -112,6 +112,11 @@ private:
     glm::vec3 m_normal{0, 0, 1};
     glm::vec3 m_origin{0};
     float m_distance = 5.0f;
+    // Unsnapped drag accumulator. Snapping m_distance in place swallowed any
+    // per-frame delta under half a grid step (stuck, then jumping arrow).
+    float m_dragRaw = 5.0f;
+    float m_dragAppliedDist = 5.0f;   // m_distance as last left by a drag
+    void  dragBy(float delta);
     // Trackpad-mode click-move-click value drive (see Push/Pull).
     bool m_sticky = false;
     bool m_stickyPressWasDrag = false;
